@@ -4,6 +4,13 @@ import XCTest
 @testable import ThreeFBrowser
 
 final class BrowserThemeTests: XCTestCase {
+    func testCurrentEngineDoesNotClaimChromeExtensionSupport() {
+        XCTAssertEqual(ExtensionCompatibility.currentEngine, .webKit)
+        XCTAssertEqual(ExtensionCompatibility.supportLevel, .none)
+        XCTAssertTrue(ExtensionCompatibility.limitation.contains("모든 확장"))
+        XCTAssertTrue(ExtensionCompatibility.chromiumProfileRequirement.contains("전용"))
+    }
+
     func testThemeAcceptsOnlySixDigitHexColor() {
         XCTAssertTrue(BrowserTheme(accentHex: "#22AAFF").isValid)
         XCTAssertFalse(BrowserTheme(accentHex: "blue").isValid)

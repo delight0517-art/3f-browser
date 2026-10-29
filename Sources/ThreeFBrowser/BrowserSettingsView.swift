@@ -16,9 +16,13 @@ struct BrowserSettingsView: View {
                 .foregroundStyle(.secondary)
             Section("브라우저 엔진 및 확장") {
                 LabeledContent("현재 엔진", value: ExtensionCompatibility.currentEngine.rawValue)
+                LabeledContent("확장 지원", value: ExtensionCompatibility.supportLevel.rawValue)
                 Text(ExtensionCompatibility.status)
                     .foregroundStyle(.secondary)
                 Text(ExtensionCompatibility.limitation)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(ExtensionCompatibility.chromiumProfileRequirement)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

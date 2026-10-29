@@ -5,17 +5,29 @@ enum BrowserEngineKind: String {
     case chromium = "Chromium"
 }
 
+enum ExtensionSupportLevel: String {
+    case none = "미지원"
+    case chromiumAPIs = "Chromium 확장 API 일부"
+    case storeVerified = "스토어 확장별 검증"
+}
+
 struct ExtensionCompatibility {
     static let currentEngine: BrowserEngineKind = .webKit
+    static let supportLevel: ExtensionSupportLevel = .none
 
     static var status: String {
         switch currentEngine {
         case .webKit:
-            "Chrome 확장 미지원 · Chromium 엔진 교체 대기"
+            "WebKit · Chrome 확장 미지원"
         case .chromium:
-            "Chromium 기반 · 확장별 API 호환성 확인 필요"
+            "Chromium · 확장 API 호환성은 확장별 검증 필요"
         }
     }
 
-    static let limitation = "임베디드 Chromium도 Chrome Web Store 확장 전체 호환을 보장하지 않습니다."
+    static let limitation = "Chrome Web Store의 모든 확장 호환은 보장할 수 없습니다. 지원 확장 목록과 권한을 설치 전에 확인해야 합니다."
+
+    // A future CEF host must use an app-specific root_cache_path. CEF otherwise
+    // defaults to ~/Library/Application Support/CEF/User Data, which is shared
+    // by unrelated CEF apps and can corrupt or expose their browser profile.
+    static let chromiumProfileRequirement = "CEF 프로필은 3F 전용 Application Support 경로로 격리해야 합니다."
 }
