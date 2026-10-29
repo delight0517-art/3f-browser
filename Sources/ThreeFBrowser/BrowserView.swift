@@ -3,6 +3,7 @@ import WebKit
 
 struct BrowserView: View {
     @StateObject private var model = BrowserModel()
+    @EnvironmentObject private var externalURLs: ThreeFURLRouter
     @State private var webView: WKWebView?
     @State private var canGoBack = false
     @State private var canGoForward = false
@@ -30,7 +31,12 @@ struct BrowserView: View {
         .sheet(isPresented: $model.isShowingSettings) {
             BrowserSettingsView(model: model)
         }
-        .onOpenURL { model.openExternalURL($0) }
+        .onAppear(perform: consumeExternalURLs)
+        .onChange(of: externalURLs.pendingURLs) { _, _ in consumeExternalURLs() }
+    }
+
+    private func consumeExternalURLs() {
+        externalURLs.takePendingURLs().forEach(model.openExternalURL)
     }
 
     private var addressBar: some View {
