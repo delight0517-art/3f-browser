@@ -27,7 +27,9 @@ struct BrowserSettingsView: View {
                     .foregroundStyle(.secondary)
             }
             Section("신체 개조 업데이트") {
-                Text("새 탭 테마와 HTTPS 빠른 링크는 JSON 모듈로 앱 재빌드 없이 적용됩니다. SHA-256과 revision을 확인하고 직전 설정으로 복원할 수 있습니다. 임의 코드·네이티브 기능·브라우저 엔진 변경은 여전히 앱 빌드가 필요합니다.")
+                LabeledContent("현재 핫 업데이트 범위", value: "새 탭 테마 · HTTPS 빠른 링크")
+                LabeledContent("모듈 형식", value: "서명되지 않은 데이터 JSON")
+                Text("이 범위의 설정 데이터는 앱 재빌드 없이 반영되며 SHA-256과 revision을 확인하고 직전 설정으로 복원합니다. 임의 코드·네이티브 기능·Chromium 엔진·확장 런타임 변경은 앱 빌드와 재검증이 필요합니다.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Text(model.themeModuleStatus)
