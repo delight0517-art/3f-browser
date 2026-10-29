@@ -26,6 +26,13 @@ final class BrowserThemeTests: XCTestCase {
         }).isValid)
     }
 
+    func testLegacyThemeModuleWithoutQuickLinksStillLoads() throws {
+        let legacy = Data(##"{"accentHex":"#22AAFF"}"##.utf8)
+        let decoded = try JSONDecoder().decode(BrowserTheme.self, from: legacy)
+        XCTAssertTrue(decoded.isValid)
+        XCTAssertTrue(decoded.quickLinks.isEmpty)
+    }
+
     func testHotModuleStoreAppliesAndRollsBackThemeData() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("threef-hot-theme-\(UUID().uuidString)", isDirectory: true)

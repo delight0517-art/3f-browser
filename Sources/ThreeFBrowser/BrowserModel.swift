@@ -39,6 +39,19 @@ struct BrowserTheme: Codable, Equatable, Sendable {
     let accentHex: String
     var quickLinks: [BrowserQuickLink] = []
 
+    private enum CodingKeys: String, CodingKey { case accentHex, quickLinks }
+
+    init(accentHex: String, quickLinks: [BrowserQuickLink] = []) {
+        self.accentHex = accentHex
+        self.quickLinks = quickLinks
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        accentHex = try container.decode(String.self, forKey: .accentHex)
+        quickLinks = try container.decodeIfPresent([BrowserQuickLink].self, forKey: .quickLinks) ?? []
+    }
+
     static let standard = BrowserTheme(accentHex: "#0A84FF")
 
     var isValid: Bool {
