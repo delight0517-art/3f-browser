@@ -45,10 +45,11 @@ extension has been installed or tested; compatibility remains unverified. See
 The same isolated CMake build also contains the upstream `cefclient` target,
 which has a Chromium-style address/search bar and internal extension manager.
 `patches/0003-cefclient-profile.patch` gives it a private CEF root/cache path
-before initialization. Apply that patch to the unpacked CEF source, then build
-`cefclient` with the existing `.build/cef-156-arm64/cefsimple-isolated-build`
-directory. The generated framework must use the corrected `Versions/A`
-payload layout and be signed with its helper apps before local launch.
+before initialization. Run `CEFIntegration/build-cefclient-probe.sh` to apply
+the patch, build `cefclient` with the existing
+`.build/cef-156-arm64/cefsimple-isolated-build` directory, repair the generated
+framework's `Versions/A` payload layout, and sign the helper apps before local
+launch. The script prepares the candidate but does not launch it.
 
 This reconnaissance verified an `example.com` page and
 `chrome://extensions/` in the separately built and signed cefclient candidate.
