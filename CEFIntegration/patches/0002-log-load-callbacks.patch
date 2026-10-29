@@ -1,0 +1,21 @@
+diff --git a/tests/cefsimple/simple_handler.h b/tests/cefsimple/simple_handler.h
+--- a/tests/cefsimple/simple_handler.h
++++ b/tests/cefsimple/simple_handler.h
+@@ -42,0 +43,3 @@
++  void OnLoadEnd(CefRefPtr<CefBrowser> browser,
++                 CefRefPtr<CefFrame> frame,
++                 int httpStatusCode) override;
+diff --git a/tests/cefsimple/simple_handler.cc b/tests/cefsimple/simple_handler.cc
+--- a/tests/cefsimple/simple_handler.cc
++++ b/tests/cefsimple/simple_handler.cc
+@@ -8,0 +9 @@
++#include <cstdio>
+@@ -132,0 +134,8 @@
++void SimpleHandler::OnLoadEnd(CefRefPtr<CefBrowser> browser,
++                              CefRefPtr<CefFrame> frame,
++                              int httpStatusCode) {
++  CEF_REQUIRE_UI_THREAD();
++  std::fprintf(stderr, "CEF_LOAD_END main=%d status=%d url=%s\n",
++               frame->IsMain(), httpStatusCode, frame->GetURL().ToString().c_str());
++  std::fflush(stderr);
++}

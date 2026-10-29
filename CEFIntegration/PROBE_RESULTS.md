@@ -6,12 +6,26 @@ Date: 2026-10-29 (Mac, arm64)
 
 - The official CEF 156 arm64 distribution builds as a separate app bundle with
   an app-specific CEF profile.
-- `codesign --verify --deep --strict` and `workflow-control verify-mac` passed;
-  `launchAllowed` was true in `local_dev` mode.
+- The probe build script repairs the sample CMake framework-copy mistake:
+  `COPY_MAC_FRAMEWORK` copies the framework root into `Versions/A`, introducing
+  an invalid `Versions/A/A -> A` link. The script now copies the distribution's
+  actual `Release/...framework` payload before creating the version links.
+- The standalone nested-signature pass and final
+  `codesign --verify --deep --strict` passed; `workflow-control verify-mac`
+  reported `launchAllowed: true` in `local_dev` mode.
+- A diagnostic `OnLoadEnd` callback recorded
+  `main=1 status=200 url=https://example.com/` at
+  `~/Library/Application Support/3F Browser/CEF/User Data/cef-load-callback.log`.
+- After correcting the framework bundle layout, `https://example.com` rendered
+  its visible Example Domain text. The earlier blank HTTPS rendering was
+  therefore caused by the malformed copied framework layout in this probe.
 - A `data:` HTML page rendered visible text in the CEF window.
 - `chrome://extensions/` rendered the Chrome extension manager and its Chrome
   Web Store link. This demonstrates the Chrome runtime UI path, not successful
   installation of any extension.
+- Following the Web Store link rendered the Chrome Web Store Extensions page
+  and recommendation content. The page showed its "Switch to Chrome?" prompt;
+  dismissing it revealed the store page. No extension was installed.
 - CEF helper command lines and open files showed the new process using
   `~/Library/Application Support/3F Browser/CEF/User Data`, separate from the
   earlier CEF process using `~/Library/Application Support/CEF/User Data`.
@@ -20,11 +34,6 @@ Date: 2026-10-29 (Mac, arm64)
 
 ## Failed or unverified
 
-- A test `https://example.com` navigation appeared in the CEF accessibility
-  state as `example.com/`, but the captured browser content remained blank.
-- Clicking the Chrome Web Store link also resulted in a blank CEF page. A
-  separate read-only `curl -I https://chromewebstore.google.com/` returned
-  HTTP 200, so that alone does not identify the CEF rendering failure's cause.
 - No Chrome Web Store extension was installed or tested. Universal extension
   compatibility is not established.
 - The previous CEF process PID 26972 still owns handles in the shared default

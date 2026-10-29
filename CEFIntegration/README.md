@@ -21,6 +21,10 @@ another CEF process has it open. Do not change an installed 3F app from this
 probe; validate rendering, clean quit, profile path, and extension install
 behavior first.
 
-See `PROBE_RESULTS.md` for observed outcomes and current failures. In particular,
-the extension manager appeared, while HTTPS content and the Web Store page were
-blank in the current local probe; do not treat those flows as working yet.
+The probe script corrects the CEF sample's malformed framework copy before
+signing. It also applies `patches/0002-log-load-callbacks.patch` so navigation
+status and URL can be verified from `OnLoadEnd`. The isolated test confirmed
+HTTPS rendering for example.com after that correction. The Chrome extension
+manager and Chrome Web Store category page both rendered. No Web Store
+extension has been installed or tested; compatibility remains unverified. See
+`PROBE_RESULTS.md` for evidence and remaining product integration work.
