@@ -28,6 +28,7 @@ struct BrowserView: View {
             }
         }
         .frame(minWidth: 760, minHeight: 520)
+        .tint(model.theme.color)
         .sheet(isPresented: $model.isShowingSettings) {
             BrowserSettingsView(model: model)
         }

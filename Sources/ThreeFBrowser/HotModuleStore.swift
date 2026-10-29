@@ -41,6 +41,13 @@ actor HotModuleStore {
         return try JSONDecoder().decode(HotModuleManifest.self, from: Data(contentsOf: url))
     }
 
+    func loadFile(named path: String) throws -> Data {
+        try validate(path: path)
+        let url = activeDirectory.appendingPathComponent(path)
+        guard fileManager.fileExists(atPath: url.path) else { throw HotModuleError.missingFile(path) }
+        return try Data(contentsOf: url)
+    }
+
     func apply(revision: Int, files: [String: Data], expectedHashes: [String: String]) throws {
         let currentRevision = try currentManifest()?.revision ?? 0
         guard revision > currentRevision, !files.isEmpty, Set(files.keys) == Set(expectedHashes.keys) else {

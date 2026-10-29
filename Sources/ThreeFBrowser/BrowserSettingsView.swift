@@ -1,4 +1,6 @@
 import SwiftUI
+import UniformTypeIdentifiers
+import AppKit
 
 struct BrowserSettingsView: View {
     @ObservedObject var model: BrowserModel
@@ -21,8 +23,27 @@ struct BrowserSettingsView: View {
                     .foregroundStyle(.secondary)
             }
             Section("신체 개조 업데이트") {
-                Text("검토한 JSON/CSS UI 모듈은 SHA-256과 증가 revision을 확인해 교체하고, 직전 버전으로 복원할 수 있습니다. 코드·브라우저 엔진 변경은 앱 빌드와 재시작이 필요합니다.")
+                Text("테마 JSON은 앱 재빌드 없이 적용됩니다. SHA-256과 revision을 확인하고 직전 테마로 복원할 수 있습니다. 코드·브라우저 엔진 변경은 앱 빌드와 재시작이 필요합니다.")
                     .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(model.themeModuleStatus)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                HStack {
+                    Button("테마 JSON 불러오기") {
+                        let panel = NSOpenPanel()
+                        panel.allowedContentTypes = [.json]
+                        panel.allowsMultipleSelection = false
+                        panel.canChooseDirectories = false
+                        if panel.runModal() == .OK, let url = panel.url {
+                            model.importThemeModule(from: url)
+                        }
+                    }
+                    Button("이전 테마 복원", action: model.rollbackThemeModule)
+                    Button("모듈 다시 읽기", action: model.reloadThemeModule)
+                }
+                Text(##"예: {"accentHex":"#22AAFF"}"##)
+                    .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(.secondary)
             }
         }

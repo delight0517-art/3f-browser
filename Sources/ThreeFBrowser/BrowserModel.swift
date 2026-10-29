@@ -1,5 +1,7 @@
 import Combine
+import CryptoKit
 import Foundation
+import SwiftUI
 
 enum SearchProvider: String, CaseIterable, Identifiable {
     case google
@@ -33,6 +35,29 @@ enum SearchProvider: String, CaseIterable, Identifiable {
     }
 }
 
+struct BrowserTheme: Codable, Equatable, Sendable {
+    let accentHex: String
+
+    static let standard = BrowserTheme(accentHex: "#0A84FF")
+
+    var isValid: Bool {
+        let value = accentHex
+        guard value.count == 7, value.first == "#" else { return false }
+        return value.dropFirst().allSatisfy { $0.isHexDigit }
+    }
+
+    var color: Color {
+        let value = UInt64(accentHex.dropFirst(), radix: 16) ?? 0x0A84FF
+        return Color(
+            .sRGB,
+            red: Double((value >> 16) & 0xFF) / 255,
+            green: Double((value >> 8) & 0xFF) / 255,
+            blue: Double(value & 0xFF) / 255,
+            opacity: 1
+        )
+    }
+}
+
 @MainActor
 final class BrowserModel: ObservableObject {
     @Published var searchProvider: SearchProvider {
@@ -44,10 +69,73 @@ final class BrowserModel: ObservableObject {
     @Published var currentURL: URL?
     @Published var navigationRequestID = 0
     @Published var isShowingSettings = false
+    @Published private(set) var theme = BrowserTheme.standard
+    @Published private(set) var themeModuleStatus = "기본 테마"
+    private let hotModuleStore = HotModuleStore()
 
     init() {
         let savedProvider = UserDefaults.standard.string(forKey: SearchProvider.preferenceKey)
         searchProvider = SearchProvider(rawValue: savedProvider ?? "") ?? .google
+        reloadThemeModule()
+    }
+
+    func importThemeModule(from url: URL) {
+        Task {
+            do {
+                let data = try Data(contentsOf: url)
+                let newTheme = try JSONDecoder().decode(BrowserTheme.self, from: data)
+                guard newTheme.isValid else { throw ThemeModuleError.invalidTheme }
+                let currentRevision = try await hotModuleStore.currentManifest()?.revision ?? 0
+                let nextRevision = currentRevision + 1
+                try await hotModuleStore.apply(
+                    revision: nextRevision,
+                    files: ["theme.json": data],
+                    expectedHashes: ["theme.json": Self.sha256(data)]
+                )
+                theme = newTheme
+                themeModuleStatus = "적용됨 · revision \(nextRevision)"
+            } catch {
+                themeModuleStatus = "적용 실패 · \(error.localizedDescription)"
+            }
+        }
+    }
+
+    func reloadThemeModule() {
+        Task {
+            do {
+                guard let manifest = try await hotModuleStore.currentManifest() else { return }
+                let data = try await hotModuleStore.loadFile(named: "theme.json")
+                let loadedTheme = try JSONDecoder().decode(BrowserTheme.self, from: data)
+                guard loadedTheme.isValid,
+                      manifest.files["theme.json"] == Self.sha256(data) else {
+                    throw ThemeModuleError.invalidTheme
+                }
+                theme = loadedTheme
+                themeModuleStatus = "적용됨 · revision \(manifest.revision)"
+            } catch {
+                themeModuleStatus = "불러오기 실패 · \(error.localizedDescription)"
+            }
+        }
+    }
+
+    func rollbackThemeModule() {
+        Task {
+            do {
+                try await hotModuleStore.rollback()
+                reloadThemeModule()
+            } catch {
+                themeModuleStatus = "복원 실패 · \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private static func sha256(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private enum ThemeModuleError: LocalizedError {
+        case invalidTheme
+        var errorDescription: String? { "테마 JSON은 #RRGGBB 형식의 accentHex 값만 허용합니다." }
     }
 
     func submit(_ text: String) {
