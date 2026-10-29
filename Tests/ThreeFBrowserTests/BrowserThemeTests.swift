@@ -11,6 +11,21 @@ final class BrowserThemeTests: XCTestCase {
         XCTAssertFalse(BrowserTheme(accentHex: "#22AAFF00").isValid)
     }
 
+    func testQuickLinksAllowOnlyBoundedHTTPSDestinations() {
+        let valid = BrowserTheme(accentHex: "#22AAFF", quickLinks: [
+            BrowserQuickLink(title: "Docs", url: "https://example.com/docs")
+        ])
+        XCTAssertTrue(valid.isValid)
+        XCTAssertEqual(valid.quickLinks.first?.destination?.host, "example.com")
+
+        XCTAssertFalse(BrowserTheme(accentHex: "#22AAFF", quickLinks: [
+            BrowserQuickLink(title: "Run code", url: "javascript:alert(1)")
+        ]).isValid)
+        XCTAssertFalse(BrowserTheme(accentHex: "#22AAFF", quickLinks: (0..<9).map {
+            BrowserQuickLink(title: "Link \($0)", url: "https://example.com/\($0)")
+        }).isValid)
+    }
+
     func testHotModuleStoreAppliesAndRollsBackThemeData() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("threef-hot-theme-\(UUID().uuidString)", isDirectory: true)

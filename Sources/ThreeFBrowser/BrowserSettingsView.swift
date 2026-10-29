@@ -23,7 +23,7 @@ struct BrowserSettingsView: View {
                     .foregroundStyle(.secondary)
             }
             Section("신체 개조 업데이트") {
-                Text("테마 JSON은 앱 재빌드 없이 적용됩니다. SHA-256과 revision을 확인하고 직전 테마로 복원할 수 있습니다. 코드·브라우저 엔진 변경은 앱 빌드와 재시작이 필요합니다.")
+                Text("새 탭 테마와 HTTPS 빠른 링크는 JSON 모듈로 앱 재빌드 없이 적용됩니다. SHA-256과 revision을 확인하고 직전 설정으로 복원할 수 있습니다. 임의 코드·네이티브 기능·브라우저 엔진 변경은 여전히 앱 빌드가 필요합니다.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Text(model.themeModuleStatus)
@@ -42,7 +42,7 @@ struct BrowserSettingsView: View {
                     Button("이전 테마 복원", action: model.rollbackThemeModule)
                     Button("모듈 다시 읽기", action: model.reloadThemeModule)
                 }
-                Text(##"예: {"accentHex":"#22AAFF"}"##)
+                Text(##"예: {"accentHex":"#22AAFF","quickLinks":[{"title":"문서","url":"https://example.com/docs"}]}"##)
                     .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(.secondary)
             }

@@ -100,6 +100,14 @@ struct BrowserView: View {
                     .keyboardShortcut(.defaultAction)
             }
             .frame(maxWidth: 520)
+            if !model.theme.quickLinks.isEmpty {
+                HStack(spacing: 10) {
+                    ForEach(model.theme.quickLinks) { link in
+                        Button(link.title) { model.openQuickLink(link) }
+                    }
+                }
+                .padding(.top, 4)
+            }
             Text("검색 엔진: \(model.searchProvider.title)")
                 .font(.caption)
                 .foregroundStyle(.secondary)

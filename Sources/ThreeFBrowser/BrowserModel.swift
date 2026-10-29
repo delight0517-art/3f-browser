@@ -37,13 +37,15 @@ enum SearchProvider: String, CaseIterable, Identifiable {
 
 struct BrowserTheme: Codable, Equatable, Sendable {
     let accentHex: String
+    var quickLinks: [BrowserQuickLink] = []
 
     static let standard = BrowserTheme(accentHex: "#0A84FF")
 
     var isValid: Bool {
         let value = accentHex
         guard value.count == 7, value.first == "#" else { return false }
-        return value.dropFirst().allSatisfy { $0.isHexDigit }
+        guard value.dropFirst().allSatisfy({ $0.isHexDigit }), quickLinks.count <= 8 else { return false }
+        return quickLinks.allSatisfy(\.isValid)
     }
 
     var color: Color {
@@ -55,6 +57,27 @@ struct BrowserTheme: Codable, Equatable, Sendable {
             blue: Double(value & 0xFF) / 255,
             opacity: 1
         )
+    }
+}
+
+struct BrowserQuickLink: Codable, Equatable, Sendable, Identifiable {
+    let title: String
+    let url: String
+    var id: String { url }
+
+    var destination: URL? {
+        guard isValid else { return nil }
+        return URL(string: url)
+    }
+
+    var isValid: Bool {
+        guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              title.count <= 40,
+              let components = URLComponents(string: url),
+              components.scheme?.lowercased() == "https",
+              components.host != nil,
+              components.user == nil, components.password == nil else { return false }
+        return true
     }
 }
 
@@ -93,7 +116,7 @@ final class BrowserModel: ObservableObject {
                     expectedHashes: ["theme.json": Self.sha256(data)]
                 )
                 theme = newTheme
-                themeModuleStatus = "적용됨 · revision \(nextRevision)"
+                themeModuleStatus = "새 탭 설정 적용됨 · revision \(nextRevision) · 빠른 링크 \(newTheme.quickLinks.count)개"
             } catch {
                 themeModuleStatus = "적용 실패 · \(error.localizedDescription)"
             }
@@ -111,7 +134,7 @@ final class BrowserModel: ObservableObject {
                     throw ThemeModuleError.invalidTheme
                 }
                 theme = loadedTheme
-                themeModuleStatus = "적용됨 · revision \(manifest.revision)"
+                themeModuleStatus = "새 탭 설정 적용됨 · revision \(manifest.revision) · 빠른 링크 \(loadedTheme.quickLinks.count)개"
             } catch {
                 themeModuleStatus = "불러오기 실패 · \(error.localizedDescription)"
             }
@@ -170,6 +193,13 @@ final class BrowserModel: ObservableObject {
     func showNewTab() {
         currentURL = nil
         addressText = ""
+    }
+
+    func openQuickLink(_ link: BrowserQuickLink) {
+        guard let destination = link.destination else { return }
+        currentURL = destination
+        addressText = destination.absoluteString
+        navigationRequestID += 1
     }
 
     func pageDidNavigate(to url: URL?) {
