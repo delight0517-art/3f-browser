@@ -13,7 +13,7 @@ struct ThreeFBrowserApp: App {
     @NSApplicationDelegateAdaptor(ThreeFBrowserAppDelegate.self) private var appDelegate
 
     var body: some Scene {
-        WindowGroup("3F Browser") {
+        Window("3F Browser", id: "browser") {
             BrowserView()
                 .environmentObject(ThreeFURLRouter.shared)
         }
