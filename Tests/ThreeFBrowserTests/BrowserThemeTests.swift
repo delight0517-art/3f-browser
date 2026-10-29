@@ -4,6 +4,23 @@ import XCTest
 @testable import ThreeFBrowser
 
 final class BrowserThemeTests: XCTestCase {
+    func testAddressBarUsesSelectedSearchProviderAndRejectsURLCredentials() throws {
+        let google = try XCTUnwrap(AddressBarNavigationRequest.resolve("cats", searchProvider: .google))
+        XCTAssertEqual(google.host, "www.google.com")
+        XCTAssertEqual(URLComponents(url: google, resolvingAgainstBaseURL: false)?.queryItems?.first?.value, "cats")
+
+        let bing = try XCTUnwrap(AddressBarNavigationRequest.resolve("cats", searchProvider: .bing))
+        XCTAssertEqual(bing.host, "www.bing.com")
+        let duckDuckGo = try XCTUnwrap(AddressBarNavigationRequest.resolve("cats", searchProvider: .duckduckgo))
+        XCTAssertEqual(duckDuckGo.host, "duckduckgo.com")
+
+        XCTAssertNil(AddressBarNavigationRequest.resolve("https://user:secret@example.com", searchProvider: .google))
+        XCTAssertEqual(AddressBarNavigationRequest.resolve("example.com", searchProvider: .google)?.absoluteString,
+                       "https://example.com")
+        XCTAssertEqual(AddressBarNavigationRequest.resolve("https://example.com/path", searchProvider: .google)?.host,
+                       "example.com")
+    }
+
     func testCurrentEngineDoesNotClaimChromeExtensionSupport() {
         XCTAssertEqual(ExtensionCompatibility.currentEngine, .webKit)
         XCTAssertEqual(ExtensionCompatibility.supportLevel, .none)

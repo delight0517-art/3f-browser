@@ -11,5 +11,6 @@ swift build --package-path "$ROOT" --build-path "$ROOT/.build" -c release --prod
 mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources"
 cp "$ROOT/.build/release/ThreeFBrowser" "$CONTENTS/MacOS/ThreeFBrowser"
 cp "$ROOT/Resources/Info.plist" "$CONTENTS/Info.plist"
+cp "$ROOT/Resources/3f-icon.icns" "$CONTENTS/Resources/3f-icon.icns"
 codesign --force --deep --sign - "$APP"
 printf 'Created %s\n' "$APP"

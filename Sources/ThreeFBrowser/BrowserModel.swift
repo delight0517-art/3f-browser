@@ -178,7 +178,7 @@ final class BrowserModel: ObservableObject {
         let input = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !input.isEmpty else { return }
 
-        let destination = Self.webAddress(from: input) ?? searchProvider.searchURL(for: input)
+        let destination = AddressBarNavigationRequest.resolve(input, searchProvider: searchProvider)
         guard let destination else { return }
 
         currentURL = destination
@@ -221,20 +221,4 @@ final class BrowserModel: ObservableObject {
         addressText = url.absoluteString
     }
 
-    private static func webAddress(from input: String) -> URL? {
-        if let components = URLComponents(string: input),
-           let scheme = components.scheme?.lowercased(),
-           ["http", "https"].contains(scheme),
-           components.host != nil {
-            return components.url
-        }
-
-        guard !input.contains(where: \.isWhitespace),
-              let candidate = URL(string: "https://\(input)"),
-              let host = candidate.host,
-              host == "localhost" || host.contains(".") else {
-            return nil
-        }
-        return candidate
-    }
 }
