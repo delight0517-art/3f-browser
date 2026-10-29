@@ -39,3 +39,20 @@ HTTPS rendering for example.com after that correction. The Chrome extension
 manager and Chrome Web Store category page both rendered. No Web Store
 extension has been installed or tested; compatibility remains unverified. See
 `PROBE_RESULTS.md` for evidence and remaining product integration work.
+
+## Browser-shell integration reconnaissance
+
+The same isolated CMake build also contains the upstream `cefclient` target,
+which has a Chromium-style address/search bar and internal extension manager.
+`patches/0003-cefclient-profile.patch` gives it a private CEF root/cache path
+before initialization. Apply that patch to the unpacked CEF source, then build
+`cefclient` with the existing `.build/cef-156-arm64/cefsimple-isolated-build`
+directory. The generated framework must use the corrected `Versions/A`
+payload layout and be signed with its helper apps before local launch.
+
+This reconnaissance verified an `example.com` page and
+`chrome://extensions/` in the separately built and signed cefclient candidate.
+It is not the 3F product bundle and must not be treated as product integration.
+The current product still uses WKWebView; importing the upstream browser shell,
+its lifecycle, profile migration, Only Chat control channel, and extension
+install/update policy remain implementation work. No extension was installed.

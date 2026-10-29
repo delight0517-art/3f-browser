@@ -1,0 +1,30 @@
+diff --git a/tests/cefclient/browser/main_context_impl.cc b/tests/cefclient/browser/main_context_impl.cc
+index 0000000..0000000 100644
+--- a/tests/cefclient/browser/main_context_impl.cc
++++ b/tests/cefclient/browser/main_context_impl.cc
+@@ -4,5 +4,6 @@
+ #include "tests/cefclient/browser/main_context_impl.h"
+ 
+ #include <algorithm>
++#include <cstdlib>
+ #include <memory>
+ 
+@@ -189,5 +190,18 @@ void MainContextImpl::PopulateSettings(CefSettings* settings) {
+   client::ClientAppBrowser::PopulateSettings(command_line_, *settings);
+ 
+   CefString(&settings->cache_path) =
+       command_line_->GetSwitchValue(switches::kCachePath);
++
++#if defined(OS_MAC)
++  // Never share CEF's default profile with unrelated browser processes.
++  std::string profile_root =
++      command_line_->GetSwitchValue("3f-profile-root");
++  if (profile_root.empty()) {
++    const char* home = std::getenv("HOME");
++    profile_root = std::string(home ? home : ".") +
++                   "/Library/Application Support/3F Browser/CEF/cefclient";
++  }
++  CefString(&settings->root_cache_path) = profile_root;
++  CefString(&settings->cache_path) = profile_root + "/Default";
++#endif
+ 
