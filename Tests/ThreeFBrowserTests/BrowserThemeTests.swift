@@ -11,6 +11,25 @@ final class BrowserThemeTests: XCTestCase {
         XCTAssertTrue(ExtensionCompatibility.chromiumProfileRequirement.contains("전용"))
     }
 
+    @MainActor
+    func testThreeFRouterAcceptsHTTPSOnlyAndDrainsQueueOnce() throws {
+        let router = ThreeFURLRouter()
+        router.receive([
+            try XCTUnwrap(URL(string: "threef://open?url=https%3A%2F%2Fexample.com%2Fpath")),
+            try XCTUnwrap(URL(string: "threef://open?url=http%3A%2F%2Fexample.com")),
+            try XCTUnwrap(URL(string: "threef://open?url=javascript%3Aalert(1)")),
+            try XCTUnwrap(URL(string: "other://open?url=https%3A%2F%2Fexample.com")),
+            try XCTUnwrap(URL(string: "threef://user:secret@open?url=https%3A%2F%2Fexample.com")),
+            try XCTUnwrap(URL(string: "threef://open:8443?url=https%3A%2F%2Fexample.com"))
+        ])
+
+        let firstDrain = router.takePendingURLs()
+        XCTAssertEqual(firstDrain.count, 1)
+        XCTAssertEqual(URLComponents(url: firstDrain[0], resolvingAgainstBaseURL: false)?.queryItems?.first?.value,
+                       "https://example.com/path")
+        XCTAssertTrue(router.takePendingURLs().isEmpty)
+    }
+
     func testThemeAcceptsOnlySixDigitHexColor() {
         XCTAssertTrue(BrowserTheme(accentHex: "#22AAFF").isValid)
         XCTAssertFalse(BrowserTheme(accentHex: "blue").isValid)
