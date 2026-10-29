@@ -25,6 +25,11 @@ enum HotModuleError: Error, LocalizedError {
 }
 
 /// Stores reviewed, non-executable UI/theme data revisions. It never loads code.
+///
+/// These modules are declarative data (JSON/CSS), not native feature code. A
+/// running app can adopt them without a rebuild only when the corresponding
+/// browser/UI surface explicitly reloads the module. Native browser engines,
+/// Swift features, and CEF frameworks still require a new app build.
 actor HotModuleStore {
     private let root: URL
     private let fileManager = FileManager.default

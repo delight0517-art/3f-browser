@@ -21,6 +21,17 @@ another CEF process has it open. Do not change an installed 3F app from this
 probe; validate rendering, clean quit, profile path, and extension install
 behavior first.
 
+## Modular update boundary
+
+The product's current `HotModuleStore` accepts SHA-256-verified JSON and CSS
+files in a staged revision with one rollback revision. This supports data and
+style updates only; modules are not executable Swift or JavaScript, and the
+current UI does not yet hot-mount arbitrary modules. A consumer must explicitly
+reload an adopted JSON/CSS file. Browser engine, native UI logic, extension
+integration, and CEF framework changes require a new product build and restart.
+Do not label the current mechanism as a general-purpose hot-reload/plugin
+system.
+
 The probe script corrects the CEF sample's malformed framework copy before
 signing. It also applies `patches/0002-log-load-callbacks.patch` so navigation
 status and URL can be verified from `OnLoadEnd`. The isolated test confirmed
