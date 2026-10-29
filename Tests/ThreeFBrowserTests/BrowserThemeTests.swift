@@ -16,6 +16,7 @@ final class BrowserThemeTests: XCTestCase {
         let router = ThreeFURLRouter()
         router.receive([
             try XCTUnwrap(URL(string: "threef://open?url=https%3A%2F%2Fexample.com%2Fpath")),
+            try XCTUnwrap(URL(string: "threef://open?url=https%3A%2F%2Fexample.com%2Fpath%3Fq%3Dhello%2520world")),
             try XCTUnwrap(URL(string: "threef://open?url=http%3A%2F%2Fexample.com")),
             try XCTUnwrap(URL(string: "threef://open?url=javascript%3Aalert(1)")),
             try XCTUnwrap(URL(string: "other://open?url=https%3A%2F%2Fexample.com")),
@@ -24,9 +25,11 @@ final class BrowserThemeTests: XCTestCase {
         ])
 
         let firstDrain = router.takePendingURLs()
-        XCTAssertEqual(firstDrain.count, 1)
+        XCTAssertEqual(firstDrain.count, 2)
         XCTAssertEqual(URLComponents(url: firstDrain[0], resolvingAgainstBaseURL: false)?.queryItems?.first?.value,
                        "https://example.com/path")
+        XCTAssertEqual(URLComponents(url: firstDrain[1], resolvingAgainstBaseURL: false)?.queryItems?.first?.value,
+                       "https://example.com/path?q=hello%20world")
         XCTAssertTrue(router.takePendingURLs().isEmpty)
     }
 
