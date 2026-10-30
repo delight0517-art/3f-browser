@@ -14,6 +14,7 @@ struct BrowserWebView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> WKWebView {
         let view = WKWebView()
+        YouTubePreviewUsageMonitor.shared.attach(view)
         context.coordinator.parent = self
         view.navigationDelegate = context.coordinator
         DispatchQueue.main.async { webView = view }
