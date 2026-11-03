@@ -12,6 +12,7 @@ enum HotModuleError: Error, LocalizedError {
     case invalidHash(String)
     case missingFile(String)
     case noPreviousRevision
+    case activationRecoveryFailed
 
     var errorDescription: String? {
         switch self {
@@ -20,6 +21,7 @@ enum HotModuleError: Error, LocalizedError {
         case .invalidHash(let path): "모듈 해시가 일치하지 않습니다: \(path)"
         case .missingFile(let path): "모듈 파일이 없습니다: \(path)"
         case .noPreviousRevision: "복원할 이전 모듈 버전이 없습니다."
+        case .activationRecoveryFailed: "새 설정 적용과 이전 설정 복원에 모두 실패했습니다."
         }
     }
 }
@@ -32,12 +34,13 @@ enum HotModuleError: Error, LocalizedError {
 /// Swift features, and CEF frameworks still require a new app build.
 actor HotModuleStore {
     private let root: URL
-    private let fileManager = FileManager.default
+    private let fileManager: FileManager
     private let allowedExtensions: Set<String> = ["json", "css"]
 
-    init(root: URL? = nil) {
+    init(root: URL? = nil, fileManager: FileManager = .default) {
         self.root = root ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("3F Browser/HotModules", isDirectory: true)
+        self.fileManager = fileManager
     }
 
     func currentManifest() throws -> HotModuleManifest? {
@@ -80,13 +83,27 @@ actor HotModuleStore {
             try? fileManager.removeItem(at: pending)
             try fileManager.moveItem(at: candidate, to: pending)
             let previous = root.appendingPathComponent("previous", isDirectory: true)
-            try? fileManager.removeItem(at: previous)
-            if fileManager.fileExists(atPath: activeDirectory.path) {
+            let hadActiveRevision = fileManager.fileExists(atPath: activeDirectory.path)
+            if hadActiveRevision {
+                try? fileManager.removeItem(at: previous)
                 try fileManager.moveItem(at: activeDirectory, to: previous)
             }
-            try fileManager.moveItem(at: pending, to: activeDirectory)
+            do {
+                try fileManager.moveItem(at: pending, to: activeDirectory)
+            } catch {
+                if hadActiveRevision {
+                    do {
+                        try fileManager.moveItem(at: previous, to: activeDirectory)
+                    } catch {
+                        throw HotModuleError.activationRecoveryFailed
+                    }
+                }
+                try? fileManager.removeItem(at: pending)
+                throw error
+            }
         } catch {
             try? fileManager.removeItem(at: candidate)
+            try? fileManager.removeItem(at: root.appendingPathComponent("pending", isDirectory: true))
             throw error
         }
     }
