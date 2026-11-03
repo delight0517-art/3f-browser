@@ -35,15 +35,13 @@ struct FocusFenceYouTubeUsageSummary: Decodable, Equatable, Sendable {
     }
 
     var compactStatusLine: String {
-        let watched = "오늘 시청 \(Self.duration(todaySeconds))"
-        guard dailyCapMinutes > 0 else {
-            return "\(watched) · \(blocked ? "재생 제한 중" : "일 한도 없음")"
-        }
-        if blocked {
-            return "\(watched) · 한도 \(dailyCapMinutes)분 · 재생 제한 중"
-        }
-        let remaining = max(0, dailyCapMinutes * 60 - todaySeconds)
-        return "\(watched) · 남은 \(Self.duration(remaining))"
+        let daily = dailyCapMinutes > 0
+            ? "오늘 \(Self.duration(todaySeconds)) / 일 \(dailyCapMinutes)분 · 남은 \(Self.duration(max(0, dailyCapMinutes * 60 - todaySeconds)))"
+            : "오늘 \(Self.duration(todaySeconds)) · 일 한도 없음"
+        let hourly = hourlyCapMinutes > 0
+            ? "최근 1시간 \(Self.duration(hourlyUsedSeconds)) / \(hourlyCapMinutes)분 · 남은 \(Self.duration(hourlyRemainingSeconds))"
+            : nil
+        return ([daily, hourly, blocked ? "재생 제한 중" : nil].compactMap { $0 }).joined(separator: " · ")
     }
 
     static func duration(_ seconds: Int) -> String {
