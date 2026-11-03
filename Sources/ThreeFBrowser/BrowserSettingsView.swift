@@ -254,6 +254,11 @@ struct BrowserSettingsView: View {
                 }
             }
             settingsCard(title: "Focus Fence", subtitle: "집중 중 방해 사이트 차단 연결") {
+                featureStatus("사이트 차단 규칙 적용", enabled: OptionalFeatureAvailability.focusFenceEnforcement)
+                featureStatus("YouTube 시청 시간 집계", enabled: OptionalFeatureAvailability.youtubeUsageReporting)
+                featureStatus("YouTube 미리보기 재생 차단", enabled: OptionalFeatureAvailability.youtubePreviewBlocking)
+                Text("꺼진 기능은 브라우저 사용을 막지 않습니다. 연결 검증과 동작 확인 후 코드 업데이트로 활성화할 예정입니다.")
+                    .font(.system(size: 10)).foregroundStyle(.secondary)
                 VStack(spacing: 0) {
                     statusRow("브라우저 인식", value: focusFence.recognitionStatus, symbol: "macwindow")
                     Divider()
@@ -360,6 +365,17 @@ struct BrowserSettingsView: View {
                 .multilineTextAlignment(.trailing)
         }
         .padding(.vertical, 9)
+    }
+
+    private func featureStatus(_ title: String, enabled: Bool) -> some View {
+        HStack {
+            Text(title).font(.system(size: 11)).foregroundStyle(SettingsPalette.ink)
+            Spacer()
+            Text(enabled ? "사용 가능" : "비활성 · TODO")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(enabled ? .green : .orange)
+        }
+        .padding(.vertical, 4)
     }
 
     private func emptyState(_ symbol: String, _ message: String) -> some View {

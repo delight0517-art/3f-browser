@@ -105,6 +105,7 @@ final class ThreeFBrowserControlController {
     }
 
     nonisolated static func focusFencePolicyDecision(for url: URL) async -> Bool? {
+        guard OptionalFeatureAvailability.focusFenceEnforcement else { return true }
         guard let data = await fetchFocusFenceRules() else { return nil }
         return focusFenceAllows(url, rules: data)
     }

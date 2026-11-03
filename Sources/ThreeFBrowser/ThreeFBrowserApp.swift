@@ -39,6 +39,7 @@ final class ThreeFBrowserAppDelegate: NSObject, NSApplicationDelegate {
         server.start()
         focusFenceContactTask = Task {
             while !Task.isCancelled {
+                guard OptionalFeatureAvailability.focusFenceEnforcement else { return }
                 let connected = await ThreeFBrowserControlController.refreshFocusFencePolicyContact()
                 try? await Task.sleep(nanoseconds: connected ? 30_000_000_000 : 2_000_000_000)
             }
@@ -89,6 +90,10 @@ struct ThreeFBrowserApp: App {
             BrowserView(
                 authorizeNavigation: { url, completion in
                     Task {
+                        guard OptionalFeatureAvailability.focusFenceEnforcement else {
+                            completion(.allowed)
+                            return
+                        }
                         guard let rules = await ThreeFBrowserControlController.fetchFocusFenceRules() else {
                             completion(.unavailable)
                             return

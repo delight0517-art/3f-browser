@@ -88,16 +88,20 @@ struct BrowserWebView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
-        configuration.userContentController.addUserScript(WKUserScript(
-            source: YouTubePreviewPlaybackBlocker.script,
-            injectionTime: .atDocumentStart,
-            forMainFrameOnly: true
-        ))
-        configuration.userContentController.addUserScript(WKUserScript(
-            source: YouTubeUsageReporter.script,
-            injectionTime: .atDocumentStart,
-            forMainFrameOnly: true
-        ))
+        if OptionalFeatureAvailability.youtubePreviewBlocking {
+            configuration.userContentController.addUserScript(WKUserScript(
+                source: YouTubePreviewPlaybackBlocker.script,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: true
+            ))
+        }
+        if OptionalFeatureAvailability.youtubeUsageReporting {
+            configuration.userContentController.addUserScript(WKUserScript(
+                source: YouTubeUsageReporter.script,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: true
+            ))
+        }
         let view = ThreeFWindowAwareWebView(frame: .zero, configuration: configuration)
         context.coordinator.parent = self
         view.navigationDelegate = context.coordinator
@@ -173,7 +177,8 @@ struct BrowserWebView: NSViewRepresentable {
         }
 
         private func filterSearchResultsIfNeeded(in webView: WKWebView) {
-            guard let url = webView.url, FocusFenceSearchResultFilter.isSearchResultsURL(url) else { return }
+            guard OptionalFeatureAvailability.focusFenceEnforcement,
+                  let url = webView.url, FocusFenceSearchResultFilter.isSearchResultsURL(url) else { return }
             Task { @MainActor [weak webView] in
                 guard let webView, webView.url == url,
                       let rules = await ThreeFBrowserControlController.fetchFocusFenceRules(),
