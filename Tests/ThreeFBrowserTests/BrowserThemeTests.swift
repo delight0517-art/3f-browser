@@ -5,6 +5,7 @@ import XCTest
 
 final class BrowserThemeTests: XCTestCase {
     func testThreeFYouTubeReporterWaitsForFocusFenceQuotaBeforePlayback() {
+        XCTAssertTrue(OptionalFeatureAvailability.youtubeUsageReporting)
         XCTAssertTrue(YouTubeUsageReporter.script.contains("blocked = true;"))
         XCTAssertTrue(YouTubeUsageReporter.script.contains("u.searchParams.set('browser','3f')"))
         XCTAssertTrue(YouTubeUsageReporter.script.contains("blocked = !policy || policy.youtubeQuotaBlocked !== false"))
