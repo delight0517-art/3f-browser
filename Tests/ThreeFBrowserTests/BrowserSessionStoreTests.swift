@@ -148,6 +148,126 @@ final class BrowserSessionStoreTests: XCTestCase {
         XCTAssertEqual(directoryMode & 0o777, 0o700)
     }
 
+    func testRemovingClosedWindowSessionPreservesOtherWindows() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let closedWindowID = UUID().uuidString
+        let openWindowID = UUID().uuidString
+        let closedTab = BrowserSessionTab(title: "Closed", url: URL(string: "https://closed.example"))
+        let openTab = BrowserSessionTab(title: "Open", url: URL(string: "https://open.example"))
+        try BrowserSessionStore.save(
+            BrowserSessionSnapshot(tabs: [closedTab], selectedTabID: closedTab.id),
+            to: directory,
+            windowID: closedWindowID
+        )
+        try BrowserSessionStore.save(
+            BrowserSessionSnapshot(tabs: [openTab], selectedTabID: openTab.id),
+            to: directory,
+            windowID: openWindowID
+        )
+        try BrowserSessionStore.saveManifest(
+            BrowserSessionManifest(windows: [closedWindowID, openWindowID], activeWindowID: closedWindowID),
+            to: directory
+        )
+
+        try BrowserSessionStore.remove(windowID: closedWindowID, from: directory)
+
+        XCTAssertNil(BrowserSessionStore.load(windowID: closedWindowID, from: directory))
+        XCTAssertEqual(
+            BrowserSessionStore.load(windowID: openWindowID, from: directory),
+            BrowserSessionSnapshot(tabs: [openTab], selectedTabID: openTab.id)
+        )
+        XCTAssertEqual(
+            BrowserSessionStore.loadManifest(from: directory),
+            BrowserSessionManifest(windows: [openWindowID.lowercased()], activeWindowID: openWindowID.lowercased())
+        )
+    }
+
+    func testManifestPreservesWindowOrderAndTracksActiveWindow() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let first = UUID().uuidString
+        let second = UUID().uuidString
+        let third = UUID().uuidString
+
+        try BrowserSessionStore.registerWindow(first, activate: true, in: directory)
+        try BrowserSessionStore.registerWindow(second, activate: false, in: directory)
+        try BrowserSessionStore.registerWindow(third, activate: true, in: directory)
+        try BrowserSessionStore.markWindowActive(second, in: directory)
+
+        XCTAssertEqual(
+            BrowserSessionStore.loadManifest(from: directory),
+            BrowserSessionManifest(windows: [first, second, third].map { UUID(uuidString: $0)!.uuidString.lowercased() },
+                                   activeWindowID: UUID(uuidString: second)!.uuidString.lowercased())
+        )
+        let file = directory.appendingPathComponent("browser-session-manifest.json")
+        let mode = try XCTUnwrap((try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? NSNumber)?.intValue)
+        XCTAssertEqual(mode & 0o777, 0o600)
+    }
+
+    func testRestoringWindowRegistersItAndMarksItActiveWithoutChangingOrder() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let first = UUID().uuidString
+        let restored = UUID().uuidString
+        let firstTab = BrowserSessionTab(title: "First", url: URL(string: "https://first.example"))
+        let restoredTab = BrowserSessionTab(title: "Restored", url: URL(string: "https://restored.example"))
+        try BrowserSessionStore.save(
+            BrowserSessionSnapshot(tabs: [firstTab], selectedTabID: firstTab.id), to: directory, windowID: first
+        )
+        try BrowserSessionStore.save(
+            BrowserSessionSnapshot(tabs: [restoredTab], selectedTabID: restoredTab.id), to: directory, windowID: restored
+        )
+        try BrowserSessionStore.saveManifest(BrowserSessionManifest(windows: [first], activeWindowID: first), to: directory)
+
+        let snapshot = try BrowserSessionStore.restoreWindow(restored, in: directory)
+
+        XCTAssertEqual(snapshot, BrowserSessionSnapshot(tabs: [restoredTab], selectedTabID: restoredTab.id))
+        XCTAssertEqual(
+            BrowserSessionStore.loadManifest(from: directory),
+            BrowserSessionManifest(
+                windows: [first, restored].map { UUID(uuidString: $0)!.uuidString.lowercased() },
+                activeWindowID: UUID(uuidString: restored)!.uuidString.lowercased()
+            )
+        )
+    }
+
+    func testRestoringNewWindowRegistersAnEmptyWindow() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let windowID = UUID().uuidString
+
+        XCTAssertNil(try BrowserSessionStore.restoreWindow(windowID, in: directory))
+
+        XCTAssertEqual(
+            BrowserSessionStore.loadManifest(from: directory),
+            BrowserSessionManifest(windows: [UUID(uuidString: windowID)!.uuidString.lowercased()],
+                                   activeWindowID: UUID(uuidString: windowID)!.uuidString.lowercased())
+        )
+    }
+
+    func testManifestRejectsDuplicateWindowIDsAndUnknownVersions() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let id = UUID().uuidString.lowercased()
+        let file = directory.appendingPathComponent("browser-session-manifest.json")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        try JSONEncoder().encode(BrowserSessionManifest(windows: [id, id], activeWindowID: id)).write(to: file)
+        XCTAssertNil(BrowserSessionStore.loadManifest(from: directory))
+
+        try Data("{\"version\":99,\"windows\":[\"\(id)\"],\"activeWindowID\":\"\(id)\"}".utf8).write(to: file)
+        XCTAssertNil(BrowserSessionStore.loadManifest(from: directory))
+    }
+
+    func testRemovingSessionRejectsInvalidWindowIdentifier() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        XCTAssertThrowsError(try BrowserSessionStore.remove(windowID: "../../unsafe", from: directory))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.path))
+    }
+
     func testLegacySessionMigratesToOnlyFirstWindowAndRemainsRecoverable() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }

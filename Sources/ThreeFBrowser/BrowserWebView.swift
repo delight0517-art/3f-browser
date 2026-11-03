@@ -1,11 +1,85 @@
 import SwiftUI
 import WebKit
 
+enum BrowserNavigationAuthorizationDecision: Equatable {
+    case allowed
+    case blocked
+    case youtubeBlocked
+    case unavailable
+
+    var isAllowed: Bool { self == .allowed }
+}
+import AppKit
+
+@MainActor
+final class ThreeFWindowAwareWebView: WKWebView {
+    var onWindowAttachment: ((WKWebView) -> Void)?
+    var contextMenuAction: ThreeFContextMenuAction?
+
+    override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
+        super.willOpenMenu(menu, with: event)
+        guard let index = menu.items.firstIndex(where: {
+            $0.identifier?.rawValue == ThreeFContextMenuPolicy.webKitOpenLinkInNewWindowIdentifier
+        }) else { return }
+
+        let webKitItem = menu.items[index]
+        menu.removeItem(at: index)
+        let actions: [(ThreeFContextMenuAction, String)] = [
+            (.openInNewTab, "링크를 새 탭으로 열기"),
+            (.openInNewWindow, "링크를 새 창으로 열기")
+        ]
+        for (offset, item) in actions.enumerated() {
+            let menuItem = NSMenuItem(title: item.1, action: #selector(openLinkFromContextMenu(_:)), keyEquivalent: "")
+            menuItem.identifier = NSUserInterfaceItemIdentifier(item.0.rawValue)
+            menuItem.target = self
+            menuItem.representedObject = webKitItem
+            menu.insertItem(menuItem, at: index + offset)
+        }
+    }
+
+    override func didCloseMenu(_ menu: NSMenu, with event: NSEvent?) {
+        super.didCloseMenu(menu, with: event)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+            self?.contextMenuAction = nil
+        }
+    }
+
+    @objc private func openLinkFromContextMenu(_ menuItem: NSMenuItem) {
+        guard let action = ThreeFContextMenuPolicy.action(for: menuItem.identifier?.rawValue),
+              let webKitItem = menuItem.representedObject as? NSMenuItem,
+              let selector = webKitItem.action else { return }
+        contextMenuAction = action
+        guard NSApp.sendAction(selector, to: webKitItem.target, from: webKitItem) else {
+            contextMenuAction = nil
+            return
+        }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard window != nil else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.window != nil else { return }
+            self.onWindowAttachment?(self)
+        }
+    }
+}
+
 struct BrowserWebView: NSViewRepresentable {
     @Binding var url: URL?
     @Binding var requestID: Int
     @Binding var webView: WKWebView?
-    let onNavigation: (URL?) -> Void
+    var authorizeNavigation: ((URL, @escaping (BrowserNavigationAuthorizationDecision) -> Void) -> Void)? = nil
+    var onRejectedNavigation: ((URL, BrowserNavigationAuthorizationDecision) -> Void)? = nil
+    var allowsDownloads = true
+    var onDownloadStatus: ((String) -> Void)? = nil
+    var onWindowAttached: ((WKWebView) -> Void)? = nil
+    var onNavigationStarted: ((URL?) -> Void)? = nil
+    var onLoadingChanged: ((Bool) -> Void)? = nil
+    var onNavigationFailed: ((Error) -> Void)? = nil
+    var onOpenLinkInNewTab: ((URL) -> Void)? = nil
+    var onOpenLinkInNewWindow: ((URL) -> Void)? = nil
+    let onNavigation: (URL?, String?) -> Void
     let onNavigationState: (Bool, Bool) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -19,21 +93,40 @@ struct BrowserWebView: NSViewRepresentable {
             injectionTime: .atDocumentStart,
             forMainFrameOnly: true
         ))
-        let view = WKWebView(frame: .zero, configuration: configuration)
+        configuration.userContentController.addUserScript(WKUserScript(
+            source: YouTubeUsageReporter.script,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        ))
+        let view = ThreeFWindowAwareWebView(frame: .zero, configuration: configuration)
         context.coordinator.parent = self
         view.navigationDelegate = context.coordinator
+        let coordinator = context.coordinator
+        view.uiDelegate = coordinator
+        view.onWindowAttachment = { [weak coordinator] attachedView in
+            coordinator?.parent.onWindowAttached?(attachedView)
+        }
         DispatchQueue.main.async { webView = view }
         return view
     }
 
     func updateNSView(_ view: WKWebView, context: Context) {
         context.coordinator.parent = self
+        if view.window != nil {
+            onWindowAttached?(view)
+        }
         guard let url, context.coordinator.lastRequestID != requestID else { return }
         context.coordinator.lastRequestID = requestID
         view.load(URLRequest(url: url))
     }
 
-    final class Coordinator: NSObject, WKNavigationDelegate {
+    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate {
+        enum NavigationDecision: Equatable {
+            case allow
+            case cancel
+            case download
+        }
+
         var parent: BrowserWebView
         var lastRequestID = -1
 
@@ -41,10 +134,203 @@ struct BrowserWebView: NSViewRepresentable {
             self.parent = parent
         }
 
+        func webView(
+            _ webView: WKWebView,
+            createWebViewWith configuration: WKWebViewConfiguration,
+            for navigationAction: WKNavigationAction,
+            windowFeatures: WKWindowFeatures
+        ) -> WKWebView? {
+            guard let source = webView as? ThreeFWindowAwareWebView,
+                  let action = source.contextMenuAction else { return nil }
+            source.contextMenuAction = nil
+            guard navigationAction.targetFrame == nil,
+                  navigationAction.navigationType == .linkActivated,
+                  let url = ThreeFContextMenuPolicy.safeHTTPURL(navigationAction.request.url),
+                  let authorizeNavigation = parent.authorizeNavigation else { return nil }
+
+            authorizeNavigation(url) { [weak self] decision in
+                guard let self,
+                      let intent = ThreeFContextMenuPolicy.intent(action: action, url: url, isAllowed: decision.isAllowed) else {
+                    if !decision.isAllowed { self?.parent.onRejectedNavigation?(url, decision) }
+                    return
+                }
+                switch intent {
+                case .newTab(let destination): self.parent.onOpenLinkInNewTab?(destination)
+                case .newWindow(let destination): self.parent.onOpenLinkInNewWindow?(destination)
+                }
+            }
+            return nil
+        }
+
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             onMain {
-                self.parent.onNavigation(webView.url)
+                self.parent.onLoadingChanged?(false)
+                self.parent.onNavigation(webView.url, webView.title)
                 self.parent.onNavigationState(webView.canGoBack, webView.canGoForward)
+                ThreeFBrowserControlController.shared.navigationDidFinish(for: webView)
+                self.filterSearchResultsIfNeeded(in: webView)
+            }
+        }
+
+        private func filterSearchResultsIfNeeded(in webView: WKWebView) {
+            guard let url = webView.url, FocusFenceSearchResultFilter.isSearchResultsURL(url) else { return }
+            Task { @MainActor [weak webView] in
+                guard let webView, webView.url == url,
+                      let rules = await ThreeFBrowserControlController.fetchFocusFenceRules(),
+                      webView.url == url,
+                      let script = FocusFenceSearchResultFilter.script(for: url, rules: rules) else { return }
+                _ = try? await webView.evaluateJavaScript(script)
+            }
+        }
+
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            onMain {
+                self.parent.onLoadingChanged?(webView.isLoading)
+                self.parent.onNavigationFailed?(error)
+                ThreeFBrowserControlController.shared.navigationDidFail(for: webView)
+            }
+        }
+
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            onMain {
+                self.parent.onLoadingChanged?(webView.isLoading)
+                self.parent.onNavigationFailed?(error)
+                ThreeFBrowserControlController.shared.navigationDidFail(for: webView)
+            }
+        }
+
+        func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+            onMain {
+                self.parent.onNavigationStarted?(webView.url)
+                self.parent.onLoadingChanged?(true)
+            }
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            decidePolicyFor navigationAction: WKNavigationAction,
+            decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+        ) {
+            guard let url = navigationAction.request.url,
+                  let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme),
+                  url.user == nil, url.password == nil else {
+                decisionHandler(.cancel)
+                return
+            }
+            guard let authorize = parent.authorizeNavigation else {
+                decisionHandler(Self.webKitActionPolicy(Self.navigationDecision(isAllowed: nil, shouldDownload: navigationAction.shouldPerformDownload, allowsDownloads: parent.allowsDownloads)))
+                return
+            }
+            authorize(url) { [weak self] decision in
+                if !decision.isAllowed { self?.parent.onRejectedNavigation?(url, decision) }
+                decisionHandler(Self.webKitActionPolicy(Self.navigationDecision(isAllowed: decision.isAllowed, shouldDownload: navigationAction.shouldPerformDownload, allowsDownloads: self?.parent.allowsDownloads ?? false)))
+            }
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            decidePolicyFor navigationResponse: WKNavigationResponse,
+            decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
+        ) {
+            let disposition = (navigationResponse.response as? HTTPURLResponse)?
+                .value(forHTTPHeaderField: "Content-Disposition")?.lowercased() ?? ""
+            let isAttachment = disposition.contains("attachment")
+            let shouldDownload = isAttachment || !navigationResponse.canShowMIMEType
+            guard let url = navigationResponse.response.url,
+                  let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme),
+                  url.user == nil, url.password == nil,
+                  let authorize = parent.authorizeNavigation else {
+                decisionHandler(Self.webKitResponsePolicy(Self.navigationDecision(isAllowed: nil, shouldDownload: shouldDownload, allowsDownloads: parent.allowsDownloads)))
+                return
+            }
+            authorize(url) { [weak self] decision in
+                if !decision.isAllowed { self?.parent.onRejectedNavigation?(url, decision) }
+                decisionHandler(Self.webKitResponsePolicy(Self.navigationDecision(isAllowed: decision.isAllowed, shouldDownload: shouldDownload, allowsDownloads: self?.parent.allowsDownloads ?? false)))
+            }
+        }
+
+        func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
+            beginDownload(download)
+        }
+
+        func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
+            beginDownload(download)
+        }
+
+        func download(
+            _ download: WKDownload,
+            decideDestinationUsing response: URLResponse,
+            suggestedFilename: String,
+            completionHandler: @escaping (URL?) -> Void
+        ) {
+            let panel = NSSavePanel()
+            panel.nameFieldStringValue = suggestedFilename
+            panel.canCreateDirectories = true
+            panel.isExtensionHidden = false
+            panel.begin { [weak self] result in
+                guard result == .OK, let destination = panel.url else {
+                    self?.parent.onDownloadStatus?("다운로드 취소됨")
+                    completionHandler(nil)
+                    return
+                }
+                let availableDestination = Self.nonExistingDestination(for: destination)
+                let savedName = availableDestination.lastPathComponent
+                self?.parent.onDownloadStatus?("다운로드 중 · \(savedName)")
+                completionHandler(availableDestination)
+            }
+        }
+
+        func downloadDidFinish(_ download: WKDownload) {
+            onMain { self.parent.onDownloadStatus?("다운로드 완료") }
+        }
+
+        func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
+            onMain { self.parent.onDownloadStatus?("다운로드 실패 · \(error.localizedDescription)") }
+        }
+
+        private func beginDownload(_ download: WKDownload) {
+            download.delegate = self
+            parent.onDownloadStatus?("저장 위치 선택")
+        }
+
+        static func navigationDecision(
+            isAllowed: Bool?,
+            shouldDownload: Bool,
+            allowsDownloads: Bool
+        ) -> NavigationDecision {
+            guard isAllowed == true else { return .cancel }
+            if shouldDownload { return allowsDownloads ? .download : .cancel }
+            return .allow
+        }
+
+        private static func webKitActionPolicy(_ decision: NavigationDecision) -> WKNavigationActionPolicy {
+            switch decision {
+            case .allow: return .allow
+            case .cancel: return .cancel
+            case .download: return .download
+            }
+        }
+
+        private static func webKitResponsePolicy(_ decision: NavigationDecision) -> WKNavigationResponsePolicy {
+            switch decision {
+            case .allow: return .allow
+            case .cancel: return .cancel
+            case .download: return .download
+            }
+        }
+
+        private static func nonExistingDestination(for requestedURL: URL) -> URL {
+            let fileManager = FileManager.default
+            guard fileManager.fileExists(atPath: requestedURL.path) else { return requestedURL }
+            let directory = requestedURL.deletingLastPathComponent()
+            let baseName = requestedURL.deletingPathExtension().lastPathComponent
+            let fileExtension = requestedURL.pathExtension
+            var suffix = 2
+            while true {
+                var candidate = directory.appendingPathComponent("\(baseName) (\(suffix))")
+                if !fileExtension.isEmpty { candidate.appendPathExtension(fileExtension) }
+                if !fileManager.fileExists(atPath: candidate.path) { return candidate }
+                suffix += 1
             }
         }
 

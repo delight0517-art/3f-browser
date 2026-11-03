@@ -4,6 +4,12 @@ import XCTest
 @testable import ThreeFBrowser
 
 final class BrowserThemeTests: XCTestCase {
+    func testThreeFYouTubeReporterWaitsForFocusFenceQuotaBeforePlayback() {
+        XCTAssertTrue(YouTubeUsageReporter.script.contains("blocked = true;"))
+        XCTAssertTrue(YouTubeUsageReporter.script.contains("u.searchParams.set('browser','3f')"))
+        XCTAssertTrue(YouTubeUsageReporter.script.contains("blocked = !policy || policy.youtubeQuotaBlocked !== false"))
+    }
+
     func testAddressBarUsesSelectedSearchProviderAndRejectsURLCredentials() throws {
         let google = try XCTUnwrap(AddressBarNavigationRequest.resolve("cats", searchProvider: .google))
         XCTAssertEqual(google.host, "www.google.com")

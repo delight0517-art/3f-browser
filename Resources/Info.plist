@@ -14,6 +14,8 @@
 	<string>3F Browser</string>
 	<key>CFBundleDisplayName</key>
 	<string>3F Browser</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.web-browsers</string>
 	<key>CFBundleIconFile</key>
 	<string>3f-icon.icns</string>
 	<key>CFBundlePackageType</key>
@@ -21,11 +23,32 @@
 	<key>CFBundleShortVersionString</key>
 	<string>0.1.0</string>
 	<key>CFBundleVersion</key>
-	<string>1</string>
+	<string>2</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>HTML document</string>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>html</string>
+				<string>htm</string>
+				<string>shtml</string>
+				<string>xht</string>
+				<string>xhtml</string>
+			</array>
+			<key>CFBundleTypeOSTypes</key>
+			<array>
+				<string>HTML</string>
+			</array>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+		</dict>
+	</array>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -34,6 +57,15 @@
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>threef</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>3F Browser web links</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>http</string>
+				<string>https</string>
 			</array>
 		</dict>
 	</array>

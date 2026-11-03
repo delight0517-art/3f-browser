@@ -1,0 +1,288 @@
+import Foundation
+import XCTest
+import WebKit
+@testable import ThreeFBrowser
+
+final class ThreeFBrowserControlTests: XCTestCase {
+    func testFocusFenceContactRequiresAValidRulesPayload() {
+        XCTAssertTrue(ThreeFBrowserControlController.usableFocusFenceRules(
+            Data(#"{"blockedDomains":[],"blockedUrlParts":[],"keywords":[],"blockExceptions":[]}"#.utf8)
+        ))
+        XCTAssertFalse(ThreeFBrowserControlController.usableFocusFenceRules(
+            Data(#"{"blockedDomains":[],"blockedUrlParts":[]}"#.utf8)
+        ))
+        XCTAssertFalse(ThreeFBrowserControlController.usableFocusFenceRules(
+            Data(#"{"blockedDomains":[],"blockedUrlParts":[],"keywords":null}"#.utf8)
+        ))
+        XCTAssertFalse(ThreeFBrowserControlController.usableFocusFenceRules(
+            Data(#"{"blockedDomains":[],"blockedUrlParts":[],"keywords":[],"blockExceptions":null}"#.utf8)
+        ))
+        XCTAssertFalse(ThreeFBrowserControlController.usableFocusFenceRules(
+            Data(#"{"blockedDomains":[],"blockedUrlParts":[],"keywords":[]}"#.utf8)
+        ))
+        XCTAssertFalse(ThreeFBrowserControlController.usableFocusFenceRules(
+            Data(#"{"blockedDomains":[]}"#.utf8)
+        ))
+        XCTAssertFalse(ThreeFBrowserControlController.usableFocusFenceRules(Data("not-json".utf8)))
+    }
+
+    @MainActor
+    func testFocusFenceRulesAllowUnlistedHostAndBlockDomainAndURLPart() throws {
+        let rules = Data(#"{"blockedDomains":["www.blocked.example"],"blockedUrlParts":["disallowed-path"],"keywords":["hiddenword"],"blockExceptions":[]}"#.utf8)
+        XCTAssertEqual(ThreeFBrowserControlController.focusFenceAllows(URL(string: "https://developer.apple.com")!, rules: rules), true)
+        XCTAssertEqual(ThreeFBrowserControlController.focusFenceAllows(URL(string: "https://sub.blocked.example/page")!, rules: rules), false)
+        XCTAssertEqual(ThreeFBrowserControlController.focusFenceAllows(URL(string: "https://example.com/disallowed-path")!, rules: rules), false)
+        XCTAssertEqual(ThreeFBrowserControlController.focusFenceAllows(URL(string: "https://example.com/search?q=hiddenword")!, rules: rules), false)
+    }
+
+    func testFocusFenceRulesNormalizeWWWAndBlockProxyDestination() throws {
+        let pathRules = Data(#"{"blockedDomains":[],"blockedUrlParts":["blocked.example/disallowed"],"keywords":[],"blockExceptions":[]}"#.utf8)
+        XCTAssertEqual(ThreeFBrowserControlController.focusFenceAllows(URL(string: "https://www.blocked.example/disallowed")!, rules: pathRules), false)
+
+        let proxyRules = Data(#"{"blockedDomains":["blocked.example"],"blockedUrlParts":[],"keywords":[],"blockExceptions":[]}"#.utf8)
+        XCTAssertEqual(ThreeFBrowserControlController.focusFenceAllows(URL(string: "https://proxy.example/?target=https%3A%2F%2Fblocked.example%2Fpage")!, rules: proxyRules), false)
+    }
+
+    func testFocusFenceExceptionAndUnavailableRulesAreHandled() throws {
+        let rules = Data(#"{"blockedDomains":["blocked.example"],"blockedUrlParts":["forbidden"],"keywords":["hiddenword"],"blockExceptions":["example.com"]}"#.utf8)
+        XCTAssertEqual(ThreeFControlControllerTestShim.evaluate("https://blocked.example", rules: rules), false)
+        XCTAssertEqual(ThreeFControlControllerTestShim.evaluate("https://sub.example.com/forbidden?q=hiddenword", rules: rules), true)
+        XCTAssertNil(ThreeFControlControllerTestShim.evaluate("https://developer.apple.com", rules: Data("{}".utf8)))
+        XCTAssertNil(ThreeFControlControllerTestShim.evaluate(
+            "https://developer.apple.com",
+            rules: Data(#"{"blockedDomains":[],"blockedUrlParts":[],"keywords":[]}"#.utf8)
+        ), "a policy missing its exception list is malformed and must fail closed")
+    }
+
+    func testWebKitNavigationRequiresFocusFenceApprovalIncludingDownloads() {
+        XCTAssertEqual(BrowserWebView.Coordinator.navigationDecision(isAllowed: true, shouldDownload: false, allowsDownloads: true), .allow)
+        XCTAssertEqual(BrowserWebView.Coordinator.navigationDecision(isAllowed: false, shouldDownload: false, allowsDownloads: true), .cancel)
+        XCTAssertEqual(BrowserWebView.Coordinator.navigationDecision(isAllowed: nil, shouldDownload: false, allowsDownloads: true), .cancel)
+        XCTAssertEqual(BrowserWebView.Coordinator.navigationDecision(isAllowed: true, shouldDownload: true, allowsDownloads: true), .download)
+        XCTAssertEqual(BrowserWebView.Coordinator.navigationDecision(isAllowed: false, shouldDownload: true, allowsDownloads: true), .cancel)
+        XCTAssertEqual(BrowserWebView.Coordinator.navigationDecision(isAllowed: true, shouldDownload: true, allowsDownloads: false), .cancel)
+    }
+
+    @MainActor
+    func testControlNavigationFailsClosedWithoutFocusFencePolicy() async throws {
+        let controller = ThreeFBrowserControlController(navigationAuthorizer: { _ in nil })
+        let request = try navigationRequest("https://developer.apple.com/documentation")
+
+        let (status, payload) = await controller.handle(request)
+
+        XCTAssertEqual(status, 503)
+        XCTAssertEqual(payload["ok"] as? Bool, false)
+        XCTAssertEqual(payload["error"] as? String, "Focus Fence navigation policy is unavailable")
+    }
+
+    @MainActor
+    func testControlNavigationStopsWhenFocusFenceDeniesURL() async throws {
+        var checkedHost: String?
+        let controller = ThreeFBrowserControlController(navigationAuthorizer: { url in
+            checkedHost = url.host
+            return false
+        })
+        let request = try navigationRequest("https://developer.apple.com/documentation")
+
+        let (status, payload) = await controller.handle(request)
+
+        XCTAssertEqual(checkedHost, "developer.apple.com")
+        XCTAssertEqual(status, 403)
+        XCTAssertEqual(payload["ok"] as? Bool, false)
+        XCTAssertEqual(payload["error"] as? String, "navigation blocked by Focus Fence")
+    }
+
+    @MainActor
+    func testNavigationWaitsForWebViewCompletionAndPropagatesFailure() async throws {
+        let controller = ThreeFBrowserControlController(navigationAuthorizer: { _ in true })
+        var started = false
+        let target = NSObject()
+        let pending = Task { @MainActor in
+            await controller.performNavigation(for: target) { started = true }
+        }
+
+        try await Task.sleep(nanoseconds: 5_000_000)
+        XCTAssertTrue(started)
+        XCTAssertFalse(pending.isCancelled)
+        controller.navigationDidFinish(for: target)
+        let completed = await pending.value
+        XCTAssertTrue(completed)
+
+        let failed = Task { @MainActor in
+            await controller.performNavigation(for: target) {}
+        }
+        try await Task.sleep(nanoseconds: 5_000_000)
+        controller.navigationDidFail(for: target)
+        let failedResult = await failed.value
+        XCTAssertFalse(failedResult)
+    }
+
+    @MainActor
+    func testNavigationIgnoresCompletionFromAnotherWindow() async throws {
+        let controller = ThreeFBrowserControlController(navigationAuthorizer: { _ in true })
+        let target = NSObject()
+        let otherWindow = NSObject()
+        let pending = Task { @MainActor in
+            await controller.performNavigation(for: target) {}
+        }
+
+        try await Task.sleep(nanoseconds: 5_000_000)
+        controller.navigationDidFinish(for: otherWindow)
+        let secondNavigation = await controller.performNavigation(for: otherWindow) {}
+        XCTAssertFalse(secondNavigation)
+        controller.navigationDidFinish(for: target)
+        let result = await pending.value
+        XCTAssertTrue(result)
+    }
+
+    func testHTTPParserHandlesFragmentedBodyAndNormalizesHeaders() {
+        let first = Data("POST /v1/navigate HTTP/1.1\r\nHost: 127.0.0.1:43210\r\nContent-Length: 29\r\nAuthorization: Bearer sample\r\n\r\n{\"url\":\"https://".utf8)
+        if case .incomplete = ThreeFControlRequestParser.parse(first) {} else { XCTFail("partial request must wait for remaining body") }
+
+        var complete = first
+        complete.append(Data("example.com\"}".utf8))
+        guard case .request(let request) = ThreeFControlRequestParser.parse(complete) else {
+            return XCTFail("complete request should parse")
+        }
+        XCTAssertEqual(request.method, "POST")
+        XCTAssertEqual(request.path, "/v1/navigate")
+        XCTAssertEqual(request.headers["host"], "127.0.0.1:43210")
+        XCTAssertEqual(request.headers["authorization"], "Bearer sample")
+        XCTAssertEqual(String(data: request.body, encoding: .utf8), "{\"url\":\"https://example.com\"}")
+    }
+
+    func testHTTPParserRejectsOversizedBodiesDuplicateHeadersAndTransferEncoding() {
+        let oversized = Data("POST /v1/act HTTP/1.1\r\nHost: 127.0.0.1:1\r\nContent-Length: 16385\r\n\r\n".utf8)
+        guard case .invalid(413, _) = ThreeFControlRequestParser.parse(oversized) else { return XCTFail("oversized body must reject") }
+
+        let duplicate = Data("GET /v1/status HTTP/1.1\r\nHost: a\r\nHost: b\r\n\r\n".utf8)
+        guard case .invalid(400, _) = ThreeFControlRequestParser.parse(duplicate) else { return XCTFail("duplicate headers must reject") }
+
+        let chunked = Data("POST /v1/act HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n".utf8)
+        guard case .invalid(400, _) = ThreeFControlRequestParser.parse(chunked) else { return XCTFail("chunked request must reject") }
+    }
+
+    @MainActor
+    func testLoopbackControlServerRequiresTokenAndRemovesTemporaryDescriptor() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("threef-control-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let descriptorURL = root.appendingPathComponent("only-chat-control.json")
+        let server = ThreeFBrowserControlServer(descriptorURL: descriptorURL)
+        server.start()
+        defer { server.stop() }
+
+        var descriptor: [String: Any]?
+        for _ in 0..<50 {
+            if let data = try? Data(contentsOf: descriptorURL),
+               let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                descriptor = value
+                break
+            }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        let value = try XCTUnwrap(descriptor)
+        XCTAssertEqual(value["host"] as? String, "127.0.0.1")
+        let port = try XCTUnwrap(value["port"] as? Int)
+        let token = try XCTUnwrap(value["token"] as? String)
+        XCTAssertEqual(token.count, 96)
+        XCTAssertEqual((try FileManager.default.attributesOfItem(atPath: descriptorURL.path)[.posixPermissions] as? NSNumber)?.intValue, 0o600)
+
+        let endpoint = URL(string: "http://127.0.0.1:\(port)/v1/status")!
+        var unauthorizedRequest = URLRequest(url: endpoint)
+        unauthorizedRequest.timeoutInterval = 2
+        let (unauthorizedData, unauthorizedResponse) = try await URLSession.shared.data(for: unauthorizedRequest)
+        XCTAssertEqual((unauthorizedResponse as? HTTPURLResponse)?.statusCode, 401)
+        XCTAssertEqual((try JSONSerialization.jsonObject(with: unauthorizedData) as? [String: Any])?["error"] as? String, "unauthorized")
+
+        var authorizedRequest = URLRequest(url: endpoint)
+        authorizedRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        authorizedRequest.timeoutInterval = 2
+        let (_, authorizedResponse) = try await URLSession.shared.data(for: authorizedRequest)
+        XCTAssertEqual((authorizedResponse as? HTTPURLResponse)?.statusCode, 503, "the authenticated API reaches the controller, which has no WKWebView in this test")
+
+        server.stop()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: descriptorURL.path))
+    }
+
+    @MainActor
+    func testStoppingOlderControlServerPreservesTheNewerServersDescriptor() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("threef-control-owner-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let descriptorURL = root.appendingPathComponent("only-chat-control.json")
+        let older = ThreeFBrowserControlServer(descriptorURL: descriptorURL)
+        let newer = ThreeFBrowserControlServer(descriptorURL: descriptorURL)
+        defer { older.stop(); newer.stop() }
+
+        older.start()
+        let oldToken = try await waitForDescriptorToken(at: descriptorURL)
+        newer.start()
+        let newToken = try await waitForDescriptorToken(at: descriptorURL, differentFrom: oldToken)
+        XCTAssertNotEqual(oldToken, newToken)
+
+        older.stop()
+        let survivingToken = try await waitForDescriptorToken(at: descriptorURL)
+        XCTAssertEqual(survivingToken, newToken)
+
+        newer.stop()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: descriptorURL.path))
+    }
+
+    @MainActor
+    func testActiveServerReclaimsDescriptorLeftByTerminatedInstance() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("threef-control-reclaim-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let descriptorURL = root.appendingPathComponent("only-chat-control.json")
+        let server = ThreeFBrowserControlServer(descriptorURL: descriptorURL)
+        server.start()
+        defer { server.stop() }
+
+        _ = try await waitForDescriptorToken(at: descriptorURL)
+        let liveDescriptor = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: descriptorURL)) as? [String: Any]
+        )
+        let livePort = try XCTUnwrap(liveDescriptor["port"] as? Int)
+        let staleDescriptor: [String: Any] = [
+            "schemaVersion": 1,
+            "host": "127.0.0.1",
+            "port": 1,
+            "token": String(repeating: "x", count: 96)
+        ]
+        try JSONSerialization.data(withJSONObject: staleDescriptor).write(to: descriptorURL, options: .atomic)
+
+        server.publishForActiveInstance()
+
+        let repairedDescriptor = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: descriptorURL)) as? [String: Any]
+        )
+        XCTAssertEqual(repairedDescriptor["port"] as? Int, livePort)
+        XCTAssertNotEqual(repairedDescriptor["token"] as? String, staleDescriptor["token"] as? String)
+    }
+
+    @MainActor
+    private func waitForDescriptorToken(at url: URL, differentFrom priorToken: String? = nil) async throws -> String {
+        for _ in 0..<50 {
+            if let data = try? Data(contentsOf: url),
+               let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let token = value["token"] as? String,
+               token != priorToken {
+                return token
+            }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        throw URLError(.timedOut)
+    }
+
+    private func navigationRequest(_ url: String) throws -> ThreeFControlRequest {
+        let body = try JSONSerialization.data(withJSONObject: ["url": url])
+        return ThreeFControlRequest(method: "POST", path: "/v1/navigate", headers: [:], body: body)
+    }
+}
+
+private enum ThreeFControlControllerTestShim {
+    static func evaluate(_ value: String, rules: Data) -> Bool? {
+        ThreeFBrowserControlController.focusFenceAllows(URL(string: value)!, rules: rules)
+    }
+}

@@ -33,6 +33,12 @@ enum SearchProvider: String, CaseIterable, Identifiable {
         components.queryItems = [URLQueryItem(name: "q", value: query)]
         return components.url
     }
+
+    func ownsSearchURL(_ url: URL) -> Bool {
+        guard let expected = searchURL(for: ""),
+              url.host?.lowercased() == expected.host?.lowercased() else { return false }
+        return url.path == expected.path
+    }
 }
 
 struct BrowserTheme: Codable, Equatable, Sendable {
@@ -52,7 +58,16 @@ struct BrowserTheme: Codable, Equatable, Sendable {
         quickLinks = try container.decodeIfPresent([BrowserQuickLink].self, forKey: .quickLinks) ?? []
     }
 
-    static let standard = BrowserTheme(accentHex: "#0A84FF")
+    static let standard = BrowserTheme(
+        accentHex: "#7950D9",
+        quickLinks: [
+            BrowserQuickLink(title: "YouTube", url: "https://youtube.com"),
+            BrowserQuickLink(title: "ChatGPT", url: "https://chatgpt.com"),
+            BrowserQuickLink(title: "Gemini", url: "https://gemini.google.com"),
+            BrowserQuickLink(title: "Drive", url: "https://drive.google.com"),
+            BrowserQuickLink(title: "Docs", url: "https://docs.google.com")
+        ]
+    )
 
     var isValid: Bool {
         let value = accentHex
@@ -62,7 +77,7 @@ struct BrowserTheme: Codable, Equatable, Sendable {
     }
 
     var color: Color {
-        let value = UInt64(accentHex.dropFirst(), radix: 16) ?? 0x0A84FF
+        let value = UInt64(accentHex.dropFirst(), radix: 16) ?? 0x7950D9
         return Color(
             .sRGB,
             red: Double((value >> 16) & 0xFF) / 255,
@@ -94,6 +109,13 @@ struct BrowserQuickLink: Codable, Equatable, Sendable, Identifiable {
     }
 }
 
+struct BrowserHistoryEntry: Codable, Equatable, Identifiable {
+    let url: String
+    let title: String
+    let visitedAt: Date
+    var id: String { "\(url)|\(visitedAt.timeIntervalSince1970)" }
+}
+
 @MainActor
 final class BrowserModel: ObservableObject {
     @Published var searchProvider: SearchProvider {
@@ -104,14 +126,45 @@ final class BrowserModel: ObservableObject {
     @Published var addressText = ""
     @Published var currentURL: URL?
     @Published var navigationRequestID = 0
+    @Published var isLoading = false
     @Published var isShowingSettings = false
+    @Published var downloadStatus: String?
+    @Published var addressBlockNotice: String?
+    @Published private(set) var youtubeUsageSummary: FocusFenceYouTubeUsageSummary?
+    @Published private(set) var youtubeUsageUnavailable = false
     @Published private(set) var theme = BrowserTheme.standard
     @Published private(set) var themeModuleStatus = "기본 테마"
+    @Published private(set) var bookmarks: [BrowserQuickLink] = []
+    @Published private(set) var history: [BrowserHistoryEntry] = []
+    private var navigationAuthorizationID: UUID?
     private let hotModuleStore = HotModuleStore()
+    private let bookmarksKey = "browser.v1.bookmarks"
+    private let historyKey = "browser.v1.history"
+
+    var isYouTubePage: Bool {
+        guard let host = currentURL?.host?.lowercased() else { return false }
+        return host == "youtu.be" || ((host == "youtube.com" || host.hasSuffix(".youtube.com")) && host != "music.youtube.com")
+    }
+
+    var youtubeUsagePollKey: String? {
+        isYouTubePage ? currentURL?.host?.lowercased() : nil
+    }
+
+    var youtubeUsageStatusLabel: String {
+        guard isYouTubePage else { return "" }
+        if let youtubeUsageSummary { return youtubeUsageSummary.compactStatusLine }
+        return youtubeUsageUnavailable ? "Focus Fence 사용량 확인 불가" : "Focus Fence 사용량 확인 중"
+    }
+
+    var youtubeUsageDetail: String {
+        youtubeUsageSummary?.statusLine ?? youtubeUsageStatusLabel
+    }
 
     init() {
         let savedProvider = UserDefaults.standard.string(forKey: SearchProvider.preferenceKey)
         searchProvider = SearchProvider(rawValue: savedProvider ?? "") ?? .google
+        bookmarks = Self.load([BrowserQuickLink].self, forKey: bookmarksKey) ?? BrowserTheme.standard.quickLinks
+        history = Self.load([BrowserHistoryEntry].self, forKey: historyKey) ?? []
         reloadThemeModule()
     }
 
@@ -174,19 +227,26 @@ final class BrowserModel: ObservableObject {
         var errorDescription: String? { "테마 JSON은 #RRGGBB 형식의 accentHex 값만 허용합니다." }
     }
 
-    func submit(_ text: String) {
+    func submit(
+        _ text: String,
+        authorize: (((URL, @escaping (BrowserNavigationAuthorizationDecision) -> Void) -> Void))? = nil
+    ) {
         let input = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !input.isEmpty else { return }
-
-        let destination = AddressBarNavigationRequest.resolve(input, searchProvider: searchProvider)
-        guard let destination else { return }
-
-        currentURL = destination
-        addressText = input
-        navigationRequestID += 1
+        addressBlockNotice = nil
+        isLoading = true
+        guard let destination = AddressBarNavigationRequest.resolve(input, searchProvider: searchProvider) else {
+            isLoading = false
+            addressBlockNotice = "주소나 검색어를 확인해 주세요."
+            return
+        }
+        authorizeAndNavigate(destination, address: input, authorize: authorize)
     }
 
-    func openExternalURL(_ deepLink: URL) {
+    func openExternalURL(
+        _ deepLink: URL,
+        authorize: (((URL, @escaping (BrowserNavigationAuthorizationDecision) -> Void) -> Void))? = nil
+    ) {
         guard deepLink.scheme?.lowercased() == "threef",
               deepLink.host?.lowercased() == "open",
               let components = URLComponents(url: deepLink, resolvingAgainstBaseURL: false),
@@ -198,27 +258,167 @@ final class BrowserModel: ObservableObject {
               destination.user == nil,
               destination.password == nil else { return }
 
-        currentURL = destination
-        addressText = destination.absoluteString
-        navigationRequestID += 1
+        authorizeAndNavigate(destination, address: destination.absoluteString, authorize: authorize)
+    }
+
+    func navigate(
+        to destination: URL,
+        authorize: (((URL, @escaping (BrowserNavigationAuthorizationDecision) -> Void) -> Void))? = nil
+    ) {
+        guard let scheme = destination.scheme?.lowercased(), ["http", "https"].contains(scheme),
+              destination.host != nil, destination.user == nil, destination.password == nil else { return }
+        authorizeAndNavigate(destination, address: destination.absoluteString, authorize: authorize)
     }
 
     func showNewTab() {
         currentURL = nil
         addressText = ""
+        isLoading = false
+        navigationAuthorizationID = nil
     }
 
-    func openQuickLink(_ link: BrowserQuickLink) {
+    func pageDidStartNavigation(to url: URL?) {
+        navigationAuthorizationID = nil
+        if let url,
+           let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme),
+           url.host != nil, url.user == nil, url.password == nil {
+            currentURL = url
+            addressText = url.absoluteString
+        }
+        addressBlockNotice = nil
+        isLoading = true
+    }
+
+    func openQuickLink(
+        _ link: BrowserQuickLink,
+        authorize: (((URL, @escaping (BrowserNavigationAuthorizationDecision) -> Void) -> Void))? = nil
+    ) {
         guard let destination = link.destination else { return }
-        currentURL = destination
-        addressText = destination.absoluteString
-        navigationRequestID += 1
+        authorizeAndNavigate(destination, address: destination.absoluteString, authorize: authorize)
     }
 
-    func pageDidNavigate(to url: URL?) {
+    private func authorizeAndNavigate(
+        _ destination: URL,
+        address: String,
+        authorize: (((URL, @escaping (BrowserNavigationAuthorizationDecision) -> Void) -> Void))?
+    ) {
+        addressBlockNotice = nil
+        addressText = address
+        isLoading = true
+        guard let authorize else {
+            navigationAuthorizationID = nil
+            currentURL = destination
+            navigationRequestID += 1
+            return
+        }
+        let authorizationID = UUID()
+        navigationAuthorizationID = authorizationID
+        authorize(destination) { [weak self] decision in
+            guard let self, self.navigationAuthorizationID == authorizationID else { return }
+            self.navigationAuthorizationID = nil
+            guard decision.isAllowed else {
+                self.pageDidRejectNavigation(decision)
+                return
+            }
+            self.currentURL = destination
+            self.navigationRequestID += 1
+        }
+    }
+
+    func pageDidNavigate(to url: URL?, title: String? = nil) {
         guard let url else { return }
+        navigationAuthorizationID = nil
         currentURL = url
         addressText = url.absoluteString
+        isLoading = false
+        if !isYouTubePage { clearYouTubeUsage() }
+        recordVisit(to: url, title: title?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? url.host ?? url.absoluteString)
     }
 
+    func refreshYouTubeUsage() async {
+        guard isYouTubePage, let requestedURL = currentURL else {
+            clearYouTubeUsage()
+            return
+        }
+        guard let summary = await FocusFenceYouTubeUsageClient.fetch(),
+              currentURL == requestedURL, isYouTubePage else {
+            guard currentURL == requestedURL, isYouTubePage else { return }
+            youtubeUsageSummary = nil
+            youtubeUsageUnavailable = true
+            return
+        }
+        youtubeUsageSummary = summary
+        youtubeUsageUnavailable = false
+    }
+
+    func clearYouTubeUsage() {
+        youtubeUsageSummary = nil
+        youtubeUsageUnavailable = false
+    }
+
+    func pageDidFailToNavigate(_ error: Error) {
+        guard (error as NSError).code != NSURLErrorCancelled else { return }
+        isLoading = false
+        addressBlockNotice = "페이지 연결에 실패했습니다. 네트워크나 Focus Fence 제한을 확인해 주세요."
+    }
+
+    func pageDidRejectNavigation(_ decision: BrowserNavigationAuthorizationDecision) {
+        isLoading = false
+        switch decision {
+        case .allowed:
+            addressBlockNotice = nil
+        case .blocked:
+            addressBlockNotice = "Focus Fence 규칙에 따라 이 페이지를 차단했습니다."
+        case .youtubeBlocked:
+            addressBlockNotice = "YouTube가 Focus Fence에서 제한 중입니다. 한도·스케줄 설정을 확인해 주세요."
+        case .unavailable:
+            addressBlockNotice = "Focus Fence에 연결할 수 없어 열지 못했습니다. 연결을 확인한 뒤 다시 시도해 주세요."
+        }
+    }
+
+    func addBookmarkForCurrentPage() {
+        guard let url = currentURL,
+              ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+              url.user == nil, url.password == nil else { return }
+        let value = BrowserQuickLink(title: url.host ?? url.absoluteString, url: url.absoluteString)
+        guard value.isValid, !bookmarks.contains(where: { $0.url == value.url }) else { return }
+        bookmarks.insert(value, at: 0)
+        if bookmarks.count > 100 { bookmarks = Array(bookmarks.prefix(100)) }
+        Self.save(bookmarks, forKey: bookmarksKey)
+    }
+
+    func removeBookmark(_ bookmark: BrowserQuickLink) {
+        bookmarks.removeAll { $0.id == bookmark.id }
+        Self.save(bookmarks, forKey: bookmarksKey)
+    }
+
+    func clearHistory() {
+        history = []
+        Self.save(history, forKey: historyKey)
+    }
+
+    private func recordVisit(to url: URL, title: String) {
+        guard ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+              url.user == nil, url.password == nil else { return }
+        let entry = BrowserHistoryEntry(url: url.absoluteString, title: title, visitedAt: Date())
+        history.removeAll { $0.url == entry.url }
+        history.insert(entry, at: 0)
+        if history.count > 100 { history = Array(history.prefix(100)) }
+        Self.save(history, forKey: historyKey)
+    }
+
+    private static func load<Value: Decodable>(_ type: Value.Type, forKey key: String) -> Value? {
+        guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
+        return try? JSONDecoder().decode(type, from: data)
+    }
+
+    private static func save<Value: Encodable>(_ value: Value, forKey key: String) {
+        guard let data = try? JSONEncoder().encode(value) else { return }
+        UserDefaults.standard.set(data, forKey: key)
+    }
+
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
 }

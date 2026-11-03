@@ -8,7 +8,7 @@ final class ThreeFURLRouter: ObservableObject {
     @Published private(set) var pendingURLs: [URL] = []
 
     func receive(_ urls: [URL]) {
-        let supported = urls.filter(Self.isSupportedNavigationURL)
+        let supported = urls.compactMap(Self.normalizedNavigationURL)
         guard !supported.isEmpty else { return }
         pendingURLs.append(contentsOf: supported)
     }
@@ -19,17 +19,32 @@ final class ThreeFURLRouter: ObservableObject {
         return urls
     }
 
-    private static func isSupportedNavigationURL(_ url: URL) -> Bool {
+    private static func normalizedNavigationURL(_ url: URL) -> URL? {
+        if isSafeWebURL(url) {
+            var deepLink = URLComponents()
+            deepLink.scheme = "threef"
+            deepLink.host = "open"
+            deepLink.queryItems = [URLQueryItem(name: "url", value: url.absoluteString)]
+            return deepLink.url
+        }
+
         guard url.scheme?.lowercased() == "threef",
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
               components.user == nil,
               components.password == nil,
               components.port == nil,
-              components.host == "open" else {
-            return false
-        }
-        return components.queryItems?.contains(where: {
-            $0.name == "url" && $0.value.flatMap(URL.init(string:))?.scheme?.lowercased() == "https"
-        }) == true
+              components.host == "open",
+              let target = components.queryItems?.first(where: { $0.name == "url" })?.value.flatMap(URL.init(string:)),
+              target.scheme?.lowercased() == "https",
+              target.host != nil,
+              target.user == nil,
+              target.password == nil else { return nil }
+        return url
+    }
+
+    private static func isSafeWebURL(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme),
+              url.host != nil, url.user == nil, url.password == nil else { return false }
+        return true
     }
 }
