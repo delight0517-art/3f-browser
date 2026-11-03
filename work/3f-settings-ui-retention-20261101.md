@@ -1,0 +1,7 @@
+# 3F settings redesign — output retention (2026-11-01 KST)
+
+- Installed replacement: `/Users/rogan/Applications/3F Browser.app`, bundle `com.rogan.threef.browser`, version/build `0.1.0+2`, executable SHA-256 `1ed3babfbeb784c808a0a7a2caf143b05dde0eba600fadd7ec5329a8d9c1c709`; strict signature verified and relaunch/UI proof passed.
+- Kept one rollback: `/Users/rogan/Applications/.3F Browser.settings-rollback.app`, prior executable SHA-256 `e987b3d9d89c4b5f33120d885046cb80b38cfb8e3fa67c78519e562f52ee536a`.
+- Moved the two superseded bundles `/Users/rogan/Applications/3F Browser.app.rollback-20261030-design` and `/Users/rogan/Applications/3F Browser.app.rollback-20261031-preinstall` to Finder Trash (recoverable; Trash was not emptied). Neither had a running process; matching rebuild bundles remain at `.build/parity-candidate/3F Browser.app` (SHA-256 `2d3cbfeddc8ee5386ab9000b7ab5c79a48ca7d0ae22e5480ae001a8dc9b97c22`) and `.build/focusfence-candidate/3F Browser.app` (SHA-256 `ec3b2a1848e553b7b4af23a1e134ec2cf588ec654b257e0b319de7694f0f2af8`).
+- Task-generated package output: `/Users/rogan/Library/Caches/CodexManagedArtifacts/3f-settings-package-output-20261101`, declared in delivery-proof for automatic 8-day expiry after close.
+- Available space after the build and retention action: 47.84 GiB; the 20 GiB reserve remains. No source, app preferences, browser data, or build cache was removed.

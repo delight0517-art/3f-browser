@@ -1,0 +1,9 @@
+# 3F Browser Windows feature parity retention receipt — 2026-10-30
+
+- Canonical source retained in `/Users/rogan/appDev/apps/3f-browser-mac`; pre-existing OnlyChat integration changes and receipts were preserved.
+- Final candidate retained at `/Users/rogan/appDev/apps/3f-browser-mac/.build/parity-candidate/3F Browser.app` (executable SHA-256 `2d3cbfeddc8ee5386ab9000b7ab5c79a48ca7d0ae22e5480ae001a8dc9b97c22`).
+- Installed app retained at `/Users/rogan/Applications/3F Browser.app` with the same executable hash; previous app retained as the sole rollback at `/Users/rogan/Applications/3F Browser.app.rollback-20261030-design` (hash `a75464f8d53456e9c683755f5fcdb60ca3e17712487a1a7c4ed46f5b6e482724`).
+- Superseded design-only candidate `.build/design-candidate/3F Browser.app` (1.6 MiB) was removed after confirming no process held its executable and the newer installed build passed launch and UI verification. The older redundant rollback was already replaced during installation.
+- No browser data, profiles, user files, or unrelated source/build outputs were removed. No downloaded file was created.
+- Post-install available disk space remained above 56 GiB, preserving the 20 GiB reserve.
+- 2026-10-30 23:50 KST follow-up: refreshed the existing `.build/keyboard-parity-candidate/3F Browser.app` in place from current source for isolated E2E. The retained candidate now uses QA bundle ID `com.rogan.threef.browser.qa.20261030`, executable SHA-256 `e4ced7807a97554cabb94ba33bb050a38fd63921c6ec60110775c17b7a9a0662`. It passed strict codesign and `workflow-control verify-mac`, then completed Only Chat bridge navigation, text/ARIA read, and history in a disposable HOME/profile. The installed production app and existing rollback were not changed; this single candidate remains retained for follow-up runtime work.

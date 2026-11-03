@@ -1,0 +1,6 @@
+# 3F QA candidate retention — 2026-11-01 19:24 KST
+
+- Current source candidate retained: `.build/qa-release-external-links-20261101/3F Browser.app` (Release package rebuilt after the external deep-link Focus Fence authorization fix; isolated bundle ID `com.rogan.threef.browser.qa.externallinks20261101`; URL handlers removed; strict code-signature verification and `workflow-control verify-mac` passed; executable SHA-256 `4446d2fa233a8e2e69f7042feb0a48a30e18d468bde8ee14c8837d8c2262a992`). Not installed or launched.
+- One previous verified candidate retained as rollback: `.build/qa-release-authorized-shortcut-20261101/3F Browser.app` (strict signature and local-dev verification recorded earlier; no longer current source after the deep-link fix). It is not installed or running.
+- Active-reference checks: `lsof` returned no open executable reference for either candidate. The live installed `/Users/rogan/Applications/3F Browser.app` process is separate and remains owned by the peer Only Chat task; it was not modified.
+- No existing outputs removed. Other generated content under `.build` was preserved because source-task ownership/reference was not established. This task's post-build available space was 28.01 GiB, above the required 20 GiB reserve.
