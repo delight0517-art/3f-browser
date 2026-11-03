@@ -12,6 +12,16 @@ final class FocusFenceConnectionService: ObservableObject {
     private let expectedFilterBundleID = "com.rogan.VeliMac.NetworkFilter"
 
     func refresh() async {
+        guard OptionalFeatureAvailability.focusFenceEnforcement
+                || OptionalFeatureAvailability.youtubeUsageReporting
+                || OptionalFeatureAvailability.youtubePreviewBlocking else {
+            recognitionStatus = "연동 기능 비활성 · TODO"
+            rulesStatus = "비활성 · 일반 페이지 이동 허용"
+            filterStatus = "확인하지 않음 · 연동 비활성"
+            detail = "Focus Fence 연동은 검증 전까지 꺼져 있습니다. 일반 웹 탐색은 사용할 수 있으며, 사이트 차단과 YouTube 연동은 완료 후 앱 업데이트로 켭니다."
+            return
+        }
+
         recognitionStatus = "확인 중…"
         rulesStatus = "확인 중…"
         filterStatus = "확인 중…"
