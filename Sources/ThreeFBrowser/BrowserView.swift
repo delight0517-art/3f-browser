@@ -40,7 +40,9 @@ struct BrowserView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if !embedded {
+            if embedded {
+                tabStrip
+            } else {
                 VStack(spacing: 0) {
                     tabStrip
                     addressBar
