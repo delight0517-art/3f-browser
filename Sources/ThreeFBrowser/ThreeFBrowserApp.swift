@@ -61,9 +61,6 @@ final class ThreeFBrowserAppDelegate: NSObject, NSApplicationDelegate {
         controlServer = nil
     }
 
-    func application(_ application: NSApplication, open urls: [URL]) {
-        ThreeFURLRouter.shared.receive(urls)
-    }
 }
 
 private extension NSWindow {
@@ -109,6 +106,9 @@ struct ThreeFBrowserApp: App {
                 }
             )
                 .environmentObject(ThreeFURLRouter.shared)
+                .onOpenURL { url in
+                    ThreeFURLRouter.shared.receive([url])
+                }
         }
     }
 }
