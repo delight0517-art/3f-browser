@@ -7,11 +7,12 @@ const source = fs.readFileSync(path.join(__dirname, '../Sources/ThreeFBrowser/Yo
 const match = source.match(/static let script = #"""([\s\S]*?)"""#/);
 assert.ok(match, 'Swift YouTubeUsageReporter script literal exists');
 
-async function run(host, quotaBlocked = true, { failFirstAck = false, videoAtStart = true, playbackRate = 1 } = {}) {
+async function run(host, quotaBlocked = true, { failFirstAck = false, videoAtStart = true, playbackRate = 1, remainingSeconds = -1 } = {}) {
   let paused = 0;
   let now = 1;
   let timer;
   let currentQuotaBlocked = quotaBlocked;
+  let currentRemainingSeconds = remainingSeconds;
   let videoPresent = videoAtStart;
   let acceptedReports = new Set();
   let serverWatchSeconds = 0;
@@ -23,7 +24,7 @@ async function run(host, quotaBlocked = true, { failFirstAck = false, videoAtSta
     async postMessage(message) {
       if (message.type === 'policy') {
         rulesReads += 1;
-        return { youtubeQuotaBlocked: currentQuotaBlocked };
+        return { youtubeQuotaBlocked: currentQuotaBlocked, remainingSeconds: currentRemainingSeconds };
       }
       if (message.type === 'report') {
         const report = message.report;
@@ -32,6 +33,10 @@ async function run(host, quotaBlocked = true, { failFirstAck = false, videoAtSta
           acceptedReports.add(report.reportId);
           serverWatchSeconds += report.watchSeconds;
           serverDwellSeconds += report.seconds;
+          if (currentRemainingSeconds >= 0) {
+            currentRemainingSeconds = Math.max(0, currentRemainingSeconds - report.watchSeconds);
+            if (currentRemainingSeconds === 0) currentQuotaBlocked = true;
+          }
         }
         if (failFirstAck && payloads.length === 1) return { ok: false };
         return { ok: true };
@@ -169,6 +174,26 @@ async function run(host, quotaBlocked = true, { failFirstAck = false, videoAtSta
     'YouTube playback pauses after a refreshed policy reports the quota reached');
   assert.equal(reachesQuota.host, 'youtube.com',
     'quota enforcement pauses playback without navigating away from the YouTube page');
+
+  const exhausted = await run('youtube.com', false, { remainingSeconds: 0 });
+  assert.equal(exhausted.video.paused, true,
+    'a zero remaining allowance blocks playback even before the quota flag refreshes');
+
+  const finalSeconds = await run('youtube.com', false, { videoAtStart: false, remainingSeconds: 3 });
+  finalSeconds.startPlayback();
+  await finalSeconds.reportProgress(1);
+  await finalSeconds.reportProgress(1);
+  await finalSeconds.reportProgress(1);
+  assert.equal(finalSeconds.serverWatchSeconds, 3,
+    'a report is clamped to the exact remaining server-reported quota');
+  assert.equal(finalSeconds.video.paused, true,
+    'playback pauses at the quota boundary without waiting for the five-second batch');
+  assert.equal(finalSeconds.payloads.at(-1).watchSeconds, 3);
+
+  const delayedTick = await run('youtube.com', false, { remainingSeconds: 3 });
+  await delayedTick.reportProgress(5);
+  assert.equal(delayedTick.serverWatchSeconds, 3,
+    'even a delayed timer tick cannot report beyond the remaining allowance');
 
   console.log('YouTube usage reporter host, playback, privacy, retry dedupe, and quota refresh checks passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });

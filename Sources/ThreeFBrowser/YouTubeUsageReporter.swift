@@ -12,7 +12,7 @@ enum YouTubeUsageReporter {
         return bridge.postMessage(payload);
       };
       let lastAt = performance.now(), samples = new Map();
-      let watchMs = 0, blocked = true, wasVisible = document.visibilityState === 'visible';
+      let watchMs = 0, blocked = true, wasVisible = document.visibilityState === 'visible', remainingSeconds = 0;
       let lastPolicyAt = -Infinity, pendingReport = null, sending = false;
       const isYouTubeHost = value => {
         const host = value.toLowerCase().replace(/^\.+|\.+$/g, '');
@@ -29,16 +29,18 @@ enum YouTubeUsageReporter {
         lastPolicyAt = now;
         try {
           const policy = await request({type:'policy'});
+          remainingSeconds = Number.isSafeInteger(policy?.remainingSeconds) ? policy.remainingSeconds : 0;
           blocked = !policy || policy.youtubeQuotaBlocked !== false;
-          if (blocked) stop();
-        } catch (_) { blocked = true; stop(); }
+          blocked = blocked || remainingSeconds === 0;
+          if (blocked) { watchMs = 0; stop(); }
+        } catch (_) { remainingSeconds = 0; blocked = true; watchMs = 0; stop(); }
       };
       const tick = async (flush = false) => {
         await refreshQuota();
         const host = location.hostname.toLowerCase();
         const onYouTube = isYouTubeHost(host);
         const now = performance.now(), elapsed = now - lastAt, current = snapshot();
-        if (onYouTube && wasVisible && elapsed > 0 && elapsed <= 15000) {
+        if (!blocked && onYouTube && wasVisible && elapsed > 0 && elapsed <= 15000) {
           let watchedMs = 0;
           for (const [video, next] of current) {
             const prev = samples.get(video);
@@ -49,19 +51,25 @@ enum YouTubeUsageReporter {
             }
           }
           watchMs += watchedMs;
-        } else if (!onYouTube) {
+        } else if (!onYouTube || blocked) {
           watchMs = 0;
         }
         lastAt = now; samples = current;
         wasVisible = document.visibilityState === 'visible';
         if (blocked) stop();
         if (!onYouTube) return;
-        if (!pendingReport && (flush || watchMs >= 5000)) {
+        const reportThresholdMs = remainingSeconds < 0 ? 5000 : Math.min(5, remainingSeconds) * 1000;
+        if (!pendingReport && (flush || watchMs >= reportThresholdMs)) {
           const watched = Math.floor(watchMs / 1000);
-          if (!watched) return;
-          pendingReport = {host, reportId:crypto.randomUUID(), seconds:watched, watchSeconds:watched,
+          const reportSeconds = remainingSeconds < 0 ? watched : Math.min(watched, remainingSeconds);
+          if (!reportSeconds) return;
+          pendingReport = {host, reportId:crypto.randomUUID(), seconds:reportSeconds, watchSeconds:reportSeconds,
             playing:true,browser:'3f'};
-          watchMs -= watched * 1000;
+          watchMs = remainingSeconds < 0 ? watchMs - reportSeconds * 1000 : Math.max(0, watchMs - reportSeconds * 1000);
+          if (remainingSeconds >= 0) {
+            remainingSeconds -= reportSeconds;
+            if (remainingSeconds === 0) { blocked = true; watchMs = 0; stop(); }
+          }
         }
         if (!pendingReport || sending) return;
         sending = true;
@@ -85,7 +93,7 @@ enum YouTubeUsageReporter {
       }
       document.addEventListener('visibilitychange', () => tick(true), true);
       refreshQuota(true);
-      setInterval(tick, 5000);
+      setInterval(tick, 1000);
       addEventListener('yt-navigate-finish', () => tick(true), true);
     })();
     """#
@@ -171,7 +179,17 @@ final class YouTubeUsageScriptMessageHandler: NSObject, WKScriptMessageHandlerWi
               let blocked = object["youtubeQuotaBlocked"] as? Bool else {
             return ["youtubeQuotaBlocked": true]
         }
-        return ["youtubeQuotaBlocked": blocked]
+        guard let usage = await FocusFenceYouTubeUsageClient.fetch() else {
+            return ["youtubeQuotaBlocked": true, "remainingSeconds": 0]
+        }
+        var remaining = [Int]()
+        if usage.dailyCapMinutes > 0 {
+            remaining.append(max(0, usage.dailyCapMinutes * 60 - usage.todaySeconds))
+        }
+        if usage.hourlyCapMinutes > 0 { remaining.append(usage.hourlyRemainingSeconds) }
+        let remainingSeconds = remaining.min() ?? -1
+        return ["youtubeQuotaBlocked": blocked || usage.blocked || remainingSeconds == 0,
+                "remainingSeconds": remainingSeconds]
     }
 
     private func sendReport(_ payload: [String: Any]) async -> Bool {
