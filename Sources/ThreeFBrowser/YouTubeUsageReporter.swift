@@ -35,8 +35,10 @@ enum YouTubeUsageReporter {
       };
       const tick = async (flush = false) => {
         await refreshQuota();
+        const host = location.hostname.toLowerCase();
+        const onYouTube = isYouTubeHost(host);
         const now = performance.now(), elapsed = now - lastAt, current = snapshot();
-        if (wasVisible && elapsed > 0 && elapsed <= 15000) {
+        if (onYouTube && wasVisible && elapsed > 0 && elapsed <= 15000) {
           let watchedMs = 0;
           for (const [video, next] of current) {
             const prev = samples.get(video);
@@ -47,12 +49,13 @@ enum YouTubeUsageReporter {
             }
           }
           watchMs += watchedMs;
+        } else if (!onYouTube) {
+          watchMs = 0;
         }
         lastAt = now; samples = current;
         wasVisible = document.visibilityState === 'visible';
         if (blocked) stop();
-        const host = location.hostname.toLowerCase();
-        if (!isYouTubeHost(host)) return;
+        if (!onYouTube) return;
         if (!pendingReport && (flush || watchMs >= 5000)) {
           const watched = Math.floor(watchMs / 1000);
           if (!watched) return;

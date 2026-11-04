@@ -72,6 +72,7 @@ async function run(host, quotaBlocked = true, { failFirstAck = false, videoAtSta
     },
     async advance(ms) { now += ms; await timer(); },
     setQuotaBlocked(value) { currentQuotaBlocked = value; },
+    setHost(value) { context.location.hostname = value; },
     get paused() { return paused; },
     get rulesReads() { return rulesReads; },
     get serverWatchSeconds() { return serverWatchSeconds; },
@@ -124,6 +125,18 @@ async function run(host, quotaBlocked = true, { failFirstAck = false, videoAtSta
   await recovers.pausePlayback();
   assert.equal(recovers.payloads.at(-1).watchSeconds, 2,
     'playback usage is reported after policy changes from blocked to allowed');
+
+  const hostSwitch = await run('youtube.com', false);
+  await hostSwitch.reportProgress(2);
+  hostSwitch.setHost('music.youtube.com');
+  await hostSwitch.reportProgress(5);
+  assert.equal(hostSwitch.payloads.length, 0, 'YouTube playback accumulated before a host switch is not reported from YouTube Music');
+  hostSwitch.setHost('youtube.com');
+  await hostSwitch.reportProgress(2);
+  await hostSwitch.pausePlayback();
+  assert.equal(hostSwitch.payloads.length, 1);
+  assert.equal(hostSwitch.payloads[0].watchSeconds, 2,
+    'only playback observed while the active page is on a YouTube watch host is reported');
 
   const reachesQuota = await run('youtube.com', false);
   assert.equal(reachesQuota.video.paused, false, 'under-cap YouTube playback remains allowed');
