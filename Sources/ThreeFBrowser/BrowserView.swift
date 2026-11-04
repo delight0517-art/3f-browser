@@ -106,6 +106,14 @@ struct BrowserView: View {
                 return
             }
             while !Task.isCancelled {
+                if let url = BrowserNavigationURLSync.changedURL(
+                    modelURL: model.currentURL,
+                    webViewURL: webView?.url
+                ) {
+                    let title = webView?.title
+                    model.pageDidNavigate(to: url, title: title)
+                    updateActiveTab(url: url, title: title)
+                }
                 await model.refreshYouTubeUsage()
                 try? await Task.sleep(nanoseconds: 10_000_000_000)
             }
