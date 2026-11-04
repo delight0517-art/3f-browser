@@ -75,7 +75,9 @@ struct MediaSiteCandidateSheet: View {
 
     private func previewSchedule() {
         run {
-            let outcome = try await connection.previewSchedule(scheduleText)
+            let outcome = try await connection.previewSchedule(
+                candidate.scheduleRequestMessage(after: scheduleText)
+            )
             statusMessage = outcome.message + (outcome.scheduleName.map { " · 시간표: \($0)" } ?? "")
             pendingConfirmation = outcome.ok && outcome.requiresConfirm
         }
@@ -83,7 +85,9 @@ struct MediaSiteCandidateSheet: View {
 
     private func confirmSchedule() {
         run {
-            let outcome = try await connection.confirmSchedule(scheduleText)
+            let outcome = try await connection.confirmSchedule(
+                candidate.scheduleRequestMessage(after: scheduleText)
+            )
             statusMessage = outcome.message + (outcome.scheduleName.map { " · 시간표: \($0)" } ?? "")
             if outcome.ok {
                 onResolved(candidate)

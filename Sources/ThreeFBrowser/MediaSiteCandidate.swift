@@ -19,6 +19,17 @@ struct MediaSiteCandidate: Identifiable, Equatable {
 
     var id: String { domain }
 
+    func scheduleRequestMessage(after timeWindow: String) -> String {
+        let timeWindow = timeWindow.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !timeWindow.isEmpty else { return "" }
+        let escapedDomain = NSRegularExpression.escapedPattern(for: domain)
+        let domainPattern = #"(?<![a-zA-Z0-9.-])(?:[a-zA-Z0-9-]+\.)*\#(escapedDomain)(?![a-zA-Z0-9.-])"#
+        if timeWindow.range(of: domainPattern, options: [.regularExpression, .caseInsensitive]) != nil {
+            return timeWindow
+        }
+        return "\(timeWindow) \(domain) 차단"
+    }
+
     static func detect(
         host rawHost: String,
         blockedDomains: [String],
