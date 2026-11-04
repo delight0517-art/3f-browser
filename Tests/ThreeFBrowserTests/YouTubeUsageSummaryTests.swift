@@ -86,10 +86,13 @@ final class YouTubeUsageSummaryTests: XCTestCase {
         let delayedSummary = try XCTUnwrap(FocusFenceYouTubeUsageSummary.decode(delayed))
 
         XCTAssertEqual(currentSummary.accountSyncStatusLine, "계정 한도 최신")
+        XCTAssertTrue(currentSummary.compactStatusLine.hasPrefix("계정 최신"))
         XCTAssertTrue(currentSummary.statusLine.contains("계정 한도 최신"))
         XCTAssertFalse(currentSummary.statusLine.contains("private@example.com"))
         XCTAssertEqual(disconnectedSummary.accountSyncStatusLine, "계정 연결 필요")
+        XCTAssertTrue(disconnectedSummary.compactStatusLine.hasPrefix("연결 필요"))
         XCTAssertEqual(delayedSummary.accountSyncStatusLine, "계정 한도 갱신 지연")
+        XCTAssertTrue(delayedSummary.compactStatusLine.hasPrefix("갱신 지연"))
     }
 
     func testMalformedOrNegativeUsageIsUnavailableInsteadOfShowingZero() throws {

@@ -24,6 +24,14 @@ struct FocusFenceYouTubeUsageSummary: Decodable, Equatable, Sendable {
         return accountBudget.enabled == true ? "계정 한도 최신" : "계정 예산 비활성"
     }
 
+    private var compactAccountSyncStatus: String? {
+        guard cloudSignedIn != nil || accountBudget != nil else { return nil }
+        guard cloudSignedIn == true else { return "연결 필요" }
+        guard let accountBudget, accountBudget.available == true else { return "사용량 불가" }
+        guard accountBudget.fresh == true else { return "갱신 지연" }
+        return accountBudget.enabled == true ? "계정 최신" : "예산 중지"
+    }
+
     static func decode(_ data: Data) -> Self? {
         guard let summary = try? JSONDecoder().decode(Self.self, from: data),
               summary.todaySeconds >= 0,
@@ -57,7 +65,7 @@ struct FocusFenceYouTubeUsageSummary: Decodable, Equatable, Sendable {
         let hourly = hourlyCapMinutes > 0
             ? "최근 1시간 \(Self.duration(hourlyUsedSeconds)) / \(hourlyCapMinutes)분 · 남은 \(Self.duration(hourlyRemainingSeconds))"
             : nil
-        return ([daily, hourly, blocked ? "재생 제한 중" : nil, accountSyncStatusLine].compactMap { $0 }).joined(separator: " · ")
+        return ([compactAccountSyncStatus, daily, hourly, blocked ? "재생 제한 중" : nil].compactMap { $0 }).joined(separator: " · ")
     }
 
     static func duration(_ seconds: Int) -> String {
