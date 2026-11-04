@@ -18,7 +18,9 @@ async function run(host, quotaBlocked = true, {
   let currentRemainingSeconds = remainingSeconds;
   let videoPresent = videoAtStart;
   let acceptedReports = new Set();
+  let acceptedLeaseReports = new Set();
   let serverWatchSeconds = 0;
+  let serverAccountWatchSeconds = 0;
   let serverDwellSeconds = 0;
   let rulesReads = 0;
   const epoch = 1_800_000_000_000;
@@ -26,7 +28,9 @@ async function run(host, quotaBlocked = true, {
   const payloads = [];
   const leaseRequests = [];
   const leaseReports = [];
+  let leaseUnavailable = accountLeaseUnavailable;
   let leaseReportAttempts = 0;
+  let idCounter = 0;
   const bridge = {
     async postMessage(message) {
       if (message.type === 'policy') {
@@ -53,7 +57,7 @@ async function run(host, quotaBlocked = true, {
         if (accountLeaseUnsupported) {
           return { ok: false, status: 400, error: 'invalid_youtube_lease_request' };
         }
-        if (accountLeaseUnavailable) {
+        if (leaseUnavailable) {
           return { ok: false, status: 503, error: 'youtube_lease_unavailable' };
         }
         const startMs = epoch + now;
@@ -67,6 +71,10 @@ async function run(host, quotaBlocked = true, {
         leaseReports.push(message.report);
         leaseReportAttempts += 1;
         if (failFirstLeaseAck && leaseReportAttempts === 1) return { queued: false };
+        if (!acceptedLeaseReports.has(message.report.reportId)) {
+          acceptedLeaseReports.add(message.report.reportId);
+          serverAccountWatchSeconds += message.report.intervals.reduce((sum, [start, end]) => sum + end - start, 0) / 1000;
+        }
         return { queued: true };
       }
       return { ok: false };
@@ -88,7 +96,7 @@ async function run(host, quotaBlocked = true, {
     location: { hostname: host, href: `https://${host}/watch` }, document,
     performance: { now: () => now },
     Date: { now: () => epoch + now },
-    setInterval(callback) { timer = callback; }, addEventListener() {}, crypto: { randomUUID: () => 'test-report' }
+    setInterval(callback) { timer = callback; }, addEventListener() {}, crypto: { randomUUID: () => `test-report-${++idCounter}` }
   };
   vm.runInNewContext(match[1], context);
   await new Promise(resolve => setImmediate(resolve));
@@ -107,6 +115,8 @@ async function run(host, quotaBlocked = true, {
     },
     async advance(ms) { now += ms; await timer(); },
     setQuotaBlocked(value) { currentQuotaBlocked = value; },
+    setAccountLeaseUnavailable(value) { leaseUnavailable = value; },
+    get serverAccountWatchSeconds() { return serverAccountWatchSeconds; },
     setHost(value) { context.location.hostname = value; },
     get host() { return context.location.hostname; },
     seekTo(value) { video.currentTime = value; },
@@ -270,6 +280,25 @@ async function run(host, quotaBlocked = true, {
   assert.equal(sharedServiceUnavailable.payloads.length, 1,
     'a 503 shared-service failure preserves the existing local usage report');
   assert.equal(sharedServiceUnavailable.payloads[0].watchSeconds, 5);
+
+  const recoversSharedService = await run('youtube.com', false, {
+    videoAtStart: false, accountLeaseUnsupported: false, accountLeaseUnavailable: true
+  });
+  recoversSharedService.startPlayback();
+  for (let i = 0; i < 30; i += 1) await recoversSharedService.reportProgress(1);
+  assert.equal(recoversSharedService.leaseRequests.length, 1,
+    'a temporary account service outage is not retried before the cooldown');
+  recoversSharedService.setAccountLeaseUnavailable(false);
+  for (let i = 0; i < 5; i += 1) await recoversSharedService.reportProgress(1);
+  assert.equal(recoversSharedService.leaseRequests.length, 2,
+    'the account lease is retried after local usage has been acknowledged');
+  assert.equal(recoversSharedService.serverWatchSeconds, 35,
+    'time before shared-service recovery remains recorded through the local meter');
+  for (let i = 0; i < 5; i += 1) await recoversSharedService.reportProgress(1);
+  assert.equal(recoversSharedService.serverAccountWatchSeconds, 5,
+    'time after recovery is recorded once through the shared account lease');
+  assert.equal(recoversSharedService.serverWatchSeconds, 35,
+    'shared lease reporting does not double-count local usage');
 
   console.log('YouTube usage reporter account-lease playback, outage fallback, interval, retry, privacy, and quota checks passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });

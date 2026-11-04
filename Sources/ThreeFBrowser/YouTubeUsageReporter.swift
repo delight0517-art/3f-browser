@@ -16,6 +16,8 @@ enum YouTubeUsageReporter {
       let lastPolicyAt = -Infinity, pendingReport = null, sending = false;
       let leaseMode = 'unknown', leaseRequestPending = false, accountLease = null;
       let accountIntervals = [], accountReportPending = null, accountReportSending = false;
+      const leaseRetryIntervalMs = 30000;
+      let lastLeaseAttemptAt = -Infinity;
       const isYouTubeHost = value => {
         const host = value.toLowerCase().replace(/^\.+|\.+$/g, '');
         return host === 'youtu.be' || ((host === 'youtube.com' || host.endsWith('.youtube.com')) && host !== 'music.youtube.com');
@@ -40,6 +42,7 @@ enum YouTubeUsageReporter {
       const requestAccountLease = async (renew = false) => {
         if (leaseRequestPending || blocked || !isYouTubeHost(location.hostname)) return;
         leaseRequestPending = true;
+        lastLeaseAttemptAt = performance.now();
         document.querySelectorAll('video').forEach(v => { if (!v.paused) v.pause(); });
         const requestedAt = performance.now();
         try {
@@ -162,6 +165,10 @@ enum YouTubeUsageReporter {
           if (result?.ok === true) {
             pendingReport = null;
             await refreshQuota(true);
+            if (leaseMode === 'local' && watchMs < 1000 &&
+                performance.now() - lastLeaseAttemptAt >= leaseRetryIntervalMs) {
+              await requestAccountLease(true);
+            }
           }
         } catch (_) { /* retain the batch and report ID for a deduplicated retry */ }
         finally { sending = false; }
