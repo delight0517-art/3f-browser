@@ -62,6 +62,9 @@ struct BrowserView: View {
         .sheet(isPresented: $model.isShowingSettings) {
             BrowserSettingsView(model: model)
         }
+        .sheet(item: $model.pendingMediaSiteCandidate) { candidate in
+            MediaSiteCandidateSheet(candidate: candidate, onResolved: model.resolveMediaSiteCandidate)
+        }
         .onAppear(perform: consumeExternalURLs)
         .onAppear(perform: initializeWindow)
         .onChange(of: model.currentURL) { _, url in

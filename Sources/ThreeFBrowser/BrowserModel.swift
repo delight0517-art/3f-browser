@@ -136,7 +136,9 @@ final class BrowserModel: ObservableObject {
     @Published private(set) var themeModuleStatus = "기본 테마"
     @Published private(set) var bookmarks: [BrowserQuickLink] = []
     @Published private(set) var history: [BrowserHistoryEntry] = []
+    @Published var pendingMediaSiteCandidate: MediaSiteCandidate?
     private var navigationAuthorizationID: UUID?
+    private var mediaCandidateCheck: Task<Void, Never>?
     private let hotModuleStore = HotModuleStore()
     private let bookmarksKey = "browser.v1.bookmarks"
     private let historyKey = "browser.v1.history"
@@ -343,6 +345,51 @@ final class BrowserModel: ObservableObject {
         isLoading = false
         if !isYouTubePage { clearYouTubeUsage() }
         recordVisit(to: url, title: title?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? url.host ?? url.absoluteString)
+        mediaCandidateCheck?.cancel()
+        mediaCandidateCheck = Task { [weak self] in
+            await self?.considerMediaSiteCandidate(at: url)
+        }
+    }
+
+    func ignoreMediaSiteCandidate(_ candidate: MediaSiteCandidate) {
+        rememberMediaSiteDecision(candidate.domain)
+        pendingMediaSiteCandidate = nil
+    }
+
+    func resolveMediaSiteCandidate(_ candidate: MediaSiteCandidate) {
+        rememberMediaSiteDecision(candidate.domain)
+        pendingMediaSiteCandidate = nil
+    }
+
+    private func considerMediaSiteCandidate(at url: URL) async {
+        guard let host = url.host?.lowercased(),
+              !Self.resolvedMediaSiteDomains().contains(host),
+              let data = await ThreeFBrowserControlController.fetchFocusFenceRules(),
+              currentURL == url,
+              let rules = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let blockedDomains = rules["blockedDomains"] as? [String] else { return }
+
+        let candidate = MediaSiteCandidate.detect(
+            host: host,
+            blockedDomains: blockedDomains,
+            youtubeQuotaBlocked: rules["youtubeQuotaBlocked"] as? Bool == true
+        )
+        guard let candidate,
+              !Self.resolvedMediaSiteDomains().contains(candidate.domain),
+              currentURL == url else { return }
+        pendingMediaSiteCandidate = candidate
+    }
+
+    private func rememberMediaSiteDecision(_ domain: String) {
+        var resolved = Self.resolvedMediaSiteDomains()
+        resolved.insert(domain)
+        UserDefaults.standard.set(resolved.sorted(), forKey: Self.mediaSiteDecisionsKey)
+    }
+
+    private static let mediaSiteDecisionsKey = "threef.focusFence.mediaSiteDecisions.v1"
+
+    private static func resolvedMediaSiteDomains() -> Set<String> {
+        Set(UserDefaults.standard.stringArray(forKey: mediaSiteDecisionsKey) ?? [])
     }
 
     func refreshYouTubeUsage() async {

@@ -18,6 +18,15 @@ final class FocusFenceConnectionService: ObservableObject {
         let scheduleName: String?
     }
 
+    struct ScheduleOutcome {
+        let ok: Bool
+        let requiresConfirm: Bool
+        let message: String
+        let scheduleName: String?
+    }
+
+    private var pendingScheduleConfirmation: String?
+
     /// Uses Focus Fence's existing local confirmation path; the returned schedule
     /// name tells the caller where Focus Fence actually placed the rule.
     func quickAddDomain(_ rawHost: String) async throws -> QuickAddOutcome {
@@ -50,6 +59,54 @@ final class FocusFenceConnectionService: ObservableObject {
             ok: payload.ok,
             duplicate: payload.duplicate ?? false,
             message: payload.message ?? "Focus Fence가 규칙 적용 결과를 알려주지 않았습니다.",
+            scheduleName: payload.scheduleName
+        )
+    }
+
+    /// The first POST previews only. A second POST applies only the exact message
+    /// that returned a successful, explicit confirmation requirement.
+    func previewSchedule(_ rawMessage: String) async throws -> ScheduleOutcome {
+        let message = rawMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !message.isEmpty, message.count <= 1000 else {
+            throw URLError(.badURL)
+        }
+        pendingScheduleConfirmation = nil
+        let result = try await postSchedule(message, confirm: false)
+        if result.ok && result.requiresConfirm {
+            pendingScheduleConfirmation = message
+        }
+        return result
+    }
+
+    func confirmSchedule(_ rawMessage: String) async throws -> ScheduleOutcome {
+        let message = rawMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard pendingScheduleConfirmation == message else {
+            throw URLError(.userAuthenticationRequired)
+        }
+        let result = try await postSchedule(message, confirm: true)
+        if result.ok { pendingScheduleConfirmation = nil }
+        return result
+    }
+
+    private func postSchedule(_ message: String, confirm: Bool) async throws -> ScheduleOutcome {
+        let endpoint = baseURL.appendingPathComponent("chat/schedule")
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 45
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var body: [String: Any] = ["message": message]
+        if confirm { body["confirm"] = true }
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let response = response as? HTTPURLResponse,
+              let payload = try? JSONDecoder().decode(ChatScheduleResponse.self, from: data),
+              (200...403).contains(response.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+        return ScheduleOutcome(
+            ok: payload.ok,
+            requiresConfirm: payload.requiresConfirm ?? false,
+            message: payload.message ?? "Focus Fence가 일정 적용 결과를 알려주지 않았습니다.",
             scheduleName: payload.scheduleName
         )
     }
@@ -167,6 +224,13 @@ final class FocusFenceConnectionService: ObservableObject {
         let message: String?
         let duplicate: Bool?
         let scheduleName: String?
+    }
+
+    private struct ChatScheduleResponse: Decodable {
+        let ok: Bool
+        let message: String?
+        let scheduleName: String?
+        let requiresConfirm: Bool?
     }
 
 }
