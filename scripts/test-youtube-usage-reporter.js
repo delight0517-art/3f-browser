@@ -7,7 +7,7 @@ const source = fs.readFileSync(path.join(__dirname, '../Sources/ThreeFBrowser/Yo
 const match = source.match(/static let script = #"""([\s\S]*?)"""#/);
 assert.ok(match, 'Swift YouTubeUsageReporter script literal exists');
 
-async function run(host, quotaBlocked = true, { failFirstAck = false, videoAtStart = true } = {}) {
+async function run(host, quotaBlocked = true, { failFirstAck = false, videoAtStart = true, playbackRate = 1 } = {}) {
   let paused = 0;
   let now = 1;
   let timer;
@@ -41,7 +41,7 @@ async function run(host, quotaBlocked = true, { failFirstAck = false, videoAtSta
   };
   const video = {
     tagName: 'VIDEO', currentTime: 4, currentSrc: 'test-video', paused: !videoAtStart, ended: false,
-    seeking: false, readyState: 4, playbackRate: 1,
+    seeking: false, readyState: 4, playbackRate,
     pause() { this.paused = true; paused += 1; }
   };
   const document = {
@@ -59,7 +59,7 @@ async function run(host, quotaBlocked = true, { failFirstAck = false, videoAtSta
   await new Promise(resolve => setImmediate(resolve));
   return {
     video, listeners, payloads,
-    async reportProgress(seconds = 2) { now += seconds * 1000; video.currentTime += seconds; await timer(); },
+    async reportProgress(seconds = 2) { now += seconds * 1000; video.currentTime += seconds * video.playbackRate; await timer(); },
     startPlayback() {
       videoPresent = true;
       video.paused = false;
@@ -73,6 +73,8 @@ async function run(host, quotaBlocked = true, { failFirstAck = false, videoAtSta
     async advance(ms) { now += ms; await timer(); },
     setQuotaBlocked(value) { currentQuotaBlocked = value; },
     setHost(value) { context.location.hostname = value; },
+    seekTo(value) { video.currentTime = value; },
+    async setVisibility(value) { document.visibilityState = value; await listeners.visibilitychange?.(); },
     get paused() { return paused; },
     get rulesReads() { return rulesReads; },
     get serverWatchSeconds() { return serverWatchSeconds; },
@@ -137,6 +139,26 @@ async function run(host, quotaBlocked = true, { failFirstAck = false, videoAtSta
   assert.equal(hostSwitch.payloads.length, 1);
   assert.equal(hostSwitch.payloads[0].watchSeconds, 2,
     'only playback observed while the active page is on a YouTube watch host is reported');
+
+  const accelerated = await run('youtube.com', false, { playbackRate: 2 });
+  await accelerated.reportProgress(5);
+  await accelerated.pausePlayback();
+  assert.equal(accelerated.payloads[0].watchSeconds, 5,
+    'playback speed does not multiply elapsed viewing time');
+
+  const seek = await run('youtube.com', false);
+  seek.seekTo(1000);
+  await seek.reportProgress(5);
+  await seek.reportProgress(2);
+  await seek.pausePlayback();
+  assert.equal(seek.payloads[0].watchSeconds, 2,
+    'a seek jump is excluded while later normal playback is counted');
+
+  const hidden = await run('youtube.com', false);
+  await hidden.setVisibility('hidden');
+  await hidden.reportProgress(10);
+  await hidden.pausePlayback();
+  assert.equal(hidden.payloads.length, 0, 'hidden-page playback is not reported as foreground viewing');
 
   const reachesQuota = await run('youtube.com', false);
   assert.equal(reachesQuota.video.paused, false, 'under-cap YouTube playback remains allowed');
