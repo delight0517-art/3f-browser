@@ -11,16 +11,25 @@ final class DefaultBrowserService: ObservableObject {
 
     func refresh() {
         let appID = Bundle.main.bundleIdentifier
-        let isDefaultForEveryScheme = schemes.allSatisfy { scheme in
+        let handlers = schemes.map { scheme -> (URL?, String?) in
             guard let url = URL(string: "\(scheme)://example.com"),
-                  let handlerURL = NSWorkspace.shared.urlForApplication(toOpen: url),
-                  let handlerID = Bundle(url: handlerURL)?.bundleIdentifier else { return false }
-            return handlerID == appID
+                  let handlerURL = NSWorkspace.shared.urlForApplication(toOpen: url) else { return (nil, nil) }
+            return (handlerURL, Bundle(url: handlerURL)?.bundleIdentifier)
         }
 
-        status = isDefaultForEveryScheme
-            ? "3F Browser가 HTTP와 HTTPS 기본 브라우저입니다."
-            : "3F Browser가 아직 HTTP와 HTTPS 기본 브라우저가 아닙니다."
+        if handlers.allSatisfy({ Self.isCurrentApplication($0.0, bundleURL: Bundle.main.bundleURL) }) {
+            status = "3F Browser가 HTTP와 HTTPS 기본 브라우저입니다."
+        } else if let appID, handlers.allSatisfy({ $0.1 == appID }) {
+            status = "macOS가 다른 3F Browser 복사본을 선택했습니다."
+        } else {
+            status = "3F Browser가 아직 HTTP와 HTTPS 기본 브라우저가 아닙니다."
+        }
+    }
+
+    static func isCurrentApplication(_ handlerURL: URL?, bundleURL: URL) -> Bool {
+        guard let handlerURL else { return false }
+        return handlerURL.standardizedFileURL.resolvingSymlinksInPath() ==
+            bundleURL.standardizedFileURL.resolvingSymlinksInPath()
     }
 
     func setAsDefaultBrowser() {
