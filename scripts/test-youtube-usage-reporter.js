@@ -207,7 +207,8 @@ async function run(host, quotaBlocked = true, {
   await hidden.setVisibility('hidden');
   await hidden.reportProgress(10);
   await hidden.pausePlayback();
-  assert.equal(hidden.payloads.length, 0, 'hidden-page playback is not reported as foreground viewing');
+  assert.equal(hidden.payloads.length, 1, 'verified playback continues to count in a hidden background tab');
+  assert.equal(hidden.payloads[0].watchSeconds, 10, 'background playback reports measured media progress only');
 
   const reachesQuota = await run('youtube.com', false);
   assert.equal(reachesQuota.video.paused, false, 'under-cap YouTube playback remains allowed');

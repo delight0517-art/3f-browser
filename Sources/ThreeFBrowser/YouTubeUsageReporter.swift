@@ -12,7 +12,7 @@ enum YouTubeUsageReporter {
         return bridge.postMessage(payload);
       };
       let lastAt = performance.now(), samples = new Map();
-      let watchMs = 0, blocked = true, wasVisible = document.visibilityState === 'visible', remainingSeconds = 0;
+      let watchMs = 0, blocked = true, remainingSeconds = 0;
       let lastPolicyAt = -Infinity, pendingReport = null, sending = false;
       let leaseMode = 'unknown', leaseRequestPending = false, accountLease = null;
       let accountIntervals = [], accountReportPending = null, accountReportSending = false;
@@ -106,7 +106,7 @@ enum YouTubeUsageReporter {
         const onYouTube = isYouTubeHost(host);
         const now = performance.now(), elapsed = now - lastAt, current = snapshot();
         let watchedMs = 0;
-        if (!blocked && onYouTube && wasVisible && elapsed > 0 && elapsed <= 15000) {
+        if (!blocked && onYouTube && elapsed > 0 && elapsed <= 15000) {
           for (const [video, next] of current) {
             const prev = samples.get(video);
             if (!prev?.playing || prev.src !== next.src || !(prev.rate > 0)) continue;
@@ -130,7 +130,6 @@ enum YouTubeUsageReporter {
           watchMs = 0;
         }
         lastAt = now; samples = current;
-        wasVisible = document.visibilityState === 'visible';
         if (blocked) stop();
         if (!onYouTube) return;
         if (leaseMode === 'account' && accountLease) {
@@ -178,7 +177,7 @@ enum YouTubeUsageReporter {
       document.addEventListener('playing', event => {
         if (!event.target || event.target.tagName !== 'VIDEO') return;
         lastAt = performance.now();
-        samples = snapshot(); wasVisible = document.visibilityState === 'visible';
+        samples = snapshot();
       }, true);
       for (const eventName of ['pause', 'ended']) {
         document.addEventListener(eventName, () => tick(true), true);
