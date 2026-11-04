@@ -50,4 +50,51 @@ final class MediaSiteCandidateTests: XCTestCase {
         )
         XCTAssertEqual(candidate.scheduleRequestMessage(after: " \n "), "")
     }
+
+    func testTwitchPromptsWhenYouTubeQuotaIsBlocked() {
+        let candidate = MediaSiteCandidate.detect(
+            host: "www.twitch.tv",
+            blockedDomains: [],
+            youtubeQuotaBlocked: true
+        )
+
+        XCTAssertEqual(candidate?.domain, "twitch.tv")
+        XCTAssertEqual(candidate?.category, .liveVideo)
+        XCTAssertEqual(candidate?.platformName, "Twitch")
+    }
+
+    func testNewWebtoonPlatformPromptsWhenAnotherWebtoonSiteIsBlocked() {
+        let candidate = MediaSiteCandidate.detect(
+            host: "page.kakao.com",
+            blockedDomains: ["comic.naver.com"],
+            youtubeQuotaBlocked: false
+        )
+
+        XCTAssertEqual(candidate?.domain, "page.kakao.com")
+        XCTAssertEqual(candidate?.category, .webtoon)
+        XCTAssertEqual(
+            candidate?.scheduleRequestMessage(after: "매일 밤 10시부터 아침 7시까지"),
+            "매일 밤 10시부터 아침 7시까지 page.kakao.com 차단"
+        )
+    }
+
+    func testAlreadyBlockedSiteDoesNotPromptAgain() {
+        XCTAssertNil(
+            MediaSiteCandidate.detect(
+                host: "www.twitch.tv",
+                blockedDomains: ["twitch.tv"],
+                youtubeQuotaBlocked: true
+            )
+        )
+    }
+
+    func testUnrelatedSiteDoesNotBecomeWebtoonCandidate() {
+        XCTAssertNil(
+            MediaSiteCandidate.detect(
+                host: "book.naver.com",
+                blockedDomains: ["comic.naver.com"],
+                youtubeQuotaBlocked: false
+            )
+        )
+    }
 }
