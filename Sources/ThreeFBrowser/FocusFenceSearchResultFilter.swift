@@ -48,26 +48,43 @@ enum FocusFenceSearchResultFilter {
           if (!(searchHost === 'google.com' || /(^|\.)google\.[a-z.]+$/.test(searchHost)
             || searchHost === 'bing.com' || searchHost.endsWith('.bing.com')
             || searchHost === 'duckduckgo.com' || searchHost.endsWith('.duckduckgo.com'))) return;
-          const selectors = searchHost.includes('bing.') ? ['li.b_algo']
-            : searchHost.includes('duckduckgo.') ? ['article[data-testid="result"]', '[data-testid="result"]']
-            : ['div.MjjYud', 'div.g'];
-          function cardFor(link) {
+          function isGoogleImagesSearch() {
+            return (searchHost === 'google.com' || /(^|\.)google\.[a-z.]+$/.test(searchHost))
+              && new URL(location.href).searchParams.get('tbm') === 'isch';
+          }
+          function cardFor(link, imageSearch) {
+            const selectors = searchHost.includes('bing.') ? ['li.b_algo']
+              : searchHost.includes('duckduckgo.') ? ['article[data-testid="result"]', '[data-testid="result"]']
+              : imageSearch ? ['div.isv-r', 'div.eA0Zlc', 'div.MjjYud', 'div.g']
+              : ['div.MjjYud', 'div.g'];
             for (const selector of selectors) {
               const card = link.closest(selector);
               if (card) return card;
             }
             return link.parentElement?.parentElement || null;
           }
+          function destinationFor(link, imageSearch) {
+            let target;
+            try { target = new URL(link.href, location.href); } catch { return null; }
+            if (!imageSearch || target.hostname.toLocaleLowerCase() !== searchHost || target.pathname !== '/imgres') return target;
+            const sourcePage = target.searchParams.get('imgrefurl');
+            if (!sourcePage) return null;
+            try {
+              const destination = new URL(sourcePage);
+              return /^https?:$/.test(destination.protocol) ? destination : null;
+            } catch { return null; }
+          }
           function scan() {
+            const imageSearch = isGoogleImagesSearch();
             const seen = new Set();
             for (const link of document.querySelectorAll('a[href]')) {
-              let target;
-              try { target = new URL(link.href, location.href); } catch { continue; }
+              const target = destinationFor(link, imageSearch);
+              if (!target) continue;
               if (!/^https?:$/.test(target.protocol) || target.hostname.toLocaleLowerCase() === searchHost) continue;
-              const card = cardFor(link);
+              const card = cardFor(link, imageSearch);
               if (!card || seen.has(card)) continue;
               seen.add(card);
-              const title = link.innerText || link.getAttribute('aria-label') || '';
+              const title = link.innerText || link.getAttribute('aria-label') || link.querySelector('img')?.alt || '';
               const snippet = card.innerText || '';
               const shouldHide = threefShouldHideResult(target.hostname, target.pathname + target.search, title, snippet, rules);
               if (shouldHide && card.dataset.threefFiltered !== '1') {
@@ -85,6 +102,7 @@ enum FocusFenceSearchResultFilter {
           };
           scan();
           new MutationObserver(schedule).observe(document.documentElement, { childList: true, subtree: true });
+          addEventListener('popstate', schedule, true);
         })();
         """#
     }
@@ -102,5 +120,15 @@ enum FocusFenceSearchResultFilter {
             return url.path == "/"
         }
         return false
+    }
+
+    static func isGoogleImagesResultsURL(_ url: URL) -> Bool {
+        let host = url.host?.lowercased() ?? ""
+        let isGoogleHost = host == "google.com"
+            || host.hasSuffix(".google.com")
+            || host.range(of: #"(^|\.)google\.[a-z.]+$"#, options: .regularExpression) != nil
+        guard isGoogleHost, url.path == "/search",
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return false }
+        return components.queryItems?.contains { $0.name == "tbm" && $0.value == "isch" } == true
     }
 }

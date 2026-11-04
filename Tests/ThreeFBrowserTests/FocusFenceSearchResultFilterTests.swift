@@ -13,6 +13,24 @@ final class FocusFenceSearchResultFilterTests: XCTestCase {
         XCTAssertFalse(FocusFenceSearchResultFilter.isSearchResultsURL(URL(string: "https://www.google.com/maps")!))
     }
 
+    func testGoogleImagesSearchURLsAreRecognizedAndUseImageResultHandling() throws {
+        let imageSearch = try XCTUnwrap(URL(string: "https://www.google.co.kr/search?q=blocked.example&tbm=isch"))
+        XCTAssertTrue(FocusFenceSearchResultFilter.isSearchResultsURL(imageSearch))
+        XCTAssertTrue(FocusFenceSearchResultFilter.isGoogleImagesResultsURL(imageSearch))
+        XCTAssertFalse(FocusFenceSearchResultFilter.isGoogleImagesResultsURL(
+            URL(string: "https://www.google.co.kr/search?q=blocked.example")!
+        ))
+        XCTAssertFalse(FocusFenceSearchResultFilter.isGoogleImagesResultsURL(
+            URL(string: "https://example.com/search?q=x&tbm=isch")!
+        ))
+
+        let rules = Data(#"{"blockedDomains":["blocked.example"],"blockedUrlParts":[],"keywords":[],"blockExceptions":[]}"#.utf8)
+        let script = try XCTUnwrap(FocusFenceSearchResultFilter.script(for: imageSearch, rules: rules))
+        XCTAssertTrue(script.contains("div.isv-r"))
+        XCTAssertTrue(script.contains("imgrefurl"))
+        XCTAssertTrue(script.contains("searchParams.get('tbm') === 'isch'"))
+    }
+
     func testClassifierBlocksConfiguredDestinationsAndAdultDirectoriesButKeepsNeutralMentions() throws {
         let context = try XCTUnwrap(JSContext())
         context.evaluateScript(FocusFenceSearchResultFilter.classifierSource)
