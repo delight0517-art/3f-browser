@@ -11,6 +11,49 @@ final class FocusFenceConnectionService: ObservableObject {
     private let baseURL = URL(string: "http://127.0.0.1:17361")!
     private let expectedFilterBundleID = "com.rogan.VeliMac.NetworkFilter"
 
+    struct QuickAddOutcome {
+        let ok: Bool
+        let duplicate: Bool
+        let message: String
+        let scheduleName: String?
+    }
+
+    /// Uses Focus Fence's existing local confirmation path; the returned schedule
+    /// name tells the caller where Focus Fence actually placed the rule.
+    func quickAddDomain(_ rawHost: String) async throws -> QuickAddOutcome {
+        let host = rawHost.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        guard !host.isEmpty,
+              !host.contains("/"), !host.contains(":"), !host.contains("@"),
+              let components = URLComponents(string: "https://\(host)"),
+              components.host?.lowercased() == host,
+              host.contains(".") else {
+            throw URLError(.badURL)
+        }
+
+        let endpoint = baseURL.appendingPathComponent("quick-add")
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 4
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["input": host])
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let response = response as? HTTPURLResponse,
+              let payload = try? JSONDecoder().decode(QuickAddResponse.self, from: data) else {
+            throw URLError(.badServerResponse)
+        }
+        guard (200...409).contains(response.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+        return QuickAddOutcome(
+            ok: payload.ok,
+            duplicate: payload.duplicate ?? false,
+            message: payload.message ?? "Focus Fence가 규칙 적용 결과를 알려주지 않았습니다.",
+            scheduleName: payload.scheduleName
+        )
+    }
+
     func refresh() async {
         guard OptionalFeatureAvailability.focusFenceEnforcement
                 || OptionalFeatureAvailability.youtubeUsageReporting
@@ -117,6 +160,13 @@ final class FocusFenceConnectionService: ObservableObject {
     private struct NetworkFilterStatus: Decodable {
         let filterEnabled: Bool
         let providerBundleIdentifier: String?
+    }
+
+    private struct QuickAddResponse: Decodable {
+        let ok: Bool
+        let message: String?
+        let duplicate: Bool?
+        let scheduleName: String?
     }
 
 }
