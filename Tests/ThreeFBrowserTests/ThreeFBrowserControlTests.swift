@@ -4,6 +4,17 @@ import WebKit
 @testable import ThreeFBrowser
 
 final class ThreeFBrowserControlTests: XCTestCase {
+    func testControlPageStateTracksTheSelectedTabAndRejectsStaleWebViewURL() throws {
+        let selectedPage = try XCTUnwrap(URL(string: "https://example.com/"))
+        let stalePage = try XCTUnwrap(URL(string: "https://youtube.com/"))
+
+        XCTAssertTrue(ThreeFBrowserControlPageState.isReady(modelURL: selectedPage, webViewURL: selectedPage))
+        XCTAssertFalse(ThreeFBrowserControlPageState.isReady(modelURL: nil, webViewURL: stalePage),
+                       "a selected new tab must not expose the previous tab's WebView URL")
+        XCTAssertFalse(ThreeFBrowserControlPageState.isReady(modelURL: selectedPage, webViewURL: stalePage),
+                       "a page must not be read while WebKit still shows the previous page")
+    }
+
     func testFocusFenceContactRequiresAValidRulesPayload() {
         XCTAssertTrue(ThreeFBrowserControlController.usableFocusFenceRules(
             Data(#"{"blockedDomains":[],"blockedUrlParts":[],"keywords":[],"blockExceptions":[]}"#.utf8)

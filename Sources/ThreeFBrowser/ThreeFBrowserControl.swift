@@ -3,6 +3,13 @@ import Network
 import WebKit
 import Darwin
 
+enum ThreeFBrowserControlPageState {
+    static func isReady(modelURL: URL?, webViewURL: URL?) -> Bool {
+        guard let modelURL else { return false }
+        return modelURL == webViewURL
+    }
+}
+
 private enum ThreeFBrowserTerminationProbe {
     static func installIfRequested() {
         guard ProcessInfo.processInfo.environment["THREEF_BROWSER_TRACE_SIGTERM"] == "1" else { return }
@@ -263,18 +270,28 @@ final class ThreeFBrowserControlController {
     func handle(_ request: ThreeFControlRequest) async -> (Int, [String: Any]) {
         switch (request.method, request.path) {
         case ("GET", "/v1/status"):
-            guard let webView else { return (503, ["ok": false, "error": "browser view not ready"]) }
-            return (200, ["ok": true, "url": webView.url?.absoluteString ?? "about:blank", "title": webView.title ?? "",
-                          "backURL": webView.backForwardList.backItem?.url.absoluteString ?? "",
-                          "forwardURL": webView.backForwardList.forwardItem?.url.absoluteString ?? ""])
+            guard let model, let webView else { return (503, ["ok": false, "error": "browser view not ready"]) }
+            let pageReady = ThreeFBrowserControlPageState.isReady(modelURL: model.currentURL, webViewURL: webView.url)
+            return (200, ["ok": true, "url": model.currentURL?.absoluteString ?? "about:blank",
+                          "title": pageReady ? (webView.title ?? "") : "", "ready": pageReady,
+                          "backURL": pageReady ? (webView.backForwardList.backItem?.url.absoluteString ?? "") : "",
+                          "forwardURL": pageReady ? (webView.backForwardList.forwardItem?.url.absoluteString ?? "") : ""])
         case ("GET", "/v1/read"):
             guard let webView else { return (503, ["ok": false, "error": "browser view not ready"]) }
+            guard let pageURL = model?.currentURL,
+                  ThreeFBrowserControlPageState.isReady(modelURL: pageURL, webViewURL: webView.url) else {
+                return (409, ["ok": false, "error": "selected browser page is not ready"])
+            }
             do {
                 let value = try await evaluate("document.body?.innerText?.slice(0, 12000) || ''", in: webView)
-                return (200, ["ok": true, "url": webView.url?.absoluteString ?? "about:blank", "text": value as? String ?? ""])
+                return (200, ["ok": true, "url": pageURL.absoluteString, "text": value as? String ?? ""])
             } catch { return (502, ["ok": false, "error": "page text could not be read"]) }
         case ("GET", "/v1/aria"):
             guard let webView else { return (503, ["ok": false, "error": "browser view not ready"]) }
+            guard let pageURL = model?.currentURL,
+                  ThreeFBrowserControlPageState.isReady(modelURL: pageURL, webViewURL: webView.url) else {
+                return (409, ["ok": false, "error": "selected browser page is not ready"])
+            }
             let script = """
             (() => {
               const els = [...document.querySelectorAll('a[href],button,input,textarea,select,[role="button"],[role="link"],[role="textbox"]')];
@@ -287,7 +304,7 @@ final class ThreeFBrowserControlController {
             """
             do {
                 let value = try await evaluate(script, in: webView)
-                return (200, ["ok": true, "url": webView.url?.absoluteString ?? "about:blank", "ariaTree": value as? String ?? ""])
+                return (200, ["ok": true, "url": pageURL.absoluteString, "ariaTree": value as? String ?? ""])
             } catch { return (502, ["ok": false, "error": "page accessibility tree could not be read"]) }
         case ("POST", "/v1/navigate"):
             guard let payload = try? JSONSerialization.jsonObject(with: request.body) as? [String: String],
@@ -320,6 +337,9 @@ final class ThreeFBrowserControlController {
                   let action = payload["action"], let webView else {
                 return (400, ["ok": false, "error": "history action required"])
             }
+            guard ThreeFBrowserControlPageState.isReady(modelURL: model?.currentURL, webViewURL: webView.url) else {
+                return (409, ["ok": false, "error": "selected browser page is not ready"])
+            }
             let target: URL?
             switch action {
             case "back": target = webView.backForwardList.backItem?.url
@@ -346,6 +366,9 @@ final class ThreeFBrowserControlController {
             guard let payload = try? JSONSerialization.jsonObject(with: request.body) as? [String: String],
                   let action = payload["action"], let webView else {
                 return (400, ["ok": false, "error": "action required"])
+            }
+            guard ThreeFBrowserControlPageState.isReady(modelURL: model?.currentURL, webViewURL: webView.url) else {
+                return (409, ["ok": false, "error": "selected browser page is not ready"])
             }
             let pattern = try! NSRegularExpression(pattern: #"^(click|type|fill)\s+\[?(oc-agent-\d+)\]?\s*(.*)$"#, options: [.caseInsensitive, .dotMatchesLineSeparators])
             let range = NSRange(action.startIndex..., in: action)
