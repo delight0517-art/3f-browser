@@ -58,7 +58,8 @@ enum YouTubeUsageReporter {
             else leaseMode = 'local';
             return;
           }
-          if (receipt.schemaVersion !== 3 || receipt.billingMode !== 'minimum_5s_qualified_30s_account_lease_v1' ||
+          if (receipt.schemaVersion !== 3 || receipt.requestId !== requestId ||
+              receipt.billingMode !== 'minimum_5s_qualified_30s_account_lease_v1' ||
               receipt.qualificationMs !== 5000 || receipt.quantumMs !== 30000 ||
               typeof receipt.grantId !== 'string' || !Number.isSafeInteger(receipt.startMs) ||
               !Number.isSafeInteger(receipt.endMs) || !Number.isSafeInteger(receipt.serverNowMs) ||

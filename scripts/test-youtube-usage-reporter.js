@@ -9,7 +9,8 @@ assert.ok(match, 'Swift YouTubeUsageReporter script literal exists');
 
 async function run(host, quotaBlocked = true, {
   failFirstAck = false, videoAtStart = true, playbackRate = 1, remainingSeconds = -1,
-  accountLeaseUnsupported = true, accountLeaseUnavailable = false, failFirstLeaseAck = false
+  accountLeaseUnsupported = true, accountLeaseUnavailable = false, failFirstLeaseAck = false,
+  mismatchLeaseRequestId = false
 } = {}) {
   let paused = 0;
   let now = 1;
@@ -62,7 +63,9 @@ async function run(host, quotaBlocked = true, {
         }
         const startMs = epoch + now;
         return {
-          ok: true, schemaVersion: 3, billingMode: 'minimum_5s_qualified_30s_account_lease_v1',
+          ok: true, schemaVersion: 3,
+          requestId: mismatchLeaseRequestId ? 'different-request' : message.requestId,
+          billingMode: 'minimum_5s_qualified_30s_account_lease_v1',
           qualificationMs: 5000, quantumMs: 30000, allowed: true,
           grantId: 'grant-test', startMs, endMs: startMs + 30000, serverNowMs: startMs
         };
@@ -258,6 +261,18 @@ async function run(host, quotaBlocked = true, {
   assert.deepEqual(leased.leaseReports[0].intervals, leased.leaseReports[1].intervals,
     'the retry sends the exact same measured interval batch');
   assert.equal(leased.payloads.length, 0, 'shared interval reports do not double-count through the legacy route');
+
+  const mismatchedLeaseReceipt = await run('youtube.com', false, {
+    videoAtStart: false, accountLeaseUnsupported: false, mismatchLeaseRequestId: true
+  });
+  mismatchedLeaseReceipt.startPlayback();
+  for (let i = 0; i < 5; i += 1) await mismatchedLeaseReceipt.reportProgress(1);
+  assert.equal(mismatchedLeaseReceipt.leaseRequests.length, 1,
+    'a five-second qualified playback can request a lease');
+  assert.equal(mismatchedLeaseReceipt.leaseReports.length, 0,
+    'a lease receipt for a different request is rejected');
+  assert.equal(mismatchedLeaseReceipt.payloads[0].watchSeconds, 5,
+    'a mismatched lease receipt preserves local usage reporting');
 
   const legacyFallback = await run('youtube.com', false, {
     videoAtStart: false, accountLeaseUnsupported: true
