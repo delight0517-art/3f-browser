@@ -34,6 +34,21 @@ final class BrowserContextMenuTests: XCTestCase {
         XCTAssertNil(ThreeFContextMenuPolicy.intent(action: .openInNewTab, url: URL(string: "file:///tmp/x"), isAllowed: true))
     }
 
+    func testBackgroundLinkMessageRequiresMainFrameAndSafeHTTPURLs() {
+        let pageURL = URL(string: "https://source.example/page")!
+        let destination = URL(string: "https://target.example/path")!
+
+        XCTAssertEqual(
+            ThreeFBackgroundLinkPolicy.destination(from: destination.absoluteString, isMainFrame: true, pageURL: pageURL),
+            destination
+        )
+        XCTAssertNil(ThreeFBackgroundLinkPolicy.destination(from: destination.absoluteString, isMainFrame: false, pageURL: pageURL))
+        XCTAssertNil(ThreeFBackgroundLinkPolicy.destination(from: "javascript:alert(1)", isMainFrame: true, pageURL: pageURL))
+        XCTAssertNil(ThreeFBackgroundLinkPolicy.destination(from: "https://user:secret@target.example", isMainFrame: true, pageURL: pageURL))
+        XCTAssertNil(ThreeFBackgroundLinkPolicy.destination(from: destination.absoluteString, isMainFrame: true, pageURL: URL(string: "file:///tmp/test")))
+        XCTAssertNil(ThreeFBackgroundLinkPolicy.destination(from: 42, isMainFrame: true, pageURL: pageURL))
+    }
+
     @MainActor
     func testNewWindowRouteIsSingleUseBoundedAndExpires() throws {
         let now = Date(timeIntervalSince1970: 100)

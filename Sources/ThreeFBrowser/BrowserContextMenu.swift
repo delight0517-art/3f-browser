@@ -1,4 +1,5 @@
 import Foundation
+import WebKit
 
 enum ThreeFContextMenuAction: String, Equatable {
     case openInNewTab = "threef.openLink.newTab"
@@ -31,6 +32,50 @@ enum ThreeFContextMenuPolicy {
         case .openInNewTab: return .newTab(url)
         case .openInNewWindow: return .newWindow(url)
         }
+    }
+}
+
+enum ThreeFBackgroundLinkPolicy {
+    static let messageName = "threefBackgroundLink"
+    static let contentWorld = WKContentWorld.world(name: "com.rogan.threef.browser.background-link")
+    static let script = #"""
+    (() => {
+      document.addEventListener('auxclick', event => {
+        if (!event.isTrusted || event.button !== 1) return;
+        const target = event.target instanceof Element ? event.target : event.target?.parentElement;
+        const href = target?.closest?.('a[href]')?.href;
+        const bridge = window.webkit?.messageHandlers?.threefBackgroundLink;
+        if (!href || !bridge?.postMessage) return;
+        event.preventDefault();
+        bridge.postMessage(href);
+      }, true);
+    })();
+    """#
+
+    static func destination(from body: Any, isMainFrame: Bool, pageURL: URL?) -> URL? {
+        guard isMainFrame,
+              ThreeFContextMenuPolicy.safeHTTPURL(pageURL) != nil,
+              let href = body as? String else { return nil }
+        return ThreeFContextMenuPolicy.safeHTTPURL(URL(string: href))
+    }
+}
+
+@MainActor
+protocol ThreeFBackgroundLinkDelegate: AnyObject {
+    func openBackgroundLink(_ url: URL)
+}
+
+@MainActor
+final class ThreeFBackgroundLinkScriptMessageHandler: NSObject, WKScriptMessageHandler {
+    weak var delegate: ThreeFBackgroundLinkDelegate?
+
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard let destination = ThreeFBackgroundLinkPolicy.destination(
+            from: message.body,
+            isMainFrame: message.frameInfo.isMainFrame,
+            pageURL: message.webView?.url
+        ) else { return }
+        delegate?.openBackgroundLink(destination)
     }
 }
 

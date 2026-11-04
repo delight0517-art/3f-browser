@@ -78,6 +78,7 @@ struct BrowserWebView: NSViewRepresentable {
     var onLoadingChanged: ((Bool) -> Void)? = nil
     var onNavigationFailed: ((Error) -> Void)? = nil
     var onOpenLinkInNewTab: ((URL) -> Void)? = nil
+    var onOpenBackgroundTab: ((URL) -> Void)? = nil
     var onOpenLinkInNewWindow: ((URL) -> Void)? = nil
     let onNavigation: (URL?, String?) -> Void
     let onNavigationState: (Bool, Bool) -> Void
@@ -88,6 +89,22 @@ struct BrowserWebView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
+        let coordinator = context.coordinator
+        if onOpenBackgroundTab != nil {
+            let handler = ThreeFBackgroundLinkScriptMessageHandler()
+            handler.delegate = coordinator
+            configuration.userContentController.add(
+                handler,
+                contentWorld: ThreeFBackgroundLinkPolicy.contentWorld,
+                name: ThreeFBackgroundLinkPolicy.messageName
+            )
+            configuration.userContentController.addUserScript(WKUserScript(
+                source: ThreeFBackgroundLinkPolicy.script,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: true,
+                in: ThreeFBackgroundLinkPolicy.contentWorld
+            ))
+        }
         if OptionalFeatureAvailability.youtubeUsageReporting {
             configuration.userContentController.addScriptMessageHandler(
                 YouTubeUsageScriptMessageHandler(),
@@ -113,7 +130,6 @@ struct BrowserWebView: NSViewRepresentable {
         let view = ThreeFWindowAwareWebView(frame: .zero, configuration: configuration)
         context.coordinator.parent = self
         view.navigationDelegate = context.coordinator
-        let coordinator = context.coordinator
         view.uiDelegate = coordinator
         view.onWindowAttachment = { [weak coordinator] attachedView in
             coordinator?.parent.onWindowAttached?(attachedView)
@@ -132,7 +148,7 @@ struct BrowserWebView: NSViewRepresentable {
         view.load(URLRequest(url: url))
     }
 
-    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate {
+    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate, ThreeFBackgroundLinkDelegate {
         enum NavigationDecision: Equatable {
             case allow
             case cancel
@@ -144,6 +160,21 @@ struct BrowserWebView: NSViewRepresentable {
 
         init(parent: BrowserWebView) {
             self.parent = parent
+        }
+
+        @MainActor
+        func openBackgroundLink(_ url: URL) {
+            guard let destination = ThreeFContextMenuPolicy.safeHTTPURL(url),
+                  let authorizeNavigation = parent.authorizeNavigation,
+                  let onOpenBackgroundTab = parent.onOpenBackgroundTab else { return }
+            authorizeNavigation(destination) { [weak self] decision in
+                guard let self else { return }
+                guard decision.isAllowed else {
+                    self.parent.onRejectedNavigation?(destination, decision)
+                    return
+                }
+                onOpenBackgroundTab(destination)
+            }
         }
 
         func webView(

@@ -131,6 +131,7 @@ struct BrowserView: View {
                 onLoadingChanged: { model.isLoading = $0 },
                 onNavigationFailed: { model.pageDidFailToNavigate($0) },
                 onOpenLinkInNewTab: addTab(for:),
+                onOpenBackgroundTab: addBackgroundTab(for:),
                 onOpenLinkInNewWindow: openLinkInNewWindow,
                 onNavigation: { url, title in
                     model.pageDidNavigate(to: url, title: title)
@@ -309,6 +310,13 @@ struct BrowserView: View {
         model.navigate(to: url, authorize: authorizeNavigation)
         canGoBack = false
         canGoForward = false
+        saveSession()
+    }
+
+    private func addBackgroundTab(for url: URL) {
+        guard let url = ThreeFContextMenuPolicy.safeHTTPURL(url) else { return }
+        saveCurrentTab()
+        tabs.append(BrowserSessionTab(title: url.host ?? "새 탭", url: url))
         saveSession()
     }
 
