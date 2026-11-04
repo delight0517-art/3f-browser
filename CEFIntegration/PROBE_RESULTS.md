@@ -23,6 +23,14 @@ Date: 2026-10-29 (Mac, arm64)
 - `chrome://extensions/` rendered the Chrome extension manager and its Chrome
   Web Store link. This demonstrates the Chrome runtime UI path, not successful
   installation of any extension.
+- On 2026-11-05, the signed isolated `cefclient` candidate loaded the Focus Fence
+  Chrome extension v1.3.71 as an unpacked extension in a disposable profile.
+  `chrome://extensions/` showed it enabled, and `https://example.com/` rendered
+  while it remained enabled. The CRX source SHA-256 was
+  `30b8619df0f892a8e3eb0dbecb7ae1f69567e13110273aac214ee49b67c94e36`.
+  The app was normally quit and the disposable profile removed. This proves
+  extension load/render compatibility in the CEF probe only; it does not prove
+  Focus Fence blocking behavior or 3F product integration.
 - Following the Web Store link rendered the Chrome Web Store Extensions page
   and recommendation content. The page showed its "Switch to Chrome?" prompt;
   dismissing it revealed the store page. No extension was installed.
@@ -34,8 +42,8 @@ Date: 2026-10-29 (Mac, arm64)
 
 ## Failed or unverified
 
-- No Chrome Web Store extension was installed or tested. Universal extension
-  compatibility is not established.
+- No Chrome Web Store install, packaged-CRX install, or Focus Fence block-rule
+  behavior was tested. Universal extension compatibility is not established.
 - The previous CEF process PID 26972 still owns handles in the shared default
   CEF profile. It was left untouched. The isolated profile is independent.
 - The tested CEF app is a probe, not the installed 3F Browser product. Product
