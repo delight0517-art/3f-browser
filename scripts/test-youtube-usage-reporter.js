@@ -125,5 +125,12 @@ async function run(host, quotaBlocked = true, { failFirstAck = false, videoAtSta
   assert.equal(recovers.payloads.at(-1).watchSeconds, 2,
     'playback usage is reported after policy changes from blocked to allowed');
 
-  console.log('YouTube usage reporter host, playback, privacy, retry dedupe, and quota refresh checks: 15 passed');
+  const reachesQuota = await run('youtube.com', false);
+  assert.equal(reachesQuota.video.paused, false, 'under-cap YouTube playback remains allowed');
+  reachesQuota.setQuotaBlocked(true);
+  await reachesQuota.advance(31000);
+  assert.equal(reachesQuota.video.paused, true,
+    'YouTube playback pauses after a refreshed policy reports the quota reached');
+
+  console.log('YouTube usage reporter host, playback, privacy, retry dedupe, and quota refresh checks passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });
