@@ -8,6 +8,7 @@ struct MediaSiteCandidateSheet: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var connection = FocusFenceConnectionService()
     @State private var scheduleText = ""
+    @State private var includeWholeStreamingCategory = false
     @State private var statusMessage: String?
     @State private var pendingConfirmation = false
     @State private var isWorking = false
@@ -30,6 +31,13 @@ struct MediaSiteCandidateSheet: View {
             TextField("예: 매일 밤 10시부터 아침 7시까지", text: $scheduleText)
                 .textFieldStyle(.roundedBorder)
                 .disabled(isWorking || pendingConfirmation)
+            if candidate.category == .liveVideo {
+                Toggle("이 플랫폼만이 아니라 스트리밍 전체를 차단", isOn: $includeWholeStreamingCategory)
+                    .disabled(isWorking || pendingConfirmation)
+                Text("선택하지 않으면 현재 사이트 하나만 요청합니다. Focus Fence 미리보기가 규칙 하나로 확인되지 않으면 적용을 막습니다.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Button(pendingConfirmation ? "미리보기 확인 완료 · 적용" : "시간표 미리보기") {
                 pendingConfirmation ? confirmSchedule() : previewSchedule()
             }
@@ -76,9 +84,18 @@ struct MediaSiteCandidateSheet: View {
     private func previewSchedule() {
         run {
             let outcome = try await connection.previewSchedule(
-                candidate.scheduleRequestMessage(after: scheduleText)
+                candidate.scheduleRequestMessage(
+                    after: scheduleText,
+                    includeRelatedCategory: includeWholeStreamingCategory
+                )
             )
             statusMessage = outcome.message + (outcome.scheduleName.map { " · 시간표: \($0)" } ?? "")
+            if outcome.ok && !includeWholeStreamingCategory && outcome.rulesAdded != 1 {
+                let count = outcome.rulesAdded.map { String($0) } ?? "확인 불가"
+                statusMessage += "\n\n선택한 사이트 하나에 대한 미리보기에서 규칙 수가 \(count)로 확인되어 적용 확인을 막았습니다. 스트리밍 전체를 원할 때만 위 선택을 켜고 다시 미리보기하세요."
+                pendingConfirmation = false
+                return
+            }
             pendingConfirmation = outcome.ok && outcome.requiresConfirm
         }
     }
@@ -86,7 +103,10 @@ struct MediaSiteCandidateSheet: View {
     private func confirmSchedule() {
         run {
             let outcome = try await connection.confirmSchedule(
-                candidate.scheduleRequestMessage(after: scheduleText)
+                candidate.scheduleRequestMessage(
+                    after: scheduleText,
+                    includeRelatedCategory: includeWholeStreamingCategory
+                )
             )
             statusMessage = outcome.message + (outcome.scheduleName.map { " · 시간표: \($0)" } ?? "")
             if outcome.ok {

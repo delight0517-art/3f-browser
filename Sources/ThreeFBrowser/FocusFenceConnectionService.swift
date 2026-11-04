@@ -23,6 +23,7 @@ final class FocusFenceConnectionService: ObservableObject {
         let requiresConfirm: Bool
         let message: String
         let scheduleName: String?
+        let rulesAdded: Int?
     }
 
     private var pendingScheduleConfirmation: String?
@@ -107,7 +108,8 @@ final class FocusFenceConnectionService: ObservableObject {
             ok: payload.ok,
             requiresConfirm: payload.requiresConfirm ?? false,
             message: payload.message ?? "Focus Fence가 일정 적용 결과를 알려주지 않았습니다.",
-            scheduleName: payload.scheduleName
+            scheduleName: payload.scheduleName,
+            rulesAdded: payload.rulesAdded
         )
     }
 
@@ -231,6 +233,7 @@ final class FocusFenceConnectionService: ObservableObject {
         let message: String?
         let scheduleName: String?
         let requiresConfirm: Bool?
+        let rulesAdded: Int?
     }
 
 }

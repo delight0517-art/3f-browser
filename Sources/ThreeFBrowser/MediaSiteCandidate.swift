@@ -19,9 +19,15 @@ struct MediaSiteCandidate: Identifiable, Equatable {
 
     var id: String { domain }
 
-    func scheduleRequestMessage(after timeWindow: String) -> String {
+    func scheduleRequestMessage(
+        after timeWindow: String,
+        includeRelatedCategory: Bool = false
+    ) -> String {
         let timeWindow = timeWindow.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !timeWindow.isEmpty else { return "" }
+        if includeRelatedCategory, category == .liveVideo {
+            return "\(timeWindow) 스트리밍 전체 차단"
+        }
         let escapedDomain = NSRegularExpression.escapedPattern(for: domain)
         let domainPattern = #"(?<![a-zA-Z0-9.-])(?:[a-zA-Z0-9-]+\.)*\#(escapedDomain)(?![a-zA-Z0-9.-])"#
         if timeWindow.range(of: domainPattern, options: [.regularExpression, .caseInsensitive]) != nil {
