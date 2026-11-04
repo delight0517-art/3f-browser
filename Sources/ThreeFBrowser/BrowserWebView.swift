@@ -89,6 +89,9 @@ struct BrowserWebView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
+        if BrowserSessionStore.isolatedQAProfileEnabled {
+            configuration.websiteDataStore = .nonPersistent()
+        }
         let coordinator = context.coordinator
         if onOpenBackgroundTab != nil {
             let handler = ThreeFBackgroundLinkScriptMessageHandler()

@@ -39,14 +39,46 @@ enum BrowserSessionStore {
     private static let maximumWindows = 20
     private static let maximumTitleUTF8Bytes = 120
     private static let maximumFileBytes = 512_000
+    private static let isolatedQAProfileFlag = "THREEF_BROWSER_ENABLE_ISOLATED_QA_PROFILE"
+    private static let isolatedQAProfilePath = "THREEF_BROWSER_QA_PROFILE_DIRECTORY"
 
     static var defaultDirectory: URL {
+        if let qaDirectory = isolatedQASessionDirectory(
+            environment: ProcessInfo.processInfo.environment,
+            temporaryDirectory: FileManager.default.temporaryDirectory
+        ) {
+            return qaDirectory
+        }
         let applicationSupport = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support", isDirectory: true)
         return directory(
             applicationSupportDirectory: applicationSupport,
             bundleIdentifier: Bundle.main.bundleIdentifier
         )
+    }
+
+    static var isolatedQAProfileEnabled: Bool {
+        isolatedQASessionDirectory(
+            environment: ProcessInfo.processInfo.environment,
+            temporaryDirectory: FileManager.default.temporaryDirectory
+        ) != nil
+    }
+
+    static func isolatedQASessionDirectory(
+        environment: [String: String],
+        temporaryDirectory: URL
+    ) -> URL? {
+        guard environment[isolatedQAProfileFlag] == "1",
+              let path = environment[isolatedQAProfilePath], !path.isEmpty else { return nil }
+
+        let temporaryRoot = temporaryDirectory.standardizedFileURL.resolvingSymlinksInPath()
+        let candidate = URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL.resolvingSymlinksInPath()
+        let prefix = temporaryRoot.path.hasSuffix("/") ? temporaryRoot.path : temporaryRoot.path + "/"
+        var isDirectory: ObjCBool = false
+        guard candidate.path.hasPrefix(prefix), candidate.path != temporaryRoot.path,
+              FileManager.default.fileExists(atPath: candidate.path, isDirectory: &isDirectory),
+              isDirectory.boolValue else { return nil }
+        return candidate
     }
 
     static func directory(applicationSupportDirectory: URL, bundleIdentifier: String?) -> URL {

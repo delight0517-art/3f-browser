@@ -35,6 +35,30 @@ final class BrowserSessionStoreTests: XCTestCase {
         XCTAssertTrue(invalid.path.hasSuffix("3F Browser/QA Profiles/unknown-app"))
     }
 
+    func testIsolatedQAProfileRequiresAnExistingDirectoryUnderTemporaryRoot() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let profile = temporaryRoot.appendingPathComponent("3f-browser-qa", isDirectory: true)
+        try FileManager.default.createDirectory(at: profile, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let environment = [
+            "THREEF_BROWSER_ENABLE_ISOLATED_QA_PROFILE": "1",
+            "THREEF_BROWSER_QA_PROFILE_DIRECTORY": profile.path
+        ]
+        XCTAssertEqual(
+            BrowserSessionStore.isolatedQASessionDirectory(environment: environment, temporaryDirectory: temporaryRoot),
+            profile.standardizedFileURL.resolvingSymlinksInPath()
+        )
+
+        var disabled = environment
+        disabled["THREEF_BROWSER_ENABLE_ISOLATED_QA_PROFILE"] = "0"
+        XCTAssertNil(BrowserSessionStore.isolatedQASessionDirectory(environment: disabled, temporaryDirectory: temporaryRoot))
+
+        var outside = environment
+        outside["THREEF_BROWSER_QA_PROFILE_DIRECTORY"] = FileManager.default.homeDirectoryForCurrentUser.path
+        XCTAssertNil(BrowserSessionStore.isolatedQASessionDirectory(environment: outside, temporaryDirectory: temporaryRoot))
+    }
+
     func testSaveAndLoadRestoresTabsAndSelectedTab() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
