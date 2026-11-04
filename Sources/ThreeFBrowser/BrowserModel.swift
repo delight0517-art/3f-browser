@@ -61,7 +61,7 @@ struct BrowserTheme: Codable, Equatable, Sendable {
     static let standard = BrowserTheme(
         accentHex: "#7950D9",
         quickLinks: [
-            BrowserQuickLink(title: "YouTube", url: "https://youtube.com"),
+            BrowserQuickLink(title: "YouTube", url: "https://www.youtube.com/"),
             BrowserQuickLink(title: "ChatGPT", url: "https://chatgpt.com"),
             BrowserQuickLink(title: "Gemini", url: "https://gemini.google.com"),
             BrowserQuickLink(title: "Drive", url: "https://drive.google.com"),
@@ -240,7 +240,7 @@ final class BrowserModel: ObservableObject {
             addressBlockNotice = "주소나 검색어를 확인해 주세요."
             return
         }
-        authorizeAndNavigate(destination, address: input, authorize: authorize)
+        authorizeAndNavigate(destination, authorize: authorize)
     }
 
     func openExternalURL(
@@ -258,7 +258,7 @@ final class BrowserModel: ObservableObject {
               destination.user == nil,
               destination.password == nil else { return }
 
-        authorizeAndNavigate(destination, address: destination.absoluteString, authorize: authorize)
+        authorizeAndNavigate(destination, authorize: authorize)
     }
 
     func navigate(
@@ -267,7 +267,7 @@ final class BrowserModel: ObservableObject {
     ) {
         guard let scheme = destination.scheme?.lowercased(), ["http", "https"].contains(scheme),
               destination.host != nil, destination.user == nil, destination.password == nil else { return }
-        authorizeAndNavigate(destination, address: destination.absoluteString, authorize: authorize)
+        authorizeAndNavigate(destination, authorize: authorize)
     }
 
     func showNewTab() {
@@ -294,16 +294,16 @@ final class BrowserModel: ObservableObject {
         authorize: (((URL, @escaping (BrowserNavigationAuthorizationDecision) -> Void) -> Void))? = nil
     ) {
         guard let destination = link.destination else { return }
-        authorizeAndNavigate(destination, address: destination.absoluteString, authorize: authorize)
+        authorizeAndNavigate(destination, authorize: authorize)
     }
 
     private func authorizeAndNavigate(
         _ destination: URL,
-        address: String,
         authorize: (((URL, @escaping (BrowserNavigationAuthorizationDecision) -> Void) -> Void))?
     ) {
+        let destination = Self.canonicalNavigationDestination(destination)
         addressBlockNotice = nil
-        addressText = address
+        addressText = destination.absoluteString
         isLoading = true
         guard let authorize else {
             navigationAuthorizationID = nil
@@ -323,6 +323,16 @@ final class BrowserModel: ObservableObject {
             self.currentURL = destination
             self.navigationRequestID += 1
         }
+    }
+
+    private static func canonicalNavigationDestination(_ destination: URL) -> URL {
+        guard let scheme = destination.scheme?.lowercased(), ["http", "https"].contains(scheme),
+              destination.host?.lowercased() == "youtube.com", destination.port == nil,
+              var components = URLComponents(url: destination, resolvingAgainstBaseURL: false) else {
+            return destination
+        }
+        components.host = "www.youtube.com"
+        return components.url ?? destination
     }
 
     func pageDidNavigate(to url: URL?, title: String? = nil) {

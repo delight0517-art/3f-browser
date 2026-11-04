@@ -10,6 +10,9 @@ final class BrowserNavigationFeedbackTests: XCTestCase {
         for title in ["YouTube", "Gemini", "Drive"] {
             let link = try XCTUnwrap(model.theme.quickLinks.first { $0.title == title })
             let destination = try XCTUnwrap(link.destination)
+            if title == "YouTube" {
+                XCTAssertEqual(destination.absoluteString, "https://www.youtube.com/")
+            }
             let previousRequestID = model.navigationRequestID
 
             model.openQuickLink(link)
@@ -22,6 +25,22 @@ final class BrowserNavigationFeedbackTests: XCTestCase {
             model.pageDidNavigate(to: destination, title: title)
             XCTAssertFalse(model.isLoading)
         }
+    }
+
+    func testBareYouTubeHostIsCanonicalizedBeforeNavigationAndAuthorization() throws {
+        let model = BrowserModel()
+        let expected = try XCTUnwrap(URL(string: "https://www.youtube.com/watch?v=aqz-KE-bpKQ"))
+        var authorizedURL: URL?
+
+        model.submit("https://youtube.com/watch?v=aqz-KE-bpKQ") { url, completion in
+            authorizedURL = url
+            completion(.allowed)
+        }
+
+        XCTAssertEqual(authorizedURL, expected)
+        XCTAssertEqual(model.currentURL, expected)
+        XCTAssertEqual(model.addressText, expected.absoluteString)
+        XCTAssertEqual(model.navigationRequestID, 1)
     }
 
     func testQuickLinkWaitsForFocusFenceApprovalBeforeSubmittingWebKitRequest() throws {
