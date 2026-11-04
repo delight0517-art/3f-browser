@@ -19,6 +19,26 @@ async function run(host, quotaBlocked = true, { failFirstAck = false, videoAtSta
   let rulesReads = 0;
   const listeners = {};
   const payloads = [];
+  const bridge = {
+    async postMessage(message) {
+      if (message.type === 'policy') {
+        rulesReads += 1;
+        return { youtubeQuotaBlocked: currentQuotaBlocked };
+      }
+      if (message.type === 'report') {
+        const report = message.report;
+        payloads.push(report);
+        if (!acceptedReports.has(report.reportId)) {
+          acceptedReports.add(report.reportId);
+          serverWatchSeconds += report.watchSeconds;
+          serverDwellSeconds += report.seconds;
+        }
+        if (failFirstAck && payloads.length === 1) return { ok: false };
+        return { ok: true };
+      }
+      return { ok: false };
+    }
+  };
   const video = {
     tagName: 'VIDEO', currentTime: 4, currentSrc: 'test-video', paused: !videoAtStart, ended: false,
     seeking: false, readyState: 4, playbackRate: 1,
@@ -30,25 +50,9 @@ async function run(host, quotaBlocked = true, { failFirstAck = false, videoAtSta
     addEventListener(name, handler) { listeners[name] = handler; }
   };
   const context = {
-    window: {}, location: { hostname: host, href: `https://${host}/watch` }, document,
-    performance: { now: () => now }, URL,
-    fetch: async (url, options = {}) => {
-      if (String(url).includes('/rules')) {
-        rulesReads += 1;
-        return { ok: true, json: async () => ({ youtubeQuotaBlocked: currentQuotaBlocked }) };
-      }
-      if (options.method === 'POST') {
-        const report = JSON.parse(options.body);
-        payloads.push(report);
-        if (!acceptedReports.has(report.reportId)) {
-          acceptedReports.add(report.reportId);
-          serverWatchSeconds += report.watchSeconds;
-          serverDwellSeconds += report.seconds;
-        }
-        if (failFirstAck && payloads.length === 1) return { ok: false, json: async () => ({}) };
-      }
-      return { ok: true, json: async () => ({}) };
-    },
+    window: { webkit: { messageHandlers: { threefYouTubeUsage: bridge } } },
+    location: { hostname: host, href: `https://${host}/watch` }, document,
+    performance: { now: () => now },
     setInterval(callback) { timer = callback; }, addEventListener() {}, crypto: { randomUUID: () => 'test-report' }
   };
   vm.runInNewContext(match[1], context);

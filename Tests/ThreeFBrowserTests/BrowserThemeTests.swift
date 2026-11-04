@@ -7,8 +7,31 @@ final class BrowserThemeTests: XCTestCase {
     func testThreeFYouTubeReporterWaitsForFocusFenceQuotaBeforePlayback() {
         XCTAssertTrue(OptionalFeatureAvailability.youtubeUsageReporting)
         XCTAssertTrue(YouTubeUsageReporter.script.contains("blocked = true;"))
-        XCTAssertTrue(YouTubeUsageReporter.script.contains("u.searchParams.set('browser','3f')"))
+        XCTAssertTrue(YouTubeUsageReporter.script.contains("threefYouTubeUsage"))
         XCTAssertTrue(YouTubeUsageReporter.script.contains("blocked = !policy || policy.youtubeQuotaBlocked !== false"))
+        XCTAssertFalse(YouTubeUsageReporter.script.contains("fetch("), "The YouTube page must not call the local HTTP API directly")
+    }
+
+    func testThreeFYouTubeBridgeSendsOnlyValidatedAggregatePlayback() throws {
+        let report = try XCTUnwrap(YouTubeUsageBridgePayload.report(from: [
+            "reportId": "abc-123",
+            "seconds": 5,
+            "watchSeconds": 4,
+            "title": "private page title",
+            "url": "https://www.youtube.com/watch?v=private"
+        ], pageHost: "www.youtube.com"))
+
+        XCTAssertEqual(report["host"] as? String, "www.youtube.com")
+        XCTAssertEqual(report["browser"] as? String, "3f")
+        XCTAssertEqual(report["seconds"] as? Int, 5)
+        XCTAssertEqual(report["watchSeconds"] as? Int, 4)
+        XCTAssertEqual(Set(report.keys), Set(["host", "reportId", "seconds", "watchSeconds", "playing", "browser"]))
+        XCTAssertNil(YouTubeUsageBridgePayload.report(from: [
+            "reportId": "abc-123", "seconds": 5, "watchSeconds": 6
+        ], pageHost: "www.youtube.com"))
+        XCTAssertNil(YouTubeUsageBridgePayload.report(from: [
+            "reportId": "abc-123", "seconds": 5, "watchSeconds": 4
+        ], pageHost: "example.com"))
     }
 
     func testAddressBarUsesSelectedSearchProviderAndRejectsURLCredentials() throws {

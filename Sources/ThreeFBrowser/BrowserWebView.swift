@@ -88,6 +88,13 @@ struct BrowserWebView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
+        if OptionalFeatureAvailability.youtubeUsageReporting {
+            configuration.userContentController.addScriptMessageHandler(
+                YouTubeUsageScriptMessageHandler(),
+                contentWorld: .defaultClient,
+                name: YouTubeUsageScriptMessageHandler.name
+            )
+        }
         if OptionalFeatureAvailability.youtubePreviewBlocking {
             configuration.userContentController.addUserScript(WKUserScript(
                 source: YouTubePreviewPlaybackBlocker.script,
@@ -99,7 +106,8 @@ struct BrowserWebView: NSViewRepresentable {
             configuration.userContentController.addUserScript(WKUserScript(
                 source: YouTubeUsageReporter.script,
                 injectionTime: .atDocumentStart,
-                forMainFrameOnly: true
+                forMainFrameOnly: true,
+                in: .defaultClient
             ))
         }
         let view = ThreeFWindowAwareWebView(frame: .zero, configuration: configuration)
