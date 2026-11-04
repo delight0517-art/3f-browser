@@ -20,17 +20,20 @@ struct BrowserView: View {
     private let embedded: Bool
     private let authorizeNavigation: ((URL, @escaping (BrowserNavigationAuthorizationDecision) -> Void) -> Void)?
     private let onWebView: ((BrowserModel, WKWebView) -> Void)?
+    private let onPageStateChange: ((URL?) -> Void)?
     private let onBlockedNavigation: ((URL) -> Void)?
 
     init(
         embedded: Bool = false,
         authorizeNavigation: ((URL, @escaping (BrowserNavigationAuthorizationDecision) -> Void) -> Void)? = nil,
         onWebView: ((BrowserModel, WKWebView) -> Void)? = nil,
+        onPageStateChange: ((URL?) -> Void)? = nil,
         onBlockedNavigation: ((URL) -> Void)? = nil
     ) {
         self.embedded = embedded
         self.authorizeNavigation = authorizeNavigation
         self.onWebView = onWebView
+        self.onPageStateChange = onPageStateChange
         self.onBlockedNavigation = onBlockedNavigation
         _model = StateObject(wrappedValue: BrowserModel())
         let initialTab = BrowserSessionTab(title: "새 탭")
@@ -61,8 +64,11 @@ struct BrowserView: View {
         }
         .onAppear(perform: consumeExternalURLs)
         .onAppear(perform: initializeWindow)
+        .onChange(of: model.currentURL) { _, url in
+            updateActiveTab(url: url, title: url?.host)
+            onPageStateChange?(url)
+        }
         .onChange(of: model.navigationRequestID) { _, _ in
-            updateActiveTab(url: model.currentURL, title: model.currentURL?.host)
             pulseNavigationFeedback()
         }
         .onChange(of: webView) { _, _ in
