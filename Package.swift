@@ -8,7 +8,10 @@ let package = Package(
         .executable(name: "ThreeFBrowser", targets: ["ThreeFBrowser"])
     ],
     targets: [
-        .executableTarget(name: "ThreeFBrowser"),
+        .executableTarget(
+            name: "ThreeFBrowser",
+            resources: [.process("Resources")]
+        ),
         .testTarget(name: "ThreeFBrowserTests", dependencies: ["ThreeFBrowser"])
     ]
 )

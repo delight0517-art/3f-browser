@@ -13,6 +13,9 @@ struct BrowserView: View {
     @State private var tabs: [BrowserSessionTab]
     @State private var selectedTabID: UUID?
     @State private var navigationFeedbackPulse = false
+    @State private var readerArticle: ReaderArticle?
+    @State private var readerFailure: String?
+    @State private var isExtractingReaderArticle = false
     @SceneStorage("threef.browser.session-window-id") private var sessionWindowID = UUID().uuidString
     @State private var didRestoreSession = false
     @State private var isWindowClosing = false
@@ -159,6 +162,17 @@ struct BrowserView: View {
 
             if model.currentURL == nil { newTabPage }
         }
+        .sheet(item: $readerArticle) { article in
+            ReaderModeView(article: article)
+        }
+        .alert("읽기 모드를 열 수 없습니다.", isPresented: Binding(
+            get: { readerFailure != nil },
+            set: { if !$0 { readerFailure = nil } }
+        )) {
+            Button("확인", role: .cancel) { readerFailure = nil }
+        } message: {
+            Text(readerFailure ?? "페이지 본문을 찾지 못했습니다.")
+        }
     }
 
     private func consumeExternalURLs() {
@@ -250,6 +264,9 @@ struct BrowserView: View {
             chromeButton("star", help: "북마크 추가", disabled: model.currentURL == nil) {
                 model.addBookmarkForCurrentPage()
             }
+            chromeButton("text.alignleft", help: "읽기 모드", disabled: model.currentURL == nil || isExtractingReaderArticle) {
+                openReaderMode()
+            }
             chromeButton("gearshape", help: "설정") { model.isShowingSettings = true }
         }
         .padding(.horizontal, 16)
@@ -314,6 +331,59 @@ struct BrowserView: View {
         canGoBack = false
         canGoForward = false
         saveSession()
+    }
+
+    private func openReaderMode() {
+        guard let webView,
+              let currentURL = webView.url,
+              ["http", "https"].contains(currentURL.scheme?.lowercased() ?? ""),
+              let resourceURL = Bundle.module.url(forResource: "Readability", withExtension: "js") else {
+            readerFailure = "웹페이지를 열고 다시 시도해 주세요."
+            return
+        }
+
+        do {
+            let readabilitySource = try String(contentsOf: resourceURL, encoding: .utf8)
+            let script = """
+            (() => {
+              const module = undefined;
+              const exports = undefined;
+            \(readabilitySource)
+              const article = new Readability(document.cloneNode(true), { maxElemsToParse: 15000 }).parse();
+              if (!article || !article.textContent || !article.textContent.trim()) return null;
+              return JSON.stringify({
+                title: article.title || document.title || "읽기 모드",
+                byline: article.byline || "",
+                siteName: article.siteName || location.hostname,
+                excerpt: article.excerpt || "",
+                text: article.textContent,
+                sourceURL: location.href
+              });
+            })()
+            """
+            isExtractingReaderArticle = true
+            webView.evaluateJavaScript(script, in: nil, in: .defaultClient) { result in
+                DispatchQueue.main.async {
+                    isExtractingReaderArticle = false
+                    switch result {
+                    case .success(let value):
+                        guard let json = value as? String,
+                              let data = json.data(using: .utf8),
+                              let article = try? JSONDecoder().decode(ReaderArticle.self, from: data),
+                              !article.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                            readerFailure = "이 페이지에서 읽을 본문을 찾지 못했습니다."
+                            return
+                        }
+                        readerArticle = article
+                    case .failure(let error):
+                        readerFailure = error.localizedDescription
+                    }
+                }
+            }
+        } catch {
+            isExtractingReaderArticle = false
+            readerFailure = "읽기 모듈을 불러오지 못했습니다: \(error.localizedDescription)"
+        }
     }
 
     private func addTab(for url: URL) {
