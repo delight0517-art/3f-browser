@@ -10,6 +10,37 @@ enum ThreeFBrowserControlPageState {
     }
 }
 
+@MainActor
+protocol ThreeFBrowserControlSurface: AnyObject {
+    var url: URL? { get }
+    var title: String? { get }
+    var backURL: URL? { get }
+    var forwardURL: URL? { get }
+
+    func goBackInBrowser()
+    func goForwardInBrowser()
+    func reloadBrowserPage()
+    func evaluateBrowserJavaScript(_ script: String) async throws -> Any?
+}
+
+extension WKWebView: ThreeFBrowserControlSurface {
+    var backURL: URL? { backForwardList.backItem?.url }
+    var forwardURL: URL? { backForwardList.forwardItem?.url }
+
+    func goBackInBrowser() { _ = goBack() }
+    func goForwardInBrowser() { _ = goForward() }
+    func reloadBrowserPage() { _ = reload() }
+
+    func evaluateBrowserJavaScript(_ script: String) async throws -> Any? {
+        try await withCheckedThrowingContinuation { continuation in
+            evaluateJavaScript(script) { value, error in
+                if let error { continuation.resume(throwing: error) }
+                else { continuation.resume(returning: value) }
+            }
+        }
+    }
+}
+
 private enum ThreeFBrowserTerminationProbe {
     static func installIfRequested() {
         guard ProcessInfo.processInfo.environment["THREEF_BROWSER_TRACE_SIGTERM"] == "1" else { return }
@@ -101,7 +132,7 @@ enum ThreeFControlRequestParser {
 final class ThreeFBrowserControlController {
     static let shared = ThreeFBrowserControlController()
     private weak var model: BrowserModel?
-    private weak var webView: WKWebView?
+    private weak var webView: (any ThreeFBrowserControlSurface)?
     private let authorizeNavigation: ((URL) async -> Bool?)?
     private var navigationCompletion: CheckedContinuation<Bool, Never>?
     private var navigationTimeout: Task<Void, Never>?
@@ -230,8 +261,12 @@ final class ThreeFBrowserControlController {
     }
 
     func attach(model: BrowserModel, webView: WKWebView) {
+        attach(model: model, surface: webView)
+    }
+
+    func attach(model: BrowserModel, surface: any ThreeFBrowserControlSurface) {
         self.model = model
-        self.webView = webView
+        webView = surface
     }
 
     func performNavigation(for target: AnyObject, _ start: () -> Void) async -> Bool {
@@ -274,8 +309,8 @@ final class ThreeFBrowserControlController {
             let pageReady = ThreeFBrowserControlPageState.isReady(modelURL: model.currentURL, webViewURL: webView.url)
             return (200, ["ok": true, "url": model.currentURL?.absoluteString ?? "about:blank",
                           "title": pageReady ? (webView.title ?? "") : "", "ready": pageReady,
-                          "backURL": pageReady ? (webView.backForwardList.backItem?.url.absoluteString ?? "") : "",
-                          "forwardURL": pageReady ? (webView.backForwardList.forwardItem?.url.absoluteString ?? "") : ""])
+                          "backURL": pageReady ? (webView.backURL?.absoluteString ?? "") : "",
+                          "forwardURL": pageReady ? (webView.forwardURL?.absoluteString ?? "") : ""])
         case ("GET", "/v1/read"):
             guard let webView else { return (503, ["ok": false, "error": "browser view not ready"]) }
             guard let pageURL = model?.currentURL,
@@ -283,7 +318,7 @@ final class ThreeFBrowserControlController {
                 return (409, ["ok": false, "error": "selected browser page is not ready"])
             }
             do {
-                let value = try await evaluate("document.body?.innerText?.slice(0, 12000) || ''", in: webView)
+                let value = try await webView.evaluateBrowserJavaScript("document.body?.innerText?.slice(0, 12000) || ''")
                 return (200, ["ok": true, "url": pageURL.absoluteString, "text": value as? String ?? ""])
             } catch { return (502, ["ok": false, "error": "page text could not be read"]) }
         case ("GET", "/v1/aria"):
@@ -303,7 +338,7 @@ final class ThreeFBrowserControlController {
             })()
             """
             do {
-                let value = try await evaluate(script, in: webView)
+                let value = try await webView.evaluateBrowserJavaScript(script)
                 return (200, ["ok": true, "url": pageURL.absoluteString, "ariaTree": value as? String ?? ""])
             } catch { return (502, ["ok": false, "error": "page accessibility tree could not be read"]) }
         case ("POST", "/v1/navigate"):
@@ -342,8 +377,8 @@ final class ThreeFBrowserControlController {
             }
             let target: URL?
             switch action {
-            case "back": target = webView.backForwardList.backItem?.url
-            case "forward": target = webView.backForwardList.forwardItem?.url
+            case "back": target = webView.backURL
+            case "forward": target = webView.forwardURL
             case "reload": target = webView.url
             default: return (400, ["ok": false, "error": "supported actions: back, forward, reload"])
             }
@@ -353,9 +388,9 @@ final class ThreeFBrowserControlController {
             }
             let completed = await performNavigation(for: webView) {
                 switch action {
-                case "back": webView.goBack()
-                case "forward": webView.goForward()
-                default: webView.reload()
+                case "back": webView.goBackInBrowser()
+                case "forward": webView.goForwardInBrowser()
+                default: webView.reloadBrowserPage()
                 }
             }
             guard completed, let currentURL = webView.url else {
@@ -402,21 +437,12 @@ final class ThreeFBrowserControlController {
                 """
             }
             do {
-                let result = try await evaluate(script, in: webView) as? String ?? "action failed"
+                let result = try await webView.evaluateBrowserJavaScript(script) as? String ?? "action failed"
                 let ok = ["clicked", "typed"].contains(result)
                 return (ok ? 200 : 404, ["ok": ok, "result": result])
             } catch { return (502, ["ok": false, "error": "browser action failed"]) }
         default:
             return (404, ["ok": false, "error": "unknown control endpoint"])
-        }
-    }
-
-    private func evaluate(_ script: String, in webView: WKWebView) async throws -> Any? {
-        try await withCheckedThrowingContinuation { continuation in
-            webView.evaluateJavaScript(script) { value, error in
-                if let error { continuation.resume(throwing: error) }
-                else { continuation.resume(returning: value) }
-            }
         }
     }
 
@@ -449,8 +475,24 @@ final class ThreeFBrowserControlServer {
     init(controller: ThreeFBrowserControlController? = nil, descriptorURL customDescriptorURL: URL? = nil) {
         self.controller = controller ?? .shared
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        descriptorURL = customDescriptorURL ?? support.appendingPathComponent("3F Browser/only-chat-control.json")
+        descriptorURL = Self.descriptorURL(
+            applicationSupportDirectory: support,
+            bundleIdentifier: Bundle.main.bundleIdentifier,
+            override: customDescriptorURL
+        )
         token = UUID().uuidString.replacingOccurrences(of: "-", with: "") + UUID().uuidString.replacingOccurrences(of: "-", with: "") + UUID().uuidString.replacingOccurrences(of: "-", with: "")
+    }
+
+    static func descriptorURL(
+        applicationSupportDirectory: URL,
+        bundleIdentifier: String?,
+        override: URL? = nil
+    ) -> URL {
+        if let override { return override }
+        return BrowserSessionStore.directory(
+            applicationSupportDirectory: applicationSupportDirectory,
+            bundleIdentifier: bundleIdentifier
+        ).appendingPathComponent("only-chat-control.json")
     }
 
     func start() {

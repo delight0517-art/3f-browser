@@ -4,6 +4,31 @@ import WebKit
 @testable import ThreeFBrowser
 
 final class ThreeFBrowserControlTests: XCTestCase {
+    @MainActor
+    func testControlDescriptorIsSharedOnlyForTheProductionBundle() throws {
+        let support = URL(fileURLWithPath: "/tmp/threef-control-descriptor-test", isDirectory: true)
+        let shared = support.appendingPathComponent("3F Browser/only-chat-control.json")
+        let production = ThreeFBrowserControlServer.descriptorURL(
+            applicationSupportDirectory: support,
+            bundleIdentifier: "com.rogan.threef.browser"
+        )
+        let candidate = ThreeFBrowserControlServer.descriptorURL(
+            applicationSupportDirectory: support,
+            bundleIdentifier: "com.rogan.threef.browser.cef-dev"
+        )
+        let explicit = URL(fileURLWithPath: "/tmp/custom-control/descriptor.json")
+        let overridden = ThreeFBrowserControlServer.descriptorURL(
+            applicationSupportDirectory: support,
+            bundleIdentifier: "com.rogan.threef.browser.cef-dev",
+            override: explicit
+        )
+
+        XCTAssertEqual(production, shared)
+        XCTAssertNotEqual(candidate, shared)
+        XCTAssertTrue(candidate.path.contains("QA Profiles/com.rogan.threef.browser.cef-dev"))
+        XCTAssertEqual(overridden, explicit)
+    }
+
     func testControlPageStateTracksTheSelectedTabAndRejectsStaleWebViewURL() throws {
         let selectedPage = try XCTUnwrap(URL(string: "https://example.com/"))
         let stalePage = try XCTUnwrap(URL(string: "https://youtube.com/"))
