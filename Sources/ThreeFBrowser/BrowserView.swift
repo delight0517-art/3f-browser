@@ -321,7 +321,11 @@ struct BrowserView: View {
         saveCurrentTab()
         let tab = BrowserSessionTab(title: url.host ?? "새 탭", url: url)
         tabs.append(tab)
-        selectedTabID = tab.id
+        selectedTabID = BrowserTabSelectionPolicy.selectedTabID(
+            currentSelection: selectedTabID,
+            newlyOpenedTabID: tab.id,
+            opensInBackground: false
+        )
         model.navigate(to: url, authorize: authorizeNavigation)
         canGoBack = false
         canGoForward = false
@@ -331,7 +335,13 @@ struct BrowserView: View {
     private func addBackgroundTab(for url: URL) {
         guard let url = ThreeFContextMenuPolicy.safeHTTPURL(url) else { return }
         saveCurrentTab()
-        tabs.append(BrowserSessionTab(title: url.host ?? "새 탭", url: url))
+        let tab = BrowserSessionTab(title: url.host ?? "새 탭", url: url)
+        tabs.append(tab)
+        selectedTabID = BrowserTabSelectionPolicy.selectedTabID(
+            currentSelection: selectedTabID,
+            newlyOpenedTabID: tab.id,
+            opensInBackground: true
+        )
         saveSession()
     }
 
