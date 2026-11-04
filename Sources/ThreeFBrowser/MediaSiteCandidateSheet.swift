@@ -92,7 +92,7 @@ struct MediaSiteCandidateSheet: View {
             statusMessage = outcome.message + (outcome.scheduleName.map { " · 시간표: \($0)" } ?? "")
             if outcome.ok && !includeWholeStreamingCategory && outcome.rulesAdded != 1 {
                 let count = outcome.rulesAdded.map { String($0) } ?? "확인 불가"
-                statusMessage += "\n\n선택한 사이트 하나에 대한 미리보기에서 규칙 수가 \(count)로 확인되어 적용 확인을 막았습니다. 스트리밍 전체를 원할 때만 위 선택을 켜고 다시 미리보기하세요."
+                statusMessage = (statusMessage ?? "") + "\n\n선택한 사이트 하나에 대한 미리보기에서 규칙 수가 \(count)로 확인되어 적용 확인을 막았습니다. 스트리밍 전체를 원할 때만 위 선택을 켜고 다시 미리보기하세요."
                 pendingConfirmation = false
                 return
             }
