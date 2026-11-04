@@ -208,7 +208,7 @@ struct BrowserView: View {
             }
             chromeButton(model.currentURL == nil ? "magnifyingglass" : "arrow.clockwise",
                          help: model.currentURL == nil ? "검색" : "새로고침") {
-                if model.currentURL == nil { model.submit(model.addressText, authorize: authorizeNavigation) }
+                if model.currentURL == nil { submitAddressBar() }
                 else { webView?.reload() }
             }
 
@@ -234,7 +234,7 @@ struct BrowserView: View {
                 TextField("검색 또는 웹 주소 입력", text: $model.addressText)
                     .textFieldStyle(.plain)
                     .font(.system(size: 14))
-                    .onSubmit { model.submit(model.addressText, authorize: authorizeNavigation) }
+                    .onSubmit { submitAddressBar() }
                 if !model.addressText.isEmpty {
                     Button { model.addressText = "" } label: {
                         Image(systemName: "xmark.circle.fill")
@@ -420,6 +420,17 @@ struct BrowserView: View {
         openWindow(id: "browser")
     }
 
+    private func submitAddressBar() {
+        model.submit(model.addressText, authorize: authorizeNavigation)
+    }
+
+    private func navigateToQuickLink(_ link: BrowserQuickLink) {
+        guard link.destination != nil else { return }
+        model.openQuickLink(link, authorize: authorizeNavigation)
+        guard model.isLoading else { return }
+        webView?.window?.makeFirstResponder(nil)
+    }
+
     private func pulseNavigationFeedback() {
         let requestID = model.navigationRequestID
         navigationFeedbackPulse = false
@@ -552,7 +563,7 @@ struct BrowserView: View {
                     TextField("검색 또는 웹 주소 입력", text: $model.addressText)
                         .textFieldStyle(.plain)
                         .font(.system(size: 15))
-                        .onSubmit { model.submit(model.addressText, authorize: authorizeNavigation) }
+                        .onSubmit { submitAddressBar() }
                     Button { model.submit(model.addressText, authorize: authorizeNavigation) } label: {
                         Image(systemName: "arrow.right")
                             .font(.system(size: 13, weight: .semibold))
@@ -580,7 +591,7 @@ struct BrowserView: View {
                             ScrollView(.horizontal, showsIndicators: false) {
                                 HStack(spacing: 8) {
                                     ForEach(model.theme.quickLinks) { link in
-                                        Button { model.openQuickLink(link, authorize: authorizeNavigation) } label: {
+                                        Button { navigateToQuickLink(link) } label: {
                                             Label(link.title, systemImage: "globe")
                                                 .font(.system(size: 11, weight: .medium))
                                                 .foregroundStyle(ThreeFPalette.ink)
@@ -599,7 +610,7 @@ struct BrowserView: View {
                         } else {
                             LazyVGrid(columns: [GridItem(.adaptive(minimum: 118), spacing: 10)], spacing: 10) {
                                 ForEach(model.theme.quickLinks) { link in
-                                    Button { model.openQuickLink(link, authorize: authorizeNavigation) } label: {
+                                    Button { navigateToQuickLink(link) } label: {
                                         VStack(alignment: .leading, spacing: 7) {
                                             Image(systemName: "globe")
                                                 .font(.system(size: 15, weight: .semibold))
@@ -641,7 +652,7 @@ struct BrowserView: View {
     private var quickLinksBar: some View {
         HStack(spacing: 8) {
             ForEach(model.theme.quickLinks) { link in
-                Button { model.openQuickLink(link, authorize: authorizeNavigation) } label: {
+                Button { navigateToQuickLink(link) } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "globe")
                             .font(.system(size: 10, weight: .semibold))

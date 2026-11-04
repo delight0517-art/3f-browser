@@ -27,6 +27,22 @@ final class BrowserNavigationFeedbackTests: XCTestCase {
         }
     }
 
+    func testAddressBarSubmitCreatesANewNavigationRequestInsteadOfOnlyReplacingText() throws {
+        let model = BrowserModel()
+        let requested = try XCTUnwrap(URL(string: "https://www.youtube.com/"))
+
+        model.addressText = requested.absoluteString
+        model.submit(model.addressText)
+
+        XCTAssertEqual(model.currentURL, requested)
+        XCTAssertEqual(model.addressText, requested.absoluteString)
+        XCTAssertEqual(model.navigationRequestID, 1)
+        XCTAssertTrue(model.isLoading)
+
+        model.pageDidNavigate(to: requested, title: "YouTube")
+        XCTAssertFalse(model.isLoading)
+    }
+
     func testBareYouTubeHostIsCanonicalizedBeforeNavigationAndAuthorization() throws {
         let model = BrowserModel()
         let expected = try XCTUnwrap(URL(string: "https://www.youtube.com/watch?v=aqz-KE-bpKQ"))
