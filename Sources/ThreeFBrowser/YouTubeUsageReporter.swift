@@ -106,7 +106,9 @@ enum YouTubeUsageReporter {
         const onYouTube = isYouTubeHost(host);
         const now = performance.now(), elapsed = now - lastAt, current = snapshot();
         let watchedMs = 0;
-        if (!blocked && onYouTube && elapsed > 0 && elapsed <= 15000) {
+        // WebKit can coalesce background timers; count only a bounded gap with matching media progress.
+        const maxElapsedMs = document.visibilityState === 'hidden' ? 120000 : 15000;
+        if (!blocked && onYouTube && elapsed > 0 && elapsed <= maxElapsedMs) {
           for (const [video, next] of current) {
             const prev = samples.get(video);
             if (!prev?.playing || prev.src !== next.src || !(prev.rate > 0)) continue;

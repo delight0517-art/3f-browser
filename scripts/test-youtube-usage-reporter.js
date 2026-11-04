@@ -106,6 +106,7 @@ async function run(host, quotaBlocked = true, {
   return {
     video, listeners, payloads, leaseRequests, leaseReports,
     async reportProgress(seconds = 2) { now += seconds * 1000; video.currentTime += seconds * video.playbackRate; await timer(); },
+    async advancePlayback(ms) { now += ms; video.currentTime += ms / 1000 * video.playbackRate; await timer(); },
     startPlayback() {
       videoPresent = true;
       video.paused = false;
@@ -209,6 +210,21 @@ async function run(host, quotaBlocked = true, {
   await hidden.pausePlayback();
   assert.equal(hidden.payloads.length, 1, 'verified playback continues to count in a hidden background tab');
   assert.equal(hidden.payloads[0].watchSeconds, 10, 'background playback reports measured media progress only');
+
+  const throttledHidden = await run('youtube.com', false);
+  await throttledHidden.setVisibility('hidden');
+  await throttledHidden.advancePlayback(20000);
+  assert.equal(throttledHidden.payloads.length, 1,
+    'verified background playback is counted when a throttled hidden-page timer resumes after 20 seconds');
+  assert.equal(throttledHidden.payloads[0].watchSeconds, 20,
+    'a throttled tick reports only measured media progress');
+
+  const suspendedHidden = await run('youtube.com', false);
+  await suspendedHidden.setVisibility('hidden');
+  await suspendedHidden.advancePlayback(180000);
+  await suspendedHidden.pausePlayback();
+  assert.equal(suspendedHidden.payloads.length, 0,
+    'a hidden-page gap beyond the bounded measurement window is not attributed as playback');
 
   const reachesQuota = await run('youtube.com', false);
   assert.equal(reachesQuota.video.paused, false, 'under-cap YouTube playback remains allowed');
