@@ -3,6 +3,15 @@ import XCTest
 @testable import ThreeFBrowser
 
 final class YouTubeUsageSummaryTests: XCTestCase {
+    func testUsageRequestAllowsBoundedLocalServiceDelay() {
+        let request = FocusFenceYouTubeUsageClient.makeRequest()
+
+        XCTAssertEqual(request.url, FocusFenceYouTubeUsageClient.endpoint)
+        XCTAssertEqual(request.httpMethod, "GET")
+        XCTAssertEqual(request.timeoutInterval, 5)
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Cache-Control"), "no-cache")
+    }
+
     func testDecodesOnlyAggregateUsageFieldsAndFormatsDailyAndRollingHourClearly() throws {
         let data = try JSONSerialization.data(withJSONObject: [
             "todaySeconds": 1339,

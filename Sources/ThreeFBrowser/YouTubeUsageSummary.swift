@@ -58,12 +58,18 @@ struct FocusFenceYouTubeUsageSummary: Decodable, Equatable, Sendable {
 
 enum FocusFenceYouTubeUsageClient {
     static let endpoint = URL(string: "http://127.0.0.1:17361/usage/youtube")!
+    static let requestTimeoutInterval: TimeInterval = 5
 
-    static func fetch(session: URLSession = .shared) async -> FocusFenceYouTubeUsageSummary? {
+    static func makeRequest() -> URLRequest {
         var request = URLRequest(url: endpoint)
         request.httpMethod = "GET"
-        request.timeoutInterval = 2
+        request.timeoutInterval = requestTimeoutInterval
         request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        return request
+    }
+
+    static func fetch(session: URLSession = .shared) async -> FocusFenceYouTubeUsageSummary? {
+        let request = makeRequest()
         guard let (data, response) = try? await session.data(for: request),
               let response = response as? HTTPURLResponse,
               response.statusCode == 200 else { return nil }
