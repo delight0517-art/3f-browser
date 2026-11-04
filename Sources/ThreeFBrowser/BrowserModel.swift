@@ -140,6 +140,7 @@ final class BrowserModel: ObservableObject {
     private var navigationAuthorizationID: UUID?
     private var mediaCandidateCheck: Task<Void, Never>?
     private let hotModuleStore = HotModuleStore()
+    private let mediaSiteSnoozeStore = MediaSiteSnoozeStore()
     private let bookmarksKey = "browser.v1.bookmarks"
     private let historyKey = "browser.v1.history"
 
@@ -362,15 +363,13 @@ final class BrowserModel: ObservableObject {
     }
 
     func deferMediaSiteCandidate(_ candidate: MediaSiteCandidate) {
-        var deferred = Self.deferredMediaSiteDomains()
-        deferred[candidate.domain] = Date().timeIntervalSince1970 + Self.mediaSiteSnoozeDuration
-        UserDefaults.standard.set(deferred, forKey: Self.mediaSiteSnoozeKey)
+        mediaSiteSnoozeStore.snooze(domain: candidate.domain)
         pendingMediaSiteCandidate = nil
     }
 
     private func considerMediaSiteCandidate(at url: URL) async {
         guard let host = url.host?.lowercased(),
-              !Self.isMediaSitePromptSuppressed(host),
+              !isMediaSitePromptSuppressed(host),
               let data = await ThreeFBrowserControlController.fetchFocusFenceRules(),
               currentURL == url,
               let rules = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -382,7 +381,7 @@ final class BrowserModel: ObservableObject {
             youtubeQuotaBlocked: rules["youtubeQuotaBlocked"] as? Bool == true
         )
         guard let candidate,
-              !Self.isMediaSitePromptSuppressed(candidate.domain),
+              !isMediaSitePromptSuppressed(candidate.domain),
               currentURL == url else { return }
         pendingMediaSiteCandidate = candidate
     }
@@ -394,27 +393,17 @@ final class BrowserModel: ObservableObject {
     }
 
     private static let mediaSiteDecisionsKey = "threef.focusFence.mediaSiteDecisions.v1"
-    private static let mediaSiteSnoozeKey = "threef.focusFence.mediaSiteSnoozes.v1"
-    private static let mediaSiteSnoozeDuration: TimeInterval = 24 * 60 * 60
 
     private static func resolvedMediaSiteDomains() -> Set<String> {
         Set(UserDefaults.standard.stringArray(forKey: mediaSiteDecisionsKey) ?? [])
     }
 
-    private static func deferredMediaSiteDomains() -> [String: TimeInterval] {
-        let now = Date().timeIntervalSince1970
-        let stored = UserDefaults.standard.dictionary(forKey: mediaSiteSnoozeKey) as? [String: TimeInterval] ?? [:]
-        let active = stored.filter { $0.value > now }
-        if active.count != stored.count {
-            UserDefaults.standard.set(active, forKey: mediaSiteSnoozeKey)
-        }
-        return active
-    }
-
-    private static func isMediaSitePromptSuppressed(_ rawHost: String) -> Bool {
+    private func isMediaSitePromptSuppressed(_ rawHost: String) -> Bool {
         let host = rawHost.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
-        let resolved = resolvedMediaSiteDomains().union(deferredMediaSiteDomains().keys)
-        return resolved.contains { host == $0 || host.hasSuffix("." + $0) }
+        let alreadyResolved = Self.resolvedMediaSiteDomains().contains {
+            host == $0 || host.hasSuffix("." + $0)
+        }
+        return alreadyResolved || mediaSiteSnoozeStore.suppresses(host: host)
     }
 
     func refreshYouTubeUsage() async {
