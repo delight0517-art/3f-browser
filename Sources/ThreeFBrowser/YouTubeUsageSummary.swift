@@ -1,5 +1,11 @@
 import Foundation
 
+private struct FocusFenceAccountBudgetStatus: Decodable, Equatable, Sendable {
+    let available: Bool?
+    let fresh: Bool?
+    let enabled: Bool?
+}
+
 struct FocusFenceYouTubeUsageSummary: Decodable, Equatable, Sendable {
     let todaySeconds: Int
     let dailyCapMinutes: Int
@@ -7,6 +13,16 @@ struct FocusFenceYouTubeUsageSummary: Decodable, Equatable, Sendable {
     let hourlyUsedSeconds: Int
     let hourlyRemainingSeconds: Int
     let blocked: Bool
+    private let cloudSignedIn: Bool?
+    private let accountBudget: FocusFenceAccountBudgetStatus?
+
+    var accountSyncStatusLine: String? {
+        guard cloudSignedIn != nil || accountBudget != nil else { return nil }
+        guard cloudSignedIn == true else { return "계정 연결 필요" }
+        guard let accountBudget, accountBudget.available == true else { return "계정 사용량 동기화 불가" }
+        guard accountBudget.fresh == true else { return "계정 한도 갱신 지연" }
+        return accountBudget.enabled == true ? "계정 한도 최신" : "계정 예산 비활성"
+    }
 
     static func decode(_ data: Data) -> Self? {
         guard let summary = try? JSONDecoder().decode(Self.self, from: data),
@@ -31,7 +47,7 @@ struct FocusFenceYouTubeUsageSummary: Decodable, Equatable, Sendable {
         let hourly = hourlyCapMinutes > 0
             ? "최근 1시간 시청 \(Self.duration(hourlyUsedSeconds)) · 시간 한도 \(hourlyCapMinutes)분 · 남은 한도 \(Self.duration(hourlyRemainingSeconds))"
             : "시간 한도 없음"
-        return "\(daily) · \(hourly)"
+        return ([daily, hourly, accountSyncStatusLine].compactMap { $0 }).joined(separator: " · ")
     }
 
     var compactStatusLine: String {
@@ -41,7 +57,7 @@ struct FocusFenceYouTubeUsageSummary: Decodable, Equatable, Sendable {
         let hourly = hourlyCapMinutes > 0
             ? "최근 1시간 \(Self.duration(hourlyUsedSeconds)) / \(hourlyCapMinutes)분 · 남은 \(Self.duration(hourlyRemainingSeconds))"
             : nil
-        return ([daily, hourly, blocked ? "재생 제한 중" : nil].compactMap { $0 }).joined(separator: " · ")
+        return ([daily, hourly, blocked ? "재생 제한 중" : nil, accountSyncStatusLine].compactMap { $0 }).joined(separator: " · ")
     }
 
     static func duration(_ seconds: Int) -> String {

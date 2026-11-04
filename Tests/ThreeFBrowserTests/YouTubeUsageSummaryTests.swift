@@ -48,6 +48,50 @@ final class YouTubeUsageSummaryTests: XCTestCase {
         XCTAssertEqual(summary.compactStatusLine, "오늘 18분 / 일 20분 · 남은 2분 · 최근 1시간 2분 / 10분 · 남은 8분")
     }
 
+    func testAccountSyncStatusUsesOnlyConnectionAndFreshnessFlags() throws {
+        let current = try JSONSerialization.data(withJSONObject: [
+            "todaySeconds": 10,
+            "dailyCapMinutes": 20,
+            "hourlyCapMinutes": 10,
+            "hourlyUsedSeconds": 10,
+            "hourlyRemainingSeconds": 590,
+            "blocked": false,
+            "cloudSignedIn": true,
+            "cloudAccount": "private@example.com",
+            "accountBudget": ["available": true, "fresh": true, "enabled": true],
+        ])
+        let disconnected = try JSONSerialization.data(withJSONObject: [
+            "todaySeconds": 10,
+            "dailyCapMinutes": 20,
+            "hourlyCapMinutes": 10,
+            "hourlyUsedSeconds": 10,
+            "hourlyRemainingSeconds": 590,
+            "blocked": false,
+            "cloudSignedIn": false,
+            "accountBudget": ["available": false],
+        ])
+        let delayed = try JSONSerialization.data(withJSONObject: [
+            "todaySeconds": 10,
+            "dailyCapMinutes": 20,
+            "hourlyCapMinutes": 10,
+            "hourlyUsedSeconds": 10,
+            "hourlyRemainingSeconds": 590,
+            "blocked": false,
+            "cloudSignedIn": true,
+            "accountBudget": ["available": true, "fresh": false, "enabled": true],
+        ])
+
+        let currentSummary = try XCTUnwrap(FocusFenceYouTubeUsageSummary.decode(current))
+        let disconnectedSummary = try XCTUnwrap(FocusFenceYouTubeUsageSummary.decode(disconnected))
+        let delayedSummary = try XCTUnwrap(FocusFenceYouTubeUsageSummary.decode(delayed))
+
+        XCTAssertEqual(currentSummary.accountSyncStatusLine, "계정 한도 최신")
+        XCTAssertTrue(currentSummary.statusLine.contains("계정 한도 최신"))
+        XCTAssertFalse(currentSummary.statusLine.contains("private@example.com"))
+        XCTAssertEqual(disconnectedSummary.accountSyncStatusLine, "계정 연결 필요")
+        XCTAssertEqual(delayedSummary.accountSyncStatusLine, "계정 한도 갱신 지연")
+    }
+
     func testMalformedOrNegativeUsageIsUnavailableInsteadOfShowingZero() throws {
         let negative = try JSONSerialization.data(withJSONObject: [
             "todaySeconds": -1,
