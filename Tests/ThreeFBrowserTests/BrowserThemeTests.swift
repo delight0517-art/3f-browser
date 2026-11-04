@@ -9,7 +9,46 @@ final class BrowserThemeTests: XCTestCase {
         XCTAssertTrue(YouTubeUsageReporter.script.contains("blocked = true;"))
         XCTAssertTrue(YouTubeUsageReporter.script.contains("threefYouTubeUsage"))
         XCTAssertTrue(YouTubeUsageReporter.script.contains("blocked = !policy || policy.youtubeQuotaBlocked !== false"))
+        XCTAssertTrue(YouTubeUsageReporter.script.contains("qualificationMs:5000"))
+        XCTAssertTrue(YouTubeUsageReporter.script.contains("minimum_5s_qualified_30s_account_lease_v1"))
+        XCTAssertTrue(YouTubeUsageReporter.script.contains("type:'leaseReport'"))
         XCTAssertFalse(YouTubeUsageReporter.script.contains("fetch("), "The YouTube page must not call the local HTTP API directly")
+    }
+
+    func testThreeFLeaseBridgeValidatesQualificationAndYouTubeOrigin() throws {
+        let payload = try XCTUnwrap(YouTubeUsageBridgePayload.leaseRequest(from: [
+            "requestId": "lease-123", "qualificationMs": 5_000
+        ], pageHost: "www.youtube.com"))
+        XCTAssertEqual(payload["requestId"] as? String, "lease-123")
+        XCTAssertEqual(payload["qualificationMs"] as? Int, 5_000)
+        XCTAssertNil(YouTubeUsageBridgePayload.leaseRequest(from: [
+            "requestId": "lease-123", "qualificationMs": 4_999
+        ], pageHost: "www.youtube.com"))
+        XCTAssertNil(YouTubeUsageBridgePayload.leaseRequest(from: [
+            "requestId": "lease-123", "qualificationMs": 5_000
+        ], pageHost: "example.com"))
+        XCTAssertNil(YouTubeUsageBridgePayload.leaseRequest(from: [
+            "requestId": "bad id", "qualificationMs": 5_000
+        ], pageHost: "www.youtube.com"))
+    }
+
+    func testThreeFLeaseBridgeAcceptsOnlyBoundedMeasuredIntervals() throws {
+        let payload = try XCTUnwrap(YouTubeUsageBridgePayload.leaseReport(from: [
+            "grantId": "grant-123",
+            "reportId": "report-456",
+            "intervals": [[NSNumber(value: 1_000), NSNumber(value: 2_500)]]
+        ], pageHost: "youtube.com"))
+        XCTAssertEqual(payload["browser"] as? String, "3f")
+        XCTAssertEqual(payload["grantId"] as? String, "grant-123")
+        XCTAssertEqual(payload["reportId"] as? String, "report-456")
+        XCTAssertNil(YouTubeUsageBridgePayload.leaseReport(from: [
+            "grantId": "grant-123", "reportId": "report-456",
+            "intervals": [[NSNumber(value: 2_500), NSNumber(value: 1_000)]]
+        ], pageHost: "youtube.com"))
+        XCTAssertNil(YouTubeUsageBridgePayload.leaseReport(from: [
+            "grantId": "grant-123", "reportId": "report-456",
+            "intervals": Array(repeating: [NSNumber(value: 1), NSNumber(value: 2)], count: 21)
+        ], pageHost: "youtube.com"))
     }
 
     func testThreeFYouTubeBridgeSendsOnlyValidatedAggregatePlayback() throws {
