@@ -1,6 +1,7 @@
 import SwiftUI
 import UniformTypeIdentifiers
 import AppKit
+import WebKit
 
 private enum SettingsPalette {
     static let canvas = Color(red: 0.957, green: 0.941, blue: 0.980)
@@ -31,6 +32,9 @@ struct BrowserSettingsView: View {
     @StateObject private var focusFence = FocusFenceConnectionService()
     @StateObject private var defaultBrowser = DefaultBrowserService()
     @State private var selectedPage: SettingsPage = .general
+    @State private var isConfirmingWebsiteDataClear = false
+    @State private var isClearingWebsiteData = false
+    @State private var websiteDataClearStatus: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -53,6 +57,18 @@ struct BrowserSettingsView: View {
         .frame(width: 760, height: 580)
         .background(Color(nsColor: .windowBackgroundColor))
         .tint(model.theme.color)
+        .confirmationDialog(
+            "모든 사이트 데이터와 방문 기록을 지울까요?",
+            isPresented: $isConfirmingWebsiteDataClear,
+            titleVisibility: .visible
+        ) {
+            Button("사이트 데이터와 방문 기록 지우기", role: .destructive) {
+                clearWebsiteData()
+            }
+            Button("취소", role: .cancel) {}
+        } message: {
+            Text("쿠키, 캐시, 사이트 저장 공간과 3F 방문 기록이 삭제됩니다. 사이트에서 로그아웃될 수 있습니다. 북마크와 다운로드 파일은 유지됩니다.")
+        }
         .task {
             await focusFence.refresh()
             defaultBrowser.refresh()
@@ -253,6 +269,22 @@ struct BrowserSettingsView: View {
                     .padding(.top, 10)
                 }
             }
+            settingsCard(title: "사이트 데이터", subtitle: "모든 기간의 사이트 쿠키, 캐시, 저장 공간을 삭제") {
+                Text("사이트 데이터와 3F 방문 기록을 함께 지웁니다. 로그인 상태가 초기화될 수 있습니다.")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                HStack {
+                    if let websiteDataClearStatus {
+                        Text(websiteDataClearStatus)
+                            .font(.system(size: 10)).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button(isClearingWebsiteData ? "삭제 중…" : "사이트 데이터 지우기", role: .destructive) {
+                        isConfirmingWebsiteDataClear = true
+                    }
+                    .disabled(isClearingWebsiteData)
+                    .controlSize(.small)
+                }
+            }
             settingsCard(title: "Focus Fence", subtitle: "집중 중 방해 사이트 차단 연결") {
                 featureStatus("사이트 차단 규칙 적용", enabled: OptionalFeatureAvailability.focusFenceEnforcement)
                 featureStatus("YouTube 시청 시간 집계", enabled: OptionalFeatureAvailability.youtubeUsageReporting)
@@ -274,6 +306,19 @@ struct BrowserSettingsView: View {
                 }
                 .padding(.top, 10)
             }
+        }
+    }
+
+    private func clearWebsiteData() {
+        isClearingWebsiteData = true
+        websiteDataClearStatus = nil
+        WKWebsiteDataStore.default().removeData(
+            ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(),
+            modifiedSince: .distantPast
+        ) {
+            model.clearHistory()
+            isClearingWebsiteData = false
+            websiteDataClearStatus = "사이트 데이터와 방문 기록을 지웠습니다."
         }
     }
 
