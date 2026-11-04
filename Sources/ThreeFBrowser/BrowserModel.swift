@@ -474,6 +474,16 @@ final class BrowserModel: ObservableObject {
         Self.save(bookmarks, forKey: bookmarksKey)
     }
 
+    @discardableResult
+    func importBookmarks(_ imported: [BrowserQuickLink]) -> Int {
+        var seen = Set(bookmarks.map(\.url))
+        let additions = imported.filter { $0.isValid && seen.insert($0.url).inserted }
+            .prefix(max(0, BookmarkHTML.maximumBookmarks - bookmarks.count))
+        bookmarks = Array(additions) + bookmarks
+        Self.save(bookmarks, forKey: bookmarksKey)
+        return additions.count
+    }
+
     func clearHistory() {
         history = []
         Self.save(history, forKey: historyKey)

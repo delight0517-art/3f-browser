@@ -35,6 +35,7 @@ struct BrowserSettingsView: View {
     @State private var isConfirmingWebsiteDataClear = false
     @State private var isClearingWebsiteData = false
     @State private var websiteDataClearStatus: String?
+    @State private var bookmarkTransferStatus: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -187,6 +188,16 @@ struct BrowserSettingsView: View {
                 .frame(maxWidth: 190, alignment: .trailing)
             }
             settingsCard(title: "북마크", subtitle: "저장한 사이트에 빠르게 이동") {
+                HStack {
+                    Button("HTML에서 가져오기", action: importBookmarks)
+                    Button("HTML로 내보내기", action: exportBookmarks)
+                    Spacer()
+                }
+                .controlSize(.small)
+                if let bookmarkTransferStatus {
+                    Text(bookmarkTransferStatus)
+                        .font(.system(size: 10)).foregroundStyle(.secondary)
+                }
                 if model.bookmarks.isEmpty {
                     emptyState("star", "저장된 북마크가 없습니다.")
                 } else {
@@ -223,6 +234,40 @@ struct BrowserSettingsView: View {
                 }
             }
             themeCard
+        }
+    }
+
+    private func importBookmarks() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.html]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+            let fileSize = (attributes[.size] as? NSNumber)?.intValue ?? Int.max
+            guard fileSize <= BookmarkHTML.maximumFileSize else {
+                bookmarkTransferStatus = "파일이 너무 큽니다. 5MB 이하의 북마크 HTML을 선택해 주세요."
+                return
+            }
+            let imported = BookmarkHTML.import(try Data(contentsOf: url))
+            let added = model.importBookmarks(imported)
+            bookmarkTransferStatus = "HTTPS 북마크 \(added)개를 가져왔습니다. 폴더 구조는 평면 목록으로 합쳐집니다."
+        } catch {
+            bookmarkTransferStatus = "가져오지 못했습니다: \(error.localizedDescription)"
+        }
+    }
+
+    private func exportBookmarks() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.html]
+        panel.nameFieldStringValue = "3F-Bookmarks.html"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try BookmarkHTML.export(model.bookmarks).write(to: url, options: .atomic)
+            bookmarkTransferStatus = "북마크 \(model.bookmarks.count)개를 HTML로 내보냈습니다."
+        } catch {
+            bookmarkTransferStatus = "내보내지 못했습니다: \(error.localizedDescription)"
         }
     }
 
