@@ -7,7 +7,10 @@ const source = fs.readFileSync(path.join(__dirname, '../Sources/ThreeFBrowser/Yo
 const match = source.match(/static let script = #"""([\s\S]*?)"""#/);
 assert.ok(match, 'Swift YouTubeUsageReporter script literal exists');
 
-async function run(host, quotaBlocked = true, { failFirstAck = false, videoAtStart = true, playbackRate = 1, remainingSeconds = -1 } = {}) {
+async function run(host, quotaBlocked = true, {
+  failFirstAck = false, videoAtStart = true, playbackRate = 1, remainingSeconds = -1,
+  accountLeaseUnsupported = true, failFirstLeaseAck = false
+} = {}) {
   let paused = 0;
   let now = 1;
   let timer;
@@ -18,8 +21,12 @@ async function run(host, quotaBlocked = true, { failFirstAck = false, videoAtSta
   let serverWatchSeconds = 0;
   let serverDwellSeconds = 0;
   let rulesReads = 0;
+  const epoch = 1_800_000_000_000;
   const listeners = {};
   const payloads = [];
+  const leaseRequests = [];
+  const leaseReports = [];
+  let leaseReportAttempts = 0;
   const bridge = {
     async postMessage(message) {
       if (message.type === 'policy') {
@@ -41,13 +48,32 @@ async function run(host, quotaBlocked = true, { failFirstAck = false, videoAtSta
         if (failFirstAck && payloads.length === 1) return { ok: false };
         return { ok: true };
       }
+      if (message.type === 'lease') {
+        leaseRequests.push(message);
+        if (accountLeaseUnsupported) {
+          return { ok: false, status: 400, error: 'invalid_youtube_lease_request' };
+        }
+        const startMs = epoch + now;
+        return {
+          ok: true, schemaVersion: 3, billingMode: 'minimum_5s_qualified_30s_account_lease_v1',
+          qualificationMs: 5000, quantumMs: 30000, allowed: true,
+          grantId: 'grant-test', startMs, endMs: startMs + 30000, serverNowMs: startMs
+        };
+      }
+      if (message.type === 'leaseReport') {
+        leaseReports.push(message.report);
+        leaseReportAttempts += 1;
+        if (failFirstLeaseAck && leaseReportAttempts === 1) return { queued: false };
+        return { queued: true };
+      }
       return { ok: false };
     }
   };
   const video = {
     tagName: 'VIDEO', currentTime: 4, currentSrc: 'test-video', paused: !videoAtStart, ended: false,
     seeking: false, readyState: 4, playbackRate,
-    pause() { this.paused = true; paused += 1; }
+    pause() { this.paused = true; paused += 1; },
+    play() { this.paused = false; return Promise.resolve(); }
   };
   const document = {
     visibilityState: 'visible',
@@ -58,12 +84,13 @@ async function run(host, quotaBlocked = true, { failFirstAck = false, videoAtSta
     window: { webkit: { messageHandlers: { threefYouTubeUsage: bridge } } },
     location: { hostname: host, href: `https://${host}/watch` }, document,
     performance: { now: () => now },
+    Date: { now: () => epoch + now },
     setInterval(callback) { timer = callback; }, addEventListener() {}, crypto: { randomUUID: () => 'test-report' }
   };
   vm.runInNewContext(match[1], context);
   await new Promise(resolve => setImmediate(resolve));
   return {
-    video, listeners, payloads,
+    video, listeners, payloads, leaseRequests, leaseReports,
     async reportProgress(seconds = 2) { now += seconds * 1000; video.currentTime += seconds * video.playbackRate; await timer(); },
     startPlayback() {
       videoPresent = true;
@@ -195,5 +222,38 @@ async function run(host, quotaBlocked = true, { failFirstAck = false, videoAtSta
   assert.equal(delayedTick.serverWatchSeconds, 3,
     'even a delayed timer tick cannot report beyond the remaining allowance');
 
-  console.log('YouTube usage reporter host, playback, privacy, retry dedupe, and quota refresh checks passed');
+  const leased = await run('youtube.com', false, {
+    videoAtStart: false, accountLeaseUnsupported: false, failFirstLeaseAck: true
+  });
+  leased.startPlayback();
+  for (let i = 0; i < 4; i += 1) await leased.reportProgress(1);
+  assert.equal(leased.leaseRequests.length, 0, 'the lease is not requested before five seconds of measured playback');
+  await leased.reportProgress(1);
+  assert.equal(leased.leaseRequests.length, 1, 'five seconds of measured playback qualifies one account lease request');
+  assert.equal(leased.leaseRequests[0].qualificationMs, 5000);
+  assert.equal(leased.video.paused, false, 'playback resumes after an allowed lease');
+  assert.equal(leased.payloads.length, 0, 'account-lease mode does not also submit legacy device usage');
+  for (let i = 0; i < 5; i += 1) await leased.reportProgress(1);
+  assert.equal(leased.leaseReports.length, 1, 'measured lease intervals are reported after five seconds');
+  assert.equal(leased.leaseReports[0].grantId, 'grant-test');
+  assert.equal(leased.leaseReports[0].intervals.length, 1, 'adjacent measured playback intervals are unioned');
+  assert.equal(leased.leaseReports[0].intervals[0][1] - leased.leaseReports[0].intervals[0][0], 5000);
+  await leased.reportProgress(1);
+  assert.equal(leased.leaseReports.length, 2, 'an unacknowledged lease report is retried');
+  assert.equal(leased.leaseReports[0].reportId, leased.leaseReports[1].reportId,
+    'the lease report keeps its idempotency key across retries');
+  assert.deepEqual(leased.leaseReports[0].intervals, leased.leaseReports[1].intervals,
+    'the retry sends the exact same measured interval batch');
+  assert.equal(leased.payloads.length, 0, 'shared interval reports do not double-count through the legacy route');
+
+  const legacyFallback = await run('youtube.com', false, {
+    videoAtStart: false, accountLeaseUnsupported: true
+  });
+  legacyFallback.startPlayback();
+  for (let i = 0; i < 5; i += 1) await legacyFallback.reportProgress(1);
+  assert.equal(legacyFallback.leaseRequests.length, 1, 'the unsupported shared route is detected once');
+  assert.equal(legacyFallback.payloads.length, 1, 'unsupported shared routes retain local usage reporting');
+  assert.equal(legacyFallback.payloads[0].watchSeconds, 5);
+
+  console.log('YouTube usage reporter legacy and account-lease playback, interval, retry, privacy, and quota checks passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });
