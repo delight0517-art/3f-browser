@@ -3,6 +3,7 @@ import SwiftUI
 struct MediaSiteCandidateSheet: View {
     let candidate: MediaSiteCandidate
     let onResolved: (MediaSiteCandidate) -> Void
+    let onDeferred: (MediaSiteCandidate) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @StateObject private var connection = FocusFenceConnectionService()
@@ -47,7 +48,10 @@ struct MediaSiteCandidateSheet: View {
                 }
                 .disabled(isWorking)
                 Spacer()
-                Button("나중에") { dismiss() }
+                Button("나중에 · 24시간 숨기기") {
+                    onDeferred(candidate)
+                    dismiss()
+                }
                     .disabled(isWorking)
             }
             Text("‘추가하지 않고 허용’은 이 사이트를 새 차단 규칙에 넣지 않고 이 제안만 기억합니다. 다른 일반 규칙의 영향은 그대로입니다.")
