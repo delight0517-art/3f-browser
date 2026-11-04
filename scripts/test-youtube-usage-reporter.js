@@ -9,7 +9,7 @@ assert.ok(match, 'Swift YouTubeUsageReporter script literal exists');
 
 async function run(host, quotaBlocked = true, {
   failFirstAck = false, videoAtStart = true, playbackRate = 1, remainingSeconds = -1,
-  accountLeaseUnsupported = true, failFirstLeaseAck = false
+  accountLeaseUnsupported = true, accountLeaseUnavailable = false, failFirstLeaseAck = false
 } = {}) {
   let paused = 0;
   let now = 1;
@@ -52,6 +52,9 @@ async function run(host, quotaBlocked = true, {
         leaseRequests.push(message);
         if (accountLeaseUnsupported) {
           return { ok: false, status: 400, error: 'invalid_youtube_lease_request' };
+        }
+        if (accountLeaseUnavailable) {
+          return { ok: false, status: 503, error: 'youtube_lease_unavailable' };
         }
         const startMs = epoch + now;
         return {
@@ -255,5 +258,18 @@ async function run(host, quotaBlocked = true, {
   assert.equal(legacyFallback.payloads.length, 1, 'unsupported shared routes retain local usage reporting');
   assert.equal(legacyFallback.payloads[0].watchSeconds, 5);
 
-  console.log('YouTube usage reporter legacy and account-lease playback, interval, retry, privacy, and quota checks passed');
+  const sharedServiceUnavailable = await run('youtube.com', false, {
+    videoAtStart: false, accountLeaseUnsupported: false, accountLeaseUnavailable: true
+  });
+  sharedServiceUnavailable.startPlayback();
+  for (let i = 0; i < 5; i += 1) await sharedServiceUnavailable.reportProgress(1);
+  assert.equal(sharedServiceUnavailable.leaseRequests.length, 1,
+    'an unavailable shared account service is detected after qualified playback');
+  assert.equal(sharedServiceUnavailable.video.paused, false,
+    'a 503 without an account quota denial resumes playback through the local meter');
+  assert.equal(sharedServiceUnavailable.payloads.length, 1,
+    'a 503 shared-service failure preserves the existing local usage report');
+  assert.equal(sharedServiceUnavailable.payloads[0].watchSeconds, 5);
+
+  console.log('YouTube usage reporter account-lease playback, outage fallback, interval, retry, privacy, and quota checks passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });
