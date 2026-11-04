@@ -73,6 +73,7 @@ async function run(host, quotaBlocked = true, { failFirstAck = false, videoAtSta
     async advance(ms) { now += ms; await timer(); },
     setQuotaBlocked(value) { currentQuotaBlocked = value; },
     setHost(value) { context.location.hostname = value; },
+    get host() { return context.location.hostname; },
     seekTo(value) { video.currentTime = value; },
     async setVisibility(value) { document.visibilityState = value; await listeners.visibilitychange?.(); },
     get paused() { return paused; },
@@ -166,6 +167,8 @@ async function run(host, quotaBlocked = true, { failFirstAck = false, videoAtSta
   await reachesQuota.advance(31000);
   assert.equal(reachesQuota.video.paused, true,
     'YouTube playback pauses after a refreshed policy reports the quota reached');
+  assert.equal(reachesQuota.host, 'youtube.com',
+    'quota enforcement pauses playback without navigating away from the YouTube page');
 
   console.log('YouTube usage reporter host, playback, privacy, retry dedupe, and quota refresh checks passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });
