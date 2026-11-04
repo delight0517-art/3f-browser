@@ -38,6 +38,10 @@ enum ThreeFContextMenuPolicy {
 enum ThreeFBackgroundLinkPolicy {
     static let messageName = "threefBackgroundLink"
     static let contentWorld = WKContentWorld.world(name: "com.rogan.threef.browser.background-link")
+    static func isBackgroundLink(navigationType: WKNavigationType, buttonNumber: Int, isMainFrame: Bool) -> Bool {
+        isMainFrame && navigationType == .linkActivated && buttonNumber == 2
+    }
+
     static let script = #"""
     (() => {
       document.addEventListener('auxclick', event => {

@@ -255,6 +255,15 @@ struct BrowserWebView: NSViewRepresentable {
             decidePolicyFor navigationAction: WKNavigationAction,
             decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
         ) {
+            if ThreeFBackgroundLinkPolicy.isBackgroundLink(
+                navigationType: navigationAction.navigationType,
+                buttonNumber: navigationAction.buttonNumber,
+                isMainFrame: navigationAction.sourceFrame.isMainFrame
+            ), let destination = ThreeFContextMenuPolicy.safeHTTPURL(navigationAction.request.url) {
+                decisionHandler(.cancel)
+                openBackgroundLink(destination)
+                return
+            }
             guard let url = navigationAction.request.url,
                   let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme),
                   url.user == nil, url.password == nil else {

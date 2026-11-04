@@ -49,6 +49,21 @@ final class BrowserContextMenuTests: XCTestCase {
         XCTAssertNil(ThreeFBackgroundLinkPolicy.destination(from: 42, isMainFrame: true, pageURL: pageURL))
     }
 
+    func testNativeMiddleClickRoutingOnlyHandlesMainFrameLinkActivation() {
+        XCTAssertTrue(ThreeFBackgroundLinkPolicy.isBackgroundLink(
+            navigationType: .linkActivated, buttonNumber: 2, isMainFrame: true
+        ))
+        XCTAssertFalse(ThreeFBackgroundLinkPolicy.isBackgroundLink(
+            navigationType: .linkActivated, buttonNumber: 0, isMainFrame: true
+        ))
+        XCTAssertFalse(ThreeFBackgroundLinkPolicy.isBackgroundLink(
+            navigationType: .other, buttonNumber: 2, isMainFrame: true
+        ))
+        XCTAssertFalse(ThreeFBackgroundLinkPolicy.isBackgroundLink(
+            navigationType: .linkActivated, buttonNumber: 2, isMainFrame: false
+        ))
+    }
+
     @MainActor
     func testNewWindowRouteIsSingleUseBoundedAndExpires() throws {
         let now = Date(timeIntervalSince1970: 100)
