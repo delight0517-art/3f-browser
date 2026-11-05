@@ -89,6 +89,13 @@ struct BrowserWebView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
+        if OptionalFeatureAvailability.focusFenceEnforcement {
+            configuration.userContentController.addUserScript(WKUserScript(
+                source: FocusFenceSearchResultFilter.prepaintGateScript,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: true
+            ))
+        }
         if BrowserSessionStore.isolatedQAProfileEnabled {
             configuration.websiteDataStore = .nonPersistent()
         }

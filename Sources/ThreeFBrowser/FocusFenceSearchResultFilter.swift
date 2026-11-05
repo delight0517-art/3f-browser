@@ -34,6 +34,36 @@ enum FocusFenceSearchResultFilter {
       return directoryInPrimary || pornTLDListing || adultIPListing || configuredDirectorySignal
         || (adult.test(primary) && directoryAnywhere);
     }
+    function threefShouldHideImageSearchQuery(query, rules) {
+      const normalized = String(query || '').normalize('NFKC').toLocaleLowerCase().replace(/\s+/gu, ' ').trim();
+      if (!normalized) return false;
+      const compact = normalized.replace(/[\s\p{P}\p{S}]+/gu, '');
+      const directory = /주소|link|링크|모음|모움|사이트|\bsite\b|\bwebsites?\b|\bdirector(?:y|ies)\b|\blists?\b|\bcollections?\b/u;
+      const addressDirectory = /주소.{0,24}(?:link|링크|모음|모움|사이트|site|list|directory)|(?:link|링크|모음|모움|사이트|site|list|directory).{0,24}주소/u;
+      const adultDirectory = /\b(?:adult|porn|xxx|sex)\b|성인|포르노|야동/u.test(normalized) && directory.test(normalized);
+      const configuredDirectory = (rules.keywords || []).some(value => {
+        const term = String(value || '').normalize('NFKC').toLocaleLowerCase().trim();
+        return Boolean(term && directory.test(term) && normalized.includes(term));
+      });
+      return addressDirectory.test(normalized) || adultDirectory || configuredDirectory
+        || (compact.includes('주소') && /(?:link|링크|모음|모움|사이트|site|list|directory)/u.test(compact));
+    }
+    """#
+
+    static let prepaintGateScript = #"""
+    (() => {
+      const host = location.hostname.toLocaleLowerCase();
+      const google = host === 'google.com' || /(^|\.)google\.[a-z.]+$/.test(host);
+      if (!google || location.pathname !== '/search') return;
+      const params = new URL(location.href).searchParams;
+      if (params.get('tbm') !== 'isch' && params.get('udm') !== '2') return;
+      const root = document.documentElement;
+      if (!root) return;
+      root.dataset.threefSearchGate = 'pending';
+      const style = document.createElement('style');
+      style.textContent = 'html[data-threef-search-gate="pending"] body > :not(#threef-search-policy-notice), html[data-threef-search-gate="blocked"] body > :not(#threef-search-policy-notice) { visibility: hidden !important; }';
+      (document.head || root).appendChild(style);
+    })();
     """#
 
     static func script(for url: URL, rules: Data) -> String? {
@@ -50,7 +80,29 @@ enum FocusFenceSearchResultFilter {
             || searchHost === 'duckduckgo.com' || searchHost.endsWith('.duckduckgo.com'))) return;
           function isGoogleImagesSearch() {
             return (searchHost === 'google.com' || /(^|\.)google\.[a-z.]+$/.test(searchHost))
-              && new URL(location.href).searchParams.get('tbm') === 'isch';
+              && (new URL(location.href).searchParams.get('tbm') === 'isch'
+                || new URL(location.href).searchParams.get('udm') === '2');
+          }
+          function applyImageQueryPolicy() {
+            if (!isGoogleImagesSearch()) {
+              document.documentElement?.removeAttribute('data-threef-search-gate');
+              document.getElementById('threef-search-policy-notice')?.remove();
+              return;
+            }
+            if (!threefShouldHideImageSearchQuery(new URL(location.href).searchParams.get('q'), rules)) {
+              document.documentElement?.removeAttribute('data-threef-search-gate');
+              document.getElementById('threef-search-policy-notice')?.remove();
+              return;
+            }
+            document.documentElement?.setAttribute('data-threef-search-gate', 'blocked');
+            if (document.body && !document.getElementById('threef-search-policy-notice')) {
+              const notice = document.createElement('div');
+              notice.id = 'threef-search-policy-notice';
+              notice.setAttribute('role', 'status');
+              notice.textContent = 'Focus Fence 정책에 따라 이 이미지 검색어의 결과를 숨겼습니다.';
+              notice.style.cssText = 'position:fixed;inset:0;z-index:2147483647;display:grid;place-items:center;padding:24px;background:#fff;color:#263244;font:16px system-ui,sans-serif;text-align:center';
+              document.body.appendChild(notice);
+            }
           }
           function cardFor(link, imageSearch) {
             const selectors = searchHost.includes('bing.') ? ['li.b_algo']
@@ -75,6 +127,7 @@ enum FocusFenceSearchResultFilter {
             } catch { return null; }
           }
           function scan() {
+            applyImageQueryPolicy();
             const imageSearch = isGoogleImagesSearch();
             const seen = new Set();
             for (const link of document.querySelectorAll('a[href]')) {
@@ -101,8 +154,8 @@ enum FocusFenceSearchResultFilter {
             requestAnimationFrame(() => { queued = false; scan(); });
           };
           scan();
-          new MutationObserver(schedule).observe(document.documentElement, { childList: true, subtree: true });
-          addEventListener('popstate', schedule, true);
+          new MutationObserver(() => { applyImageQueryPolicy(); schedule(); }).observe(document.documentElement, { childList: true, subtree: true });
+          addEventListener('popstate', () => { applyImageQueryPolicy(); schedule(); }, true);
         })();
         """#
     }
@@ -129,6 +182,8 @@ enum FocusFenceSearchResultFilter {
             || host.range(of: #"(^|\.)google\.[a-z.]+$"#, options: .regularExpression) != nil
         guard isGoogleHost, url.path == "/search",
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return false }
-        return components.queryItems?.contains { $0.name == "tbm" && $0.value == "isch" } == true
+        return components.queryItems?.contains {
+            ($0.name == "tbm" && $0.value == "isch") || ($0.name == "udm" && $0.value == "2")
+        } == true
     }
 }
