@@ -191,6 +191,60 @@ final class FocusFenceSearchResultFilterTests: XCTestCase {
         XCTAssertFalse(context.evaluateScript("Boolean(__test.root.dataset.threefSearchGate)")?.toBool() ?? true)
     }
 
+    func testLateUnknownImageResultRootIsFilteredAfterMutation() throws {
+        let context = try XCTUnwrap(JSContext())
+        context.evaluateScript(#"""
+        globalThis.location = { hostname: 'www.google.co.kr', pathname: '/search', href: 'https://www.google.co.kr/search?q=landscape&udm=2' };
+        globalThis.URL = function(value) {
+          const match = String(value).match(/^https?:\/\/([^/?#]+)([^?#]*)(?:\?([^#]*))?/i);
+          const query = new Map((match?.[3] || '').split('&').filter(Boolean).map(pair => pair.split('=').map(decodeURIComponent)));
+          this.protocol = String(value).startsWith('https:') ? 'https:' : 'http:';
+          this.hostname = match?.[1] || '';
+          this.pathname = match?.[2] || '/';
+          this.searchParams = { get(name) { return query.get(name) || null; } };
+        };
+        const card = {
+          dataset: {}, innerText: '성인 사이트 주소모음', _style: '',
+          style: { setProperty(name, value) { card._style = `${name}: ${value}`; }, get display() { return card._style.split(': ')[1] || ''; } },
+          hasAttribute(name) { return name === 'style' && this._style !== ''; },
+          getAttribute(name) { return name === 'style' ? this._style : null; },
+          setAttribute(name, value) { if (name === 'style') this._style = value; },
+          removeAttribute(name) { if (name === 'style') this._style = ''; }
+        };
+        const fallbackParent = { parentElement: card };
+        const lateLink = {
+          href: 'https://adult.example/directory', innerText: '성인 사이트 주소모음', parentElement: fallbackParent,
+          closest() { return null; }, getAttribute() { return null; }, querySelector() { return null; }
+        };
+        const links = [];
+        const root = {
+          dataset: {}, contains() { return true; },
+          setAttribute(name, value) { if (name === 'data-threef-search-gate') this.dataset.threefSearchGate = value; },
+          removeAttribute(name) { if (name === 'data-threef-search-gate') delete this.dataset.threefSearchGate; }
+        };
+        globalThis.document = {
+          documentElement: root, body: { appendChild() {} },
+          querySelectorAll(selector) { return selector === 'a[href]' ? links : []; },
+          getElementById() { return null; }, createElement() { return { style: {}, setAttribute() {}, remove() {} }; }
+        };
+        globalThis.addEventListener = () => {};
+        globalThis.requestAnimationFrame = callback => callback();
+        globalThis.MutationObserver = function(callback) { this.observe = () => { globalThis.__mutationCallback = callback; }; };
+        globalThis.history = { pushState() {}, replaceState() {} };
+        globalThis.__test = { links, lateLink, card, mutate() { globalThis.__mutationCallback(); } };
+        """#)
+
+        let rules = Data(#"{"blockedDomains":["adult.example"],"blockedUrlParts":[],"keywords":["주소모음"],"blockExceptions":[]}"#.utf8)
+        let url = try XCTUnwrap(URL(string: "https://www.google.co.kr/search?q=landscape&udm=2"))
+        let script = try XCTUnwrap(FocusFenceSearchResultFilter.script(for: url, rules: rules))
+        context.evaluateScript(script)
+
+        XCTAssertFalse(context.evaluateScript("Boolean(__test.card.dataset.threefFiltered)")?.toBool() ?? true)
+        context.evaluateScript("__test.links.push(__test.lateLink); __test.mutate();")
+        XCTAssertEqual(context.evaluateScript("__test.card.style.display")?.toString(), "none")
+        XCTAssertEqual(context.evaluateScript("__test.card.dataset.threefFiltered")?.toString(), "1")
+    }
+
     func testFilterScriptRequiresValidRulesAndSearchResultsPage() {
         let rules = Data(#"{"blockedDomains":["adult.example"],"blockedUrlParts":[],"keywords":[],"blockExceptions":[]}"#.utf8)
         let searchURL = URL(string: "https://www.google.com/search?q=adult.example")!
