@@ -82,6 +82,18 @@ final class YouTubePolicyFeedbackTests: XCTestCase {
         XCTAssertEqual(value.playbackPolicy?.youtubeQuotaResetAfterSeconds, 3661)
         XCTAssertEqual(value.playbackPolicy?.blockShorts, true)
     }
+
+    func testUsageClientAcceptsSummaryDelayedBeyondPreviousFiveSecondTimeout() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [DelayedYouTubePolicyURLProtocol.self]
+        let session = URLSession(configuration: config)
+        defer { session.invalidateAndCancel() }
+
+        let fetched = await FocusFenceYouTubeUsageClient.fetch(session: session)
+
+        XCTAssertEqual(fetched?.todaySeconds, 1206)
+        XCTAssertEqual(fetched?.playbackPolicy?.youtubeQuotaResetAfterSeconds, 3661)
+    }
 }
 
 private final class YouTubePolicyURLProtocol: URLProtocol {
@@ -96,4 +108,39 @@ private final class YouTubePolicyURLProtocol: URLProtocol {
         client?.urlProtocolDidFinishLoading(self)
     }
     override func stopLoading() {}
+}
+
+private final class DelayedYouTubePolicyURLProtocol: URLProtocol {
+    private let stateLock = NSLock()
+    private var stopped = false
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let delay = request.url?.path == "/usage/youtube" ? 5.5 : 0
+        DispatchQueue.global().asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self else { return }
+            self.stateLock.lock()
+            let shouldSend = !self.stopped
+            self.stateLock.unlock()
+            guard shouldSend else { return }
+
+            self.sendResponse()
+        }
+    }
+
+    private func sendResponse() {
+        let body = request.url?.path == "/rules"
+            ? #"{"youtubeQuotaBlocked":true,"blockShorts":true,"youtubeQuotaResetAfterSeconds":3661}"#
+            : #"{"todaySeconds":1206,"dailyCapMinutes":20,"hourlyCapMinutes":10,"hourlyUsedSeconds":0,"hourlyRemainingSeconds":600,"blocked":true}"#
+        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(body.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {
+        stateLock.lock()
+        stopped = true
+        stateLock.unlock()
+    }
 }
