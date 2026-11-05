@@ -1,5 +1,16 @@
 # TODO
 
+## Current verified state — 2026-11-05 11:55 KST
+
+This section supersedes older installation, quota, and Google Images test counts below; those remain historical evidence.
+
+- Product source is `main@6c6925777afacd983f71bcca722b07aa475850bc`. Focus Fence Google Images filtering uses the shared policy for both `tbm=isch` and `udm=2`, including prepaint gating and SPA updates. The indexed classifier regression suite passed 9/9.
+- Exact-source candidate `0.1.0+16` is installed at `/Users/rogan/Applications/3F Browser.app`; executable SHA-256 `5130d14c2a4a790b273af537b850dd56a877d9252522aa1633068670b7062b8d`, strict code signature and local-dev verification pass. Previous installed `+9` is retained as `/Users/rogan/Applications/3F Browser.app.rollback-0.1.0+9`. The app has not been launched in this verification.
+- The YouTube reporter harness passes. This is source-level evidence, not a current installed-player journey. Focus Fence `/rules?browser=3f` says `youtubeQuotaBlocked=true`; `/usage/youtube?browser=3f` reads 1206 daily seconds, 631 for 3F, blocked, and `accountBudget.available=false`. No playback was started or quota/policy altered.
+- No task-owned isolated AI-only UI route is available. Current-version YouTube playback/counter read-after-write, live Google Images result hiding, account-budget synchronization, and Windows receiver/runtime ACK remain unverified.
+- The broader browser remains incomplete: macOS product still uses WKWebView; CEF 156 is only a separate probe. Windows browser-baseline items (Chromium/extension integration, downloads, permissions/auth, session continuity, and runtime parity) remain open.
+- Delivery proof `3f-browser-completion-20261105` is open; build and install evidence are recorded, with the device/UI stage outstanding. Existing rollback bundles and older referenced candidates were retained pending runtime proof.
+
 ## Disabled integrations
 
 - [ ] **Windows parity acceptance continuation (`722e6d8f5ab7`, `3e95d1ec4a66`)**: M-Oasis's own build/task gate is not a source-edit blocker for this canonical repository. Commits `5269aa8`, `226d1cf`, `1399922`, and `5be8b18` implement the initial Google Images gate plus exact inline-style restoration, synchronous `pushState`/`replaceState`/`popstate` handling, and regression coverage for late unknown result roots and queued scans after navigation. `FocusFenceSearchResultFilterTests` passes 8/8. Still verify ordinary Google Search shared-rule behavior and signed candidate/install/live rendering in an owned isolated UI route. Preserve the broader Windows browser baseline task below; this source suite does not close either backlog item.
