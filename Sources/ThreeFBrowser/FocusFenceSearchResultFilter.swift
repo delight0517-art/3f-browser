@@ -78,10 +78,32 @@ enum FocusFenceSearchResultFilter {
           if (!(searchHost === 'google.com' || /(^|\.)google\.[a-z.]+$/.test(searchHost)
             || searchHost === 'bing.com' || searchHost.endsWith('.bing.com')
             || searchHost === 'duckduckgo.com' || searchHost.endsWith('.duckduckgo.com'))) return;
+          const filteredCards = new Set();
+          function isSearchResultsPage() {
+            if (searchHost === 'google.com' || /(^|\.)google\.[a-z.]+$/.test(searchHost)
+              || searchHost === 'bing.com' || searchHost.endsWith('.bing.com')) return location.pathname === '/search';
+            return location.pathname === '/';
+          }
           function isGoogleImagesSearch() {
-            return (searchHost === 'google.com' || /(^|\.)google\.[a-z.]+$/.test(searchHost))
+            return isSearchResultsPage()
+              && (searchHost === 'google.com' || /(^|\.)google\.[a-z.]+$/.test(searchHost))
               && (new URL(location.href).searchParams.get('tbm') === 'isch'
                 || new URL(location.href).searchParams.get('udm') === '2');
+          }
+          function restoreCard(card) {
+            if (card.dataset.threefFiltered !== '1') return;
+            if (card.dataset.threefOriginalStylePresent === 'true') {
+              card.setAttribute('style', card.dataset.threefOriginalStyleAttribute || '');
+            } else {
+              card.removeAttribute('style');
+            }
+            delete card.dataset.threefFiltered;
+            delete card.dataset.threefOriginalStylePresent;
+            delete card.dataset.threefOriginalStyleAttribute;
+            filteredCards.delete(card);
+          }
+          function restoreFilteredCards() {
+            for (const card of filteredCards) restoreCard(card);
           }
           function applyImageQueryPolicy() {
             if (!isGoogleImagesSearch()) {
@@ -127,7 +149,14 @@ enum FocusFenceSearchResultFilter {
             } catch { return null; }
           }
           function scan() {
+            for (const card of filteredCards) {
+              if (!document.documentElement.contains(card)) filteredCards.delete(card);
+            }
             applyImageQueryPolicy();
+            if (!isSearchResultsPage()) {
+              restoreFilteredCards();
+              return;
+            }
             const imageSearch = isGoogleImagesSearch();
             const seen = new Set();
             for (const link of document.querySelectorAll('a[href]')) {
@@ -142,8 +171,12 @@ enum FocusFenceSearchResultFilter {
               const shouldHide = threefShouldHideResult(target.hostname, target.pathname + target.search, title, snippet, rules);
               if (shouldHide && card.dataset.threefFiltered !== '1') {
                 card.dataset.threefFiltered = '1';
-                card.dataset.threefOriginalDisplay = card.style.display;
+                card.dataset.threefOriginalStylePresent = String(card.hasAttribute('style'));
+                card.dataset.threefOriginalStyleAttribute = card.getAttribute('style') || '';
+                filteredCards.add(card);
                 card.style.setProperty('display', 'none', 'important');
+              } else if (!shouldHide && card.dataset.threefFiltered === '1') {
+                restoreCard(card);
               }
             }
           }
@@ -153,9 +186,23 @@ enum FocusFenceSearchResultFilter {
             queued = true;
             requestAnimationFrame(() => { queued = false; scan(); });
           };
+          function onHistoryNavigation() {
+            applyImageQueryPolicy();
+            scan();
+            schedule();
+          }
+          for (const method of ['pushState', 'replaceState']) {
+            const original = history[method];
+            if (typeof original !== 'function') continue;
+            history[method] = function(...args) {
+              const result = Reflect.apply(original, this, args);
+              onHistoryNavigation();
+              return result;
+            };
+          }
           scan();
           new MutationObserver(() => { applyImageQueryPolicy(); schedule(); }).observe(document.documentElement, { childList: true, subtree: true });
-          addEventListener('popstate', () => { applyImageQueryPolicy(); schedule(); }, true);
+          addEventListener('popstate', onHistoryNavigation, true);
         })();
         """#
     }

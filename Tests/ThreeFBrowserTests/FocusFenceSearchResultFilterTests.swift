@@ -108,6 +108,89 @@ final class FocusFenceSearchResultFilterTests: XCTestCase {
         XCTAssertFalse(ordinaryContext.evaluateScript("Boolean(document.documentElement.dataset.threefSearchGate)")?.toBool() ?? true)
     }
 
+    func testImageFilterRestoresExactStyleAndRunsOnHistoryTransitionsSynchronously() throws {
+        let context = try XCTUnwrap(JSContext())
+        context.evaluateScript(#"""
+        globalThis.location = { hostname: 'www.google.co.kr', pathname: '/search', href: 'https://www.google.co.kr/search?q=주소모음&udm=2' };
+        globalThis.URL = function(value) {
+          const match = String(value).match(/^https?:\/\/([^/?#]+)([^?#]*)(?:\?([^#]*))?/i);
+          const query = new Map((match?.[3] || '').split('&').filter(Boolean).map(pair => pair.split('=').map(decodeURIComponent)));
+          this.protocol = String(value).startsWith('https:') ? 'https:' : 'http:';
+          this.hostname = match?.[1] || '';
+          this.pathname = match?.[2] || '/';
+          this.searchParams = { get(name) { return query.get(name) || null; } };
+        };
+        const originalStyle = 'color: red; display: grid !important; margin: 2px';
+        const card = {
+          dataset: {}, _style: originalStyle, innerText: 'A neutral result',
+          style: {
+            setProperty(name, value, priority) { card._style = card._style + '; ' + name + ': ' + value + (priority ? ' !important' : ''); },
+            get display() { return (Array.from((card._style || '').matchAll(/(?:^|;)\s*display:\s*([^;]+)/gi)).at(-1)?.[1] || '').replace(/\s*!important$/i, '').trim(); }
+          },
+          hasAttribute(name) { return name === 'style' && card._style !== null; },
+          getAttribute(name) { return name === 'style' ? card._style : null; },
+          setAttribute(name, value) { if (name === 'style') card._style = value; },
+          removeAttribute(name) { if (name === 'style') card._style = null; }
+        };
+        const link = {
+          href: 'https://adult.example/directory', innerText: 'A neutral result', parentElement: null,
+          getAttribute() { return null; }, querySelector() { return null; }, closest() { return card; }
+        };
+        const root = {
+          dataset: {}, attrs: {},
+          contains() { return true; },
+          setAttribute(name, value) { this.attrs[name] = value; if (name.startsWith('data-')) this.dataset[name.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase())] = value; },
+          removeAttribute(name) { delete this.attrs[name]; if (name.startsWith('data-')) delete this.dataset[name.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase())]; }
+        };
+        const body = { notice: null, appendChild(node) { body.notice = node; }, removeChild(node) { if (body.notice === node) body.notice = null; } };
+        globalThis.document = {
+          documentElement: root, body,
+          querySelectorAll(selector) { return selector === 'a[href]' ? [link] : []; },
+          getElementById(id) { return id === 'threef-search-policy-notice' ? body.notice : null; },
+          createElement() { return { id: '', style: {}, setAttribute() {}, remove() { body.notice = null; } }; }
+        };
+        const listeners = {};
+        globalThis.addEventListener = (name, callback) => { listeners[name] = callback; };
+        globalThis.requestAnimationFrame = callback => callback();
+        globalThis.MutationObserver = function() { this.observe = () => {}; };
+        const setLocation = url => { location.href = url; location.pathname = new URL(url).pathname; };
+        globalThis.history = {
+          pushState(_state, _title, url) { setLocation(url); return 'push-result'; },
+          replaceState(_state, _title, url) { setLocation(url); return 'replace-result'; }
+        };
+        globalThis.__test = { card, link, root, listeners, originalStyle };
+        """#)
+
+        let rules = Data(#"{"blockedDomains":["adult.example"],"blockedUrlParts":[],"keywords":["주소모음"],"blockExceptions":[]}"#.utf8)
+        let imageSearch = try XCTUnwrap(URL(string: "https://www.google.co.kr/search?q=주소모음&udm=2"))
+        let filterScript = try XCTUnwrap(FocusFenceSearchResultFilter.script(for: imageSearch, rules: rules))
+        context.evaluateScript(filterScript)
+        XCTAssertTrue(context.evaluateScript("__test.card.dataset.threefFiltered === '1'")?.toBool() ?? false)
+
+        context.evaluateScript("__test.link.href = 'https://safe.example/article';")
+        XCTAssertEqual(context.evaluateScript("history.pushState({}, '', 'https://www.google.co.kr/search?q=landscape&udm=2')")?.toString(), "push-result")
+        XCTAssertEqual(context.evaluateScript("__test.card.getAttribute('style')")?.toString(), "color: red; display: grid !important; margin: 2px")
+        XCTAssertFalse(context.evaluateScript("Boolean(__test.card.dataset.threefFiltered)")?.toBool() ?? true)
+        XCTAssertFalse(context.evaluateScript("Boolean(__test.root.dataset.threefSearchGate)")?.toBool() ?? true)
+
+        context.evaluateScript("__test.link.href = 'https://adult.example/directory';")
+        XCTAssertEqual(context.evaluateScript("history.replaceState({}, '', 'https://www.google.co.kr/search?q=주소모음&udm=2')")?.toString(), "replace-result")
+        XCTAssertEqual(context.evaluateScript("__test.card.style.display")?.toString(), "none")
+        XCTAssertEqual(context.evaluateScript("__test.root.dataset.threefSearchGate")?.toString(), "blocked")
+
+        context.evaluateScript("history.pushState({}, '', 'https://www.google.co.kr/?q=주소모음&udm=2')")
+        XCTAssertEqual(context.evaluateScript("__test.card.getAttribute('style')")?.toString(), "color: red; display: grid !important; margin: 2px")
+        XCTAssertFalse(context.evaluateScript("Boolean(__test.root.dataset.threefSearchGate)")?.toBool() ?? true)
+
+        context.evaluateScript("history.pushState({}, '', 'https://www.google.co.kr/search?q=주소모음&udm=2')")
+        XCTAssertEqual(context.evaluateScript("__test.card.style.display")?.toString(), "none")
+
+        context.evaluateScript("__test.link.href = 'https://safe.example/article'; location.href = 'https://www.google.co.kr/search?q=landscape&udm=2'; __test.listeners.popstate();")
+        XCTAssertEqual(context.evaluateScript("__test.card.getAttribute('style')")?.toString(), "color: red; display: grid !important; margin: 2px")
+        XCTAssertFalse(context.evaluateScript("Boolean(__test.card.dataset.threefFiltered)")?.toBool() ?? true)
+        XCTAssertFalse(context.evaluateScript("Boolean(__test.root.dataset.threefSearchGate)")?.toBool() ?? true)
+    }
+
     func testFilterScriptRequiresValidRulesAndSearchResultsPage() {
         let rules = Data(#"{"blockedDomains":["adult.example"],"blockedUrlParts":[],"keywords":[],"blockExceptions":[]}"#.utf8)
         let searchURL = URL(string: "https://www.google.com/search?q=adult.example")!
