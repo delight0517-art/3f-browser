@@ -5,14 +5,29 @@ enum FocusFenceSearchResultFilter {
     function threefNormalizeHost(value) {
       return String(value || '').toLocaleLowerCase().replace(/^www\./, '').replace(/^\.+|\.+$/g, '');
     }
-    function threefShouldHideResult(host, path, title, snippet, rules) {
+    function threefBuildRuleIndex(rules) {
+      return {
+        blockedDomains: new Set((rules.blockedDomains || []).map(threefNormalizeHost).filter(Boolean)),
+        blockedUrlParts: (rules.blockedUrlParts || []).map(value => String(value || '').toLocaleLowerCase()).filter(Boolean),
+        keywords: (rules.keywords || []).map(value => String(value || '').normalize('NFKC').toLocaleLowerCase().trim())
+      };
+    }
+    function threefDomainIsBlocked(host, ruleIndex) {
+      let candidate = host;
+      while (candidate) {
+        if (ruleIndex.blockedDomains.has(candidate)) return true;
+        const separator = candidate.indexOf('.');
+        if (separator < 0) break;
+        candidate = candidate.slice(separator + 1);
+      }
+      return false;
+    }
+    function threefShouldHideResult(host, path, title, snippet, ruleIndex) {
       const normalizedHost = threefNormalizeHost(host);
-      const blockedDomains = (rules.blockedDomains || []).map(threefNormalizeHost);
-      if (blockedDomains.some(domain => domain && (normalizedHost === domain || normalizedHost.endsWith('.' + domain)))) return true;
+      if (threefDomainIsBlocked(normalizedHost, ruleIndex)) return true;
 
-      const blockedParts = (rules.blockedUrlParts || []).map(value => String(value).toLocaleLowerCase());
       const destination = (normalizedHost + String(path || '')).toLocaleLowerCase();
-      if (blockedParts.some(part => part && destination.includes(part))) return true;
+      if (ruleIndex.blockedUrlParts.some(part => destination.includes(part))) return true;
 
       const primary = String(title || '').normalize('NFKC').toLocaleLowerCase() + ' ' + destination;
       const combined = primary + ' ' + String(snippet || '').normalize('NFKC').toLocaleLowerCase();
@@ -25,8 +40,7 @@ enum FocusFenceSearchResultFilter {
       const directoryAnywhere = directoryInPrimary || directory.test(combined);
       const adultIPListing = /\b(ip addresses?|ip lists?|ipv[46])\b/.test(combined)
         && /\b(list|directory|database|collection)\b|목록|모음/.test(combined);
-      const configuredTerms = (rules.keywords || []).map(value => String(value).normalize('NFKC').toLocaleLowerCase());
-      const configuredDirectorySignal = configuredTerms.some(term => term.length >= 3 && combined.includes(term))
+      const configuredDirectorySignal = ruleIndex.keywords.some(term => term.length >= 3 && combined.includes(term))
         && directoryAnywhere && adult.test(combined);
 
       // Require adult and directory context together. A neutral article that
@@ -34,17 +48,14 @@ enum FocusFenceSearchResultFilter {
       return directoryInPrimary || pornTLDListing || adultIPListing || configuredDirectorySignal
         || (adult.test(primary) && directoryAnywhere);
     }
-    function threefShouldHideImageSearchQuery(query, rules) {
+    function threefShouldHideImageSearchQuery(query, ruleIndex) {
       const normalized = String(query || '').normalize('NFKC').toLocaleLowerCase().replace(/\s+/gu, ' ').trim();
       if (!normalized) return false;
       const compact = normalized.replace(/[\s\p{P}\p{S}]+/gu, '');
       const directory = /주소|link|링크|모음|모움|사이트|\bsite\b|\bwebsites?\b|\bdirector(?:y|ies)\b|\blists?\b|\bcollections?\b/u;
       const addressDirectory = /주소.{0,24}(?:link|링크|모음|모움|사이트|site|list|directory)|(?:link|링크|모음|모움|사이트|site|list|directory).{0,24}주소/u;
       const adultDirectory = /\b(?:adult|porn|xxx|sex)\b|성인|포르노|야동/u.test(normalized) && directory.test(normalized);
-      const configuredDirectory = (rules.keywords || []).some(value => {
-        const term = String(value || '').normalize('NFKC').toLocaleLowerCase().trim();
-        return Boolean(term && directory.test(term) && normalized.includes(term));
-      });
+      const configuredDirectory = ruleIndex.keywords.some(term => Boolean(term && directory.test(term) && normalized.includes(term)));
       return addressDirectory.test(normalized) || adultDirectory || configuredDirectory
         || (compact.includes('주소') && /(?:link|링크|모음|모움|사이트|site|list|directory)/u.test(compact));
     }
@@ -74,6 +85,7 @@ enum FocusFenceSearchResultFilter {
         (() => {
           const rules = \#(json);
           \#(classifierSource)
+          const ruleIndex = threefBuildRuleIndex(rules);
           const searchHost = location.hostname.toLocaleLowerCase();
           if (!(searchHost === 'google.com' || /(^|\.)google\.[a-z.]+$/.test(searchHost)
             || searchHost === 'bing.com' || searchHost.endsWith('.bing.com')
@@ -111,7 +123,7 @@ enum FocusFenceSearchResultFilter {
               document.getElementById('threef-search-policy-notice')?.remove();
               return;
             }
-            if (!threefShouldHideImageSearchQuery(new URL(location.href).searchParams.get('q'), rules)) {
+            if (!threefShouldHideImageSearchQuery(new URL(location.href).searchParams.get('q'), ruleIndex)) {
               document.documentElement?.removeAttribute('data-threef-search-gate');
               document.getElementById('threef-search-policy-notice')?.remove();
               return;
@@ -168,7 +180,7 @@ enum FocusFenceSearchResultFilter {
               seen.add(card);
               const title = link.innerText || link.getAttribute('aria-label') || link.querySelector('img')?.alt || '';
               const snippet = card.innerText || '';
-              const shouldHide = threefShouldHideResult(target.hostname, target.pathname + target.search, title, snippet, rules);
+              const shouldHide = threefShouldHideResult(target.hostname, target.pathname + target.search, title, snippet, ruleIndex);
               if (shouldHide && card.dataset.threefFiltered !== '1') {
                 card.dataset.threefFiltered = '1';
                 card.dataset.threefOriginalStylePresent = String(card.hasAttribute('style'));

@@ -53,6 +53,32 @@ final class FocusFenceSearchResultFilterTests: XCTestCase {
         XCTAssertTrue(SearchProvider.google.ownsSearchURL(try XCTUnwrap(search)))
     }
 
+    func testIndexedDomainLookupMatchesLinearReferenceForLargeRuleSet() throws {
+        let context = try XCTUnwrap(JSContext())
+        context.evaluateScript(FocusFenceSearchResultFilter.classifierSource)
+        let result = context.evaluateScript(#"""
+        (() => {
+          const rules = {
+            blockedDomains: Array.from({ length: 3002 }, (_, index) => `site-${index}.example`),
+            blockedUrlParts: [], keywords: []
+          };
+          const index = threefBuildRuleIndex(rules);
+          const hosts = Array.from({ length: 600 }, (_, value) => {
+            const number = value % rules.blockedDomains.length;
+            if (value % 3 === 0) return `sub.site-${number}.example`;
+            if (value % 3 === 1) return `site-${number}.example.evil`;
+            return `notsite-${number}.example`;
+          });
+          const expected = hosts.map(host => rules.blockedDomains.some(domain =>
+            host === domain || host.endsWith('.' + domain)));
+          const actual = hosts.map(host => threefDomainIsBlocked(threefNormalizeHost(host), index));
+          return `${actual.every((blocked, position) => blocked === expected[position])}:${actual.filter(Boolean).length}:${index.blockedDomains instanceof Set}`;
+        })()
+        """#)
+
+        XCTAssertEqual(result?.toString(), "true:200:true")
+    }
+
     func testImageSearchQueryUsesSharedPolicyTermsAndKeepsAllowedQueriesVisible() throws {
         let context = try XCTUnwrap(JSContext())
         context.evaluateScript(FocusFenceSearchResultFilter.classifierSource)
@@ -261,13 +287,13 @@ final class FocusFenceSearchResultFilterTests: XCTestCase {
     private func classify(_ context: JSContext, host: String, path: String, title: String, snippet: String) -> Bool {
         let rules = #"{"blockedDomains":["adult.example"],"blockedUrlParts":["forbidden-tag"],"keywords":["directory"],"blockExceptions":[]}"#
         let arguments = [host, path, title, snippet].map(Self.javascriptString).joined(separator: ",")
-        let result = context.evaluateScript("(() => threefShouldHideResult(\(arguments), \(rules)) )()")
+        let result = context.evaluateScript("(() => threefShouldHideResult(\(arguments), threefBuildRuleIndex(\(rules))) )()")
         return result?.toBool() ?? false
     }
 
     private func queryIsBlocked(_ context: JSContext, query: String, rules: String) -> Bool {
         let argument = Self.javascriptString(query)
-        return context.evaluateScript("threefShouldHideImageSearchQuery(\(argument), \(rules))")?.toBool() ?? false
+        return context.evaluateScript("threefShouldHideImageSearchQuery(\(argument), threefBuildRuleIndex(\(rules)))")?.toBool() ?? false
     }
 
     private static func javascriptString(_ value: String) -> String {
