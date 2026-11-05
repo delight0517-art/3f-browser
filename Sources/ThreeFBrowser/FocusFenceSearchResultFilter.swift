@@ -45,8 +45,7 @@ enum FocusFenceSearchResultFilter {
 
       // Require adult and directory context together. A neutral article that
       // only mentions the .porn TLD remains visible.
-      return directoryInPrimary || pornTLDListing || adultIPListing || configuredDirectorySignal
-        || (adult.test(primary) && directoryAnywhere);
+      return pornTLDListing || adultIPListing || configuredDirectorySignal || (adult.test(combined) && directoryAnywhere);
     }
     function threefShouldHideImageSearchQuery(query, ruleIndex) {
       const normalized = String(query || '').normalize('NFKC').toLocaleLowerCase().replace(/\s+/gu, ' ').trim();

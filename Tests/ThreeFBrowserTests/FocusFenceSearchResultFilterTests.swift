@@ -47,6 +47,8 @@ final class FocusFenceSearchResultFilterTests: XCTestCase {
         XCTAssertTrue(classify(context, host: "directory.example", path: "/", title: "Adult domains list", snippet: "A list of porn websites and .porn extensions"))
         XCTAssertTrue(classify(context, host: "adult.example", path: "/", title: "주소모음 사이트", snippet: "사이트 주소 모음"),
                       "a destination covered by Focus Fence's blocked-domain rules must be hidden from ordinary Google result cards too")
+        XCTAssertTrue(classify(context, host: "directory.example", path: "/", title: "Adult site directory", snippet: "A list of adult websites"))
+        XCTAssertFalse(classify(context, host: "neutral.example", path: "/", title: "주소모음 사이트", snippet: "지역 주소 목록"))
         XCTAssertTrue(classify(context, host: "list.example", path: "/ips", title: "Porn IP address list", snippet: "Adult site IP addresses"))
         XCTAssertFalse(classify(context, host: "neutral.example", path: "/article", title: "Understanding the .porn top-level domain", snippet: "A neutral technical explanation."))
         XCTAssertFalse(classify(context, host: "neutral.example", path: "/article", title: "How browsers handle adult content", snippet: "This article discusses safety controls."))
