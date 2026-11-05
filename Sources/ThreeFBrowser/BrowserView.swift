@@ -232,8 +232,10 @@ struct BrowserView: View {
                         .foregroundStyle(ThreeFPalette.muted)
                         .transition(.opacity)
                 }
-                TextField("검색 또는 웹 주소 입력", text: $model.addressText)
+                TextField("검색 또는 웹 주소 입력", text: $model.addressText, prompt: Text("검색 또는 웹 주소 입력").foregroundColor(ThreeFPalette.muted))
                     .textFieldStyle(.plain)
+                    .foregroundStyle(ThreeFPalette.ink)
+                    .tint(model.theme.color)
                     .font(.system(size: 14))
                     .onSubmit { submitAddressBar() }
                 if !model.addressText.isEmpty {
@@ -561,8 +563,10 @@ struct BrowserView: View {
                 HStack(spacing: 12) {
                     Image(systemName: "magnifyingglass")
                         .foregroundStyle(ThreeFPalette.muted)
-                    TextField("검색 또는 웹 주소 입력", text: $model.addressText)
+                    TextField("검색 또는 웹 주소 입력", text: $model.addressText, prompt: Text("검색 또는 웹 주소 입력").foregroundColor(ThreeFPalette.muted))
                         .textFieldStyle(.plain)
+                        .foregroundStyle(ThreeFPalette.ink)
+                        .tint(model.theme.color)
                         .font(.system(size: 15))
                         .onSubmit { submitAddressBar() }
                     Button { model.submit(model.addressText, authorize: authorizeNavigation) } label: {
