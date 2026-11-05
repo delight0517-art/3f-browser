@@ -151,14 +151,15 @@ final class FocusFenceSearchResultFilterTests: XCTestCase {
         };
         const listeners = {};
         globalThis.addEventListener = (name, callback) => { listeners[name] = callback; };
-        globalThis.requestAnimationFrame = callback => callback();
+        const frames = [];
+        globalThis.requestAnimationFrame = callback => { frames.push(callback); };
         globalThis.MutationObserver = function() { this.observe = () => {}; };
         const setLocation = url => { location.href = url; location.pathname = new URL(url).pathname; };
         globalThis.history = {
           pushState(_state, _title, url) { setLocation(url); return 'push-result'; },
           replaceState(_state, _title, url) { setLocation(url); return 'replace-result'; }
         };
-        globalThis.__test = { card, link, root, listeners, originalStyle };
+        globalThis.__test = { card, link, root, listeners, originalStyle, frames };
         """#)
 
         let rules = Data(#"{"blockedDomains":["adult.example"],"blockedUrlParts":[],"keywords":["주소모음"],"blockExceptions":[]}"#.utf8)
@@ -189,6 +190,10 @@ final class FocusFenceSearchResultFilterTests: XCTestCase {
         XCTAssertEqual(context.evaluateScript("__test.card.getAttribute('style')")?.toString(), "color: red; display: grid !important; margin: 2px")
         XCTAssertFalse(context.evaluateScript("Boolean(__test.card.dataset.threefFiltered)")?.toBool() ?? true)
         XCTAssertFalse(context.evaluateScript("Boolean(__test.root.dataset.threefSearchGate)")?.toBool() ?? true)
+
+        context.evaluateScript("__test.frames.shift()();")
+        XCTAssertEqual(context.evaluateScript("__test.card.getAttribute('style')")?.toString(), "color: red; display: grid !important; margin: 2px")
+        XCTAssertFalse(context.evaluateScript("Boolean(__test.card.dataset.threefFiltered)")?.toBool() ?? true)
     }
 
     func testLateUnknownImageResultRootIsFilteredAfterMutation() throws {
