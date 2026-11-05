@@ -10,7 +10,7 @@ assert.ok(match, 'Swift YouTubeUsageReporter script literal exists');
 async function run(host, quotaBlocked = true, {
   failFirstAck = false, videoAtStart = true, playbackRate = 1, remainingSeconds = -1,
   accountLeaseUnsupported = true, accountLeaseUnavailable = false, failFirstLeaseAck = false,
-  mismatchLeaseRequestId = false, shortsBlocked = false, pagePath = '/watch'
+  mismatchLeaseRequestId = false, shortsBlocked = false, youtubeSiteBlocked = false, pagePath = '/watch'
 } = {}) {
   let paused = 0;
   let now = 1;
@@ -36,7 +36,7 @@ async function run(host, quotaBlocked = true, {
     async postMessage(message) {
       if (message.type === 'policy') {
         rulesReads += 1;
-        return { youtubeQuotaBlocked: currentQuotaBlocked, remainingSeconds: currentRemainingSeconds, blockShorts: shortsBlocked };
+        return { youtubeQuotaBlocked: currentQuotaBlocked || youtubeSiteBlocked, remainingSeconds: currentRemainingSeconds, blockShorts: shortsBlocked };
       }
       if (message.type === 'report') {
         const report = message.report;
@@ -141,6 +141,13 @@ async function run(host, quotaBlocked = true, {
 
   const youtube = await run('m.youtube.com');
   assert.equal(youtube.video.paused, true, 'quota block must pause YouTube video');
+
+  const siteBlocked = await run('youtube.com', false, { youtubeSiteBlocked: true });
+  assert.equal(siteBlocked.video.paused, true, 'domain block must stop YouTube playback while its page is available');
+  siteBlocked.startPlayback();
+  assert.equal(siteBlocked.video.paused, true, 'playback remains stopped after a play attempt under a site block');
+  await siteBlocked.reportProgress();
+  assert.equal(siteBlocked.payloads.length, 0, 'blocked playback is not counted as viewing time');
 
   const music = await run('music.youtube.com');
   assert.equal(music.video.paused, false, 'YouTube Music is excluded from YouTube video quota');

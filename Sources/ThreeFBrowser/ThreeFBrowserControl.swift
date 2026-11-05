@@ -269,7 +269,34 @@ final class ThreeFBrowserControlController {
         let digitCount = firstLabel.count - stem.count
         let numericEvasionBlocked = stem.count >= 5 && (1...4).contains(digitCount)
             && blockedURLParts.contains(stem)
-        return !(hostBlocked || nestedHostBlocked || partBlocked || keywordBlocked || numericEvasionBlocked)
+        let youtubePageHost = isYouTubeVideoHost(host)
+        return !((hostBlocked && !youtubePageHost) || nestedHostBlocked || partBlocked || keywordBlocked || numericEvasionBlocked)
+    }
+
+    nonisolated static func youtubeSiteIsBlocked(rules: [String: Any]) -> Bool? {
+        guard let blockedDomains = rules["blockedDomains"] as? [String],
+              let blockExceptions = rules["blockExceptions"] as? [String] else { return nil }
+        func normalizedDomain(_ value: String) -> String {
+            let domain = value.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
+            return domain.hasPrefix("www.") ? String(domain.dropFirst(4)) : domain
+        }
+        func matches(_ host: String, entries: [String]) -> Bool {
+            let candidate = normalizedDomain(host)
+            return entries.contains { entry in
+                let domain = normalizedDomain(entry)
+                return !domain.isEmpty && (candidate == domain || candidate.hasSuffix("." + domain))
+            }
+        }
+        return ["youtube.com", "youtu.be"].contains { host in
+            matches(host, entries: blockedDomains) && !matches(host, entries: blockExceptions)
+        }
+    }
+
+    private nonisolated static func isYouTubeVideoHost(_ host: String) -> Bool {
+        let normalized = host.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        return normalized == "youtu.be"
+            || (normalized == "youtube.com" || normalized.hasSuffix(".youtube.com"))
+                && normalized != "music.youtube.com"
     }
 
     func attach(model: BrowserModel, webView: WKWebView) {

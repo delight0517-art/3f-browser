@@ -1,6 +1,6 @@
 # TODO
 
-## Current verified state — 2026-11-05 11:55 KST
+## Current verified state — 2026-11-05 13:42 KST
 
 This section supersedes older installation, quota, and Google Images test counts below; those remain historical evidence.
 
@@ -11,6 +11,7 @@ This section supersedes older installation, quota, and Google Images test counts
 - No task-owned isolated AI-only UI route is available. Current-version YouTube playback/counter read-after-write, live Google Images result hiding, account-budget synchronization, and Windows receiver/runtime ACK remain unverified.
 - The broader browser remains incomplete: macOS product still uses WKWebView; CEF 156 is only a separate probe. Windows browser-baseline items (Chromium/extension integration, downloads, permissions/auth, session continuity, and runtime parity) remain open.
 - Delivery proof `3f-browser-completion-20261105` is open; build and install evidence are recorded, with the device/UI stage outstanding. Existing rollback bundles and older referenced candidates were retained pending runtime proof.
+- YouTube page/playback policy separation: source change allows YouTube navigation past a whole-domain block, keeps other domain blocks effective, and feeds the YouTube domain block into the playback reporter so video remains paused. A configured YouTube exception clears that domain-derived playback block. `swift test --filter BrowserNavigationFeedbackTests` passes 22/22 and `node scripts/test-youtube-usage-reporter.js` passes. Installed UI behavior is pending an AI-only isolated UI route.
 
 ## Disabled integrations
 

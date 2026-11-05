@@ -260,9 +260,9 @@ final class BrowserNavigationFeedbackTests: XCTestCase {
                        "YouTube가 Focus Fence에서 제한 중입니다. 한도·스케줄 설정을 확인해 주세요.")
     }
 
-    func testFocusFenceNavigationDecisionUsesQuotaReasonOnlyForBlockedYouTube() throws {
+    func testYouTubePageOpensDespiteDomainBlockAndPlaybackPolicyStaysBlocked() throws {
         let data = try JSONSerialization.data(withJSONObject: [
-            "blockedDomains": ["youtube.com"],
+            "blockedDomains": ["youtube.com", "blocked.example"],
             "blockedUrlParts": [String](),
             "keywords": [String](),
             "blockExceptions": [String](),
@@ -271,10 +271,32 @@ final class BrowserNavigationFeedbackTests: XCTestCase {
         let youtube = try XCTUnwrap(URL(string: "https://www.youtube.com/"))
         let gemini = try XCTUnwrap(URL(string: "https://gemini.google.com/"))
         let drive = try XCTUnwrap(URL(string: "https://drive.google.com/"))
+        let blocked = try XCTUnwrap(URL(string: "https://blocked.example/"))
 
-        XCTAssertEqual(ThreeFBrowserControlController.navigationAuthorizationDecision(for: youtube, rules: data), .youtubeBlocked)
+        XCTAssertEqual(ThreeFBrowserControlController.navigationAuthorizationDecision(for: youtube, rules: data), .allowed)
         XCTAssertEqual(ThreeFBrowserControlController.navigationAuthorizationDecision(for: gemini, rules: data), .allowed)
         XCTAssertEqual(ThreeFBrowserControlController.navigationAuthorizationDecision(for: drive, rules: data), .allowed)
+        XCTAssertEqual(ThreeFBrowserControlController.navigationAuthorizationDecision(for: blocked, rules: data), .blocked)
+        let rules = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(ThreeFBrowserControlController.youtubeSiteIsBlocked(rules: rules), true,
+                       "Opening the site must not turn off the domain's playback restriction")
+    }
+
+    func testYouTubeSiteExceptionAlsoExemptsPlaybackDomainBlock() throws {
+        let data = try JSONSerialization.data(withJSONObject: [
+            "blockedDomains": ["youtube.com"],
+            "blockedUrlParts": [String](),
+            "keywords": [String](),
+            "blockExceptions": ["youtube.com"],
+            "youtubeQuotaBlocked": false,
+        ])
+        let rules = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+        XCTAssertEqual(ThreeFBrowserControlController.youtubeSiteIsBlocked(rules: rules), false)
+    }
+
+    func testYouTubePlaybackDomainPolicyFailsClosedWhenDomainListsAreMissing() {
+        XCTAssertNil(ThreeFBrowserControlController.youtubeSiteIsBlocked(rules: ["youtubeQuotaBlocked": false]))
     }
 
     func testYouTubePageCanOpenInThreeFWhenOnlyPlaybackQuotaIsBlocked() throws {

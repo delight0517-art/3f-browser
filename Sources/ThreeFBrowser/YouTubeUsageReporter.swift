@@ -328,7 +328,8 @@ final class YouTubeUsageScriptMessageHandler: NSObject, WKScriptMessageHandlerWi
               let response = response as? HTTPURLResponse,
               response.statusCode == 200,
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let blocked = object["youtubeQuotaBlocked"] as? Bool else {
+              let blocked = object["youtubeQuotaBlocked"] as? Bool,
+              let youtubeSiteBlocked = ThreeFBrowserControlController.youtubeSiteIsBlocked(rules: object) else {
             return ["youtubeQuotaBlocked": true]
         }
         guard let usage = await FocusFenceYouTubeUsageClient.fetch() else {
@@ -340,7 +341,7 @@ final class YouTubeUsageScriptMessageHandler: NSObject, WKScriptMessageHandlerWi
         }
         if usage.hourlyCapMinutes > 0 { remaining.append(usage.hourlyRemainingSeconds) }
         let remainingSeconds = remaining.min() ?? -1
-        return ["youtubeQuotaBlocked": blocked || usage.blocked || remainingSeconds == 0,
+        return ["youtubeQuotaBlocked": blocked || youtubeSiteBlocked || usage.blocked || remainingSeconds == 0,
                 "remainingSeconds": remainingSeconds,
                 "blockShorts": object["blockShorts"] as? Bool ?? false]
     }
