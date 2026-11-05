@@ -56,6 +56,7 @@ struct BrowserView: View {
                 }
                 .background(ThreeFPalette.canvas)
             }
+            if !embedded && model.shouldShowYouTubeUsage { youtubePolicyStatus }
             browserContent
             if !embedded { statusBar }
         }
@@ -104,7 +105,7 @@ struct BrowserView: View {
         }
         .onChange(of: externalURLs.pendingURLs) { _, _ in consumeExternalURLs() }
         .task(id: model.youtubeUsagePollKey) {
-            guard !embedded, model.isYouTubePage else {
+            guard !embedded, model.shouldShowYouTubeUsage else {
                 model.clearYouTubeUsage()
                 return
             }
@@ -134,7 +135,7 @@ struct BrowserView: View {
                 webView: $webView,
                 authorizeNavigation: authorizeNavigation,
                 onRejectedNavigation: { url, decision in
-                    model.pageDidRejectNavigation(decision)
+                    model.pageDidRejectNavigation(decision, for: url)
                     onBlockedNavigation?(url)
                 },
                 allowsDownloads: !embedded,
@@ -677,6 +678,37 @@ struct BrowserView: View {
         .padding(.bottom, 9)
     }
 
+    private var youtubePolicyStatus: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            VStack(alignment: .leading, spacing: 5) {
+                if let summary = model.youtubeUsageSummary {
+                    Label(model.youtubePlaybackReason ?? "YouTube 시청 한도 · Shorts 포함", systemImage: model.youtubePlaybackReason == nil ? "clock" : "pause.circle")
+                        .font(.system(size: 12, weight: .semibold))
+                    Text(summary.statusLine).font(.system(size: 11))
+                    if let resume = summary.resumeStatus(at: context.date, isShorts: model.isYouTubeShortsContext) {
+                        Text(resume).font(.system(size: 12, weight: .semibold)).monospacedDigit()
+                    }
+                    if let sync = summary.synchronizationExplanation {
+                        Text(sync).font(.system(size: 11)).foregroundStyle(ThreeFPalette.muted)
+                    }
+                } else {
+                    Label(model.youtubeUsageStatusLabel, systemImage: "clock")
+                        .font(.system(size: 12, weight: .medium))
+                    if model.youtubeUsageUnavailable {
+                        Text("남은 시청량과 제한 해제 시간을 확인하지 못했습니다. FF 연결 상태를 확인해 주세요.")
+                            .font(.system(size: 11))
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .foregroundStyle(ThreeFPalette.ink)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 10)
+            .background(ThreeFPalette.surface)
+            .accessibilityElement(children: .combine)
+        }
+    }
+
     private var statusBar: some View {
         HStack(spacing: 8) {
             if model.isLoading {
@@ -688,7 +720,7 @@ struct BrowserView: View {
                     .frame(width: 6, height: 6)
                 Text(model.currentURL?.host ?? "새 탭").lineLimit(1)
             }
-            if model.isYouTubePage {
+            if model.shouldShowYouTubeUsage {
                 Label(model.youtubeUsageStatusLabel, systemImage: "clock")
                     .lineLimit(1)
                     .help(model.youtubeUsageDetail)

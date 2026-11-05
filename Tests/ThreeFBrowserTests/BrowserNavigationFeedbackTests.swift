@@ -204,7 +204,7 @@ final class BrowserNavigationFeedbackTests: XCTestCase {
         model.pageDidFailToNavigate(NSError(domain: "Navigation", code: 1))
 
         XCTAssertFalse(model.isLoading)
-        XCTAssertEqual(model.addressBlockNotice, "페이지 연결에 실패했습니다. 네트워크나 Focus Fence 제한을 확인해 주세요.")
+        XCTAssertEqual(model.addressBlockNotice, "페이지 연결에 실패했습니다. 연결 상태를 확인한 뒤 다시 시도해 주세요.")
     }
 
     func testStartingALinkNavigationImmediatelyShowsTheDestination() throws {

@@ -1,5 +1,18 @@
 import Foundation
 
+struct FocusFenceYouTubePlaybackPolicy: Decodable, Equatable, Sendable {
+    let youtubeQuotaBlocked: Bool
+    let youtubeBlockedByActiveSchedule: Bool?
+    let youtubeQuotaResetAfterSeconds: Int?
+    let blockShorts: Bool?
+
+    static func decode(_ data: Data) -> Self? {
+        guard let value = try? JSONDecoder().decode(Self.self, from: data),
+              value.youtubeQuotaResetAfterSeconds.map({ $0 >= 0 && $0 <= 172_800 }) ?? true else { return nil }
+        return value
+    }
+}
+
 private struct FocusFenceAccountBudgetStatus: Decodable, Equatable, Sendable {
     let available: Bool?
     let fresh: Bool?
@@ -15,6 +28,45 @@ struct FocusFenceYouTubeUsageSummary: Decodable, Equatable, Sendable {
     let blocked: Bool
     private let cloudSignedIn: Bool?
     private let accountBudget: FocusFenceAccountBudgetStatus?
+    private(set) var playbackPolicy: FocusFenceYouTubePlaybackPolicy? = nil
+    private(set) var policyReadAt: Date? = nil
+
+    private enum CodingKeys: String, CodingKey {
+        case todaySeconds, dailyCapMinutes, hourlyCapMinutes, hourlyUsedSeconds, hourlyRemainingSeconds
+        case blocked, cloudSignedIn, accountBudget
+    }
+
+    func withPolicy(_ policy: FocusFenceYouTubePlaybackPolicy?, observedAt: Date = Date()) -> Self {
+        var result = self
+        result.playbackPolicy = policy
+        result.policyReadAt = policy == nil ? nil : observedAt
+        return result
+    }
+
+    func restrictionReason(isShorts: Bool) -> String? {
+        if isShorts && playbackPolicy?.blockShorts == true { return "FF의 Shorts 차단 규칙이 적용 중입니다." }
+        if playbackPolicy?.youtubeBlockedByActiveSchedule == true { return "활성 스케줄로 YouTube 영상 재생이 제한됩니다." }
+        guard blocked || playbackPolicy?.youtubeQuotaBlocked == true else { return nil }
+        if dailyCapMinutes > 0 && todaySeconds >= dailyCapMinutes * 60 { return "오늘 YouTube 시청 한도 \(dailyCapMinutes)분을 모두 사용했습니다." }
+        if hourlyCapMinutes > 0 && hourlyUsedSeconds >= hourlyCapMinutes * 60 { return "최근 1시간 YouTube 시청 한도 \(hourlyCapMinutes)분을 모두 사용했습니다." }
+        return "FF의 YouTube 재생 정책으로 제한 중입니다."
+    }
+
+    func resumeStatus(at now: Date = Date(), isShorts: Bool = false) -> String? {
+        if isShorts && playbackPolicy?.blockShorts == true { return "다시 시청할 시간은 Shorts 차단 규칙·스케줄에 따라 달라집니다." }
+        if playbackPolicy?.youtubeBlockedByActiveSchedule == true { return "스케줄 종료 후 다시 확인합니다. 종료 시간은 아직 전달되지 않았습니다." }
+        guard blocked || playbackPolicy?.youtubeQuotaBlocked == true else { return nil }
+        guard let seconds = playbackPolicy?.youtubeQuotaResetAfterSeconds, let policyReadAt else {
+            return "다시 시청할 시간을 FF에서 확인하고 있습니다."
+        }
+        let wait = max(0, Int(ceil(policyReadAt.addingTimeInterval(Double(seconds)).timeIntervalSince(now))))
+        return wait == 0 ? "한도 갱신을 확인하고 있습니다." : "다시 시청까지 약 \(Self.duration(wait))"
+    }
+
+    var synchronizationExplanation: String? {
+        guard cloudSignedIn == true, accountBudget?.available != true else { return accountSyncStatusLine }
+        return "FF 계정 로그인됨 · 계정 공통 한도 확인 불가 · 현재는 이 Mac의 한도로 제한합니다."
+    }
 
     var accountSyncStatusLine: String? {
         guard cloudSignedIn != nil || accountBudget != nil else { return nil }
@@ -93,10 +145,21 @@ enum FocusFenceYouTubeUsageClient {
     }
 
     static func fetch(session: URLSession = .shared) async -> FocusFenceYouTubeUsageSummary? {
+        async let policy = fetchPolicy(session: session)
         let request = makeRequest()
         guard let (data, response) = try? await session.data(for: request),
               let response = response as? HTTPURLResponse,
               response.statusCode == 200 else { return nil }
-        return FocusFenceYouTubeUsageSummary.decode(data)
+        guard let summary = FocusFenceYouTubeUsageSummary.decode(data) else { return nil }
+        return await summary.withPolicy(policy)
+    }
+
+    static func fetchPolicy(session: URLSession = .shared) async -> FocusFenceYouTubePlaybackPolicy? {
+        var request = URLRequest(url: URL(string: "http://127.0.0.1:17361/rules?browser=3f")!)
+        request.timeoutInterval = requestTimeoutInterval
+        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        guard let (data, response) = try? await session.data(for: request),
+              (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+        return FocusFenceYouTubePlaybackPolicy.decode(data)
     }
 }

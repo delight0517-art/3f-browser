@@ -8,7 +8,7 @@ final class BrowserThemeTests: XCTestCase {
         XCTAssertTrue(OptionalFeatureAvailability.youtubeUsageReporting)
         XCTAssertTrue(YouTubeUsageReporter.script.contains("blocked = true;"))
         XCTAssertTrue(YouTubeUsageReporter.script.contains("threefYouTubeUsage"))
-        XCTAssertTrue(YouTubeUsageReporter.script.contains("blocked = !policy || policy.youtubeQuotaBlocked !== false"))
+        // Quota and Shorts policy behavior is executed by test-youtube-usage-reporter.js.
         XCTAssertTrue(YouTubeUsageReporter.script.contains("qualificationMs:5000"))
         XCTAssertTrue(YouTubeUsageReporter.script.contains("minimum_5s_qualified_30s_account_lease_v1"))
         XCTAssertTrue(YouTubeUsageReporter.script.contains("type:'leaseReport'"))

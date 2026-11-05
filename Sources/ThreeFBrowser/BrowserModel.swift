@@ -132,6 +132,7 @@ final class BrowserModel: ObservableObject {
     @Published var addressBlockNotice: String?
     @Published private(set) var youtubeUsageSummary: FocusFenceYouTubeUsageSummary?
     @Published private(set) var youtubeUsageUnavailable = false
+    @Published private(set) var rejectedNavigationURL: URL?
     @Published private(set) var theme = BrowserTheme.standard
     @Published private(set) var themeModuleStatus = "기본 테마"
     @Published private(set) var bookmarks: [BrowserQuickLink] = []
@@ -150,11 +151,24 @@ final class BrowserModel: ObservableObject {
     }
 
     var youtubeUsagePollKey: String? {
-        isYouTubePage ? currentURL?.host?.lowercased() : nil
+        youtubeContextURL?.absoluteString
+    }
+
+    var youtubeContextURL: URL? {
+        if let rejectedNavigationURL, YouTubeUsageBridgePayload.isYouTubeHost(rejectedNavigationURL.host ?? "") { return rejectedNavigationURL }
+        return isYouTubePage ? currentURL : nil
+    }
+
+    var shouldShowYouTubeUsage: Bool { youtubeContextURL != nil }
+
+    var isYouTubeShortsContext: Bool { youtubeContextURL?.path.hasPrefix("/shorts/") == true }
+
+    var youtubePlaybackReason: String? {
+        youtubeUsageSummary?.restrictionReason(isShorts: isYouTubeShortsContext)
     }
 
     var youtubeUsageStatusLabel: String {
-        guard isYouTubePage else { return "" }
+        guard shouldShowYouTubeUsage else { return "" }
         if let youtubeUsageSummary { return youtubeUsageSummary.compactStatusLine }
         return youtubeUsageUnavailable ? "Focus Fence 사용량 확인 불가" : "Focus Fence 사용량 확인 중"
     }
@@ -274,6 +288,7 @@ final class BrowserModel: ObservableObject {
     }
 
     func showNewTab() {
+        rejectedNavigationURL = nil
         currentURL = nil
         addressText = ""
         isLoading = false
@@ -281,6 +296,7 @@ final class BrowserModel: ObservableObject {
     }
 
     func pageDidStartNavigation(to url: URL?) {
+        rejectedNavigationURL = nil
         navigationAuthorizationID = nil
         if let url,
            let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme),
@@ -305,6 +321,7 @@ final class BrowserModel: ObservableObject {
         authorize: (((URL, @escaping (BrowserNavigationAuthorizationDecision) -> Void) -> Void))?
     ) {
         let destination = Self.canonicalNavigationDestination(destination)
+        rejectedNavigationURL = nil
         addressBlockNotice = nil
         addressText = destination.absoluteString
         isLoading = true
@@ -320,7 +337,7 @@ final class BrowserModel: ObservableObject {
             guard let self, self.navigationAuthorizationID == authorizationID else { return }
             self.navigationAuthorizationID = nil
             guard decision.isAllowed else {
-                self.pageDidRejectNavigation(decision)
+                self.pageDidRejectNavigation(decision, for: destination)
                 return
             }
             self.currentURL = destination
@@ -340,6 +357,7 @@ final class BrowserModel: ObservableObject {
 
     func pageDidNavigate(to url: URL?, title: String? = nil) {
         guard let url else { return }
+        rejectedNavigationURL = nil
         navigationAuthorizationID = nil
         currentURL = url
         addressText = url.absoluteString
@@ -407,13 +425,13 @@ final class BrowserModel: ObservableObject {
     }
 
     func refreshYouTubeUsage() async {
-        guard isYouTubePage, let requestedURL = currentURL else {
+        guard let requestedURL = youtubeContextURL else {
             clearYouTubeUsage()
             return
         }
         guard let summary = await FocusFenceYouTubeUsageClient.fetch(),
-              currentURL == requestedURL, isYouTubePage else {
-            guard currentURL == requestedURL, isYouTubePage else { return }
+              youtubeContextURL == requestedURL else {
+            guard youtubeContextURL == requestedURL else { return }
             youtubeUsageSummary = nil
             youtubeUsageUnavailable = true
             return
@@ -430,11 +448,18 @@ final class BrowserModel: ObservableObject {
     func pageDidFailToNavigate(_ error: Error) {
         guard (error as NSError).code != NSURLErrorCancelled else { return }
         isLoading = false
-        addressBlockNotice = "페이지 연결에 실패했습니다. 네트워크나 Focus Fence 제한을 확인해 주세요."
+        switch (error as NSError).code {
+        case NSURLErrorTimedOut: addressBlockNotice = "페이지 응답 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요."
+        case NSURLErrorCannotFindHost, NSURLErrorDNSLookupFailed: addressBlockNotice = "사이트 주소를 찾지 못했습니다. DNS 연결을 확인해 주세요."
+        case NSURLErrorNotConnectedToInternet, NSURLErrorNetworkConnectionLost: addressBlockNotice = "인터넷 연결이 끊겨 페이지를 열지 못했습니다."
+        case NSURLErrorSecureConnectionFailed, NSURLErrorServerCertificateUntrusted: addressBlockNotice = "사이트와 보안 연결을 만들지 못했습니다."
+        default: addressBlockNotice = "페이지 연결에 실패했습니다. 연결 상태를 확인한 뒤 다시 시도해 주세요."
+        }
     }
 
-    func pageDidRejectNavigation(_ decision: BrowserNavigationAuthorizationDecision) {
+    func pageDidRejectNavigation(_ decision: BrowserNavigationAuthorizationDecision, for url: URL? = nil) {
         isLoading = false
+        rejectedNavigationURL = url
         switch decision {
         case .allowed:
             addressBlockNotice = nil

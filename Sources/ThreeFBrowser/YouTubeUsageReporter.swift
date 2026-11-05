@@ -13,6 +13,7 @@ enum YouTubeUsageReporter {
       };
       let lastAt = performance.now(), samples = new Map();
       let watchMs = 0, blocked = true, remainingSeconds = 0;
+      let quotaBlocked = true, shortsBlocked = false;
       let lastPolicyAt = -Infinity, pendingReport = null, sending = false;
       let leaseMode = 'unknown', leaseRequestPending = false, accountLease = null;
       let accountIntervals = [], accountReportPending = null, accountReportSending = false;
@@ -27,6 +28,11 @@ enum YouTubeUsageReporter {
       }]));
       samples = snapshot();
       const stop = () => { if (isYouTubeHost(location.hostname)) document.querySelectorAll('video').forEach(v => { if (!v.paused) v.pause(); }); };
+      const enforcePolicy = () => {
+        const onShorts = /^\/shorts(?:\/|$)/i.test(location.pathname || '');
+        blocked = quotaBlocked || (shortsBlocked && onShorts);
+        if (blocked) stop();
+      };
       const refreshQuota = async (force = false) => {
         const now = performance.now();
         if (!force && now - lastPolicyAt < 30000) return;
@@ -34,10 +40,11 @@ enum YouTubeUsageReporter {
         try {
           const policy = await request({type:'policy'});
           remainingSeconds = Number.isSafeInteger(policy?.remainingSeconds) ? policy.remainingSeconds : 0;
-          blocked = !policy || policy.youtubeQuotaBlocked !== false;
-          blocked = blocked || remainingSeconds === 0;
+          quotaBlocked = !policy || policy.youtubeQuotaBlocked !== false || remainingSeconds === 0;
+          shortsBlocked = policy?.blockShorts === true;
+          enforcePolicy();
           if (blocked) { watchMs = 0; stop(); }
-        } catch (_) { remainingSeconds = 0; blocked = true; watchMs = 0; stop(); }
+        } catch (_) { remainingSeconds = 0; quotaBlocked = true; blocked = true; watchMs = 0; stop(); }
       };
       const requestAccountLease = async (renew = false) => {
         if (leaseRequestPending || blocked || !isYouTubeHost(location.hostname)) return;
@@ -54,7 +61,7 @@ enum YouTubeUsageReporter {
             return;
           }
           if (receipt?.ok !== true || receipt.allowed !== true) {
-            if (receipt?.allowed === false && receipt?.status !== 400) { blocked = true; stop(); }
+            if (receipt?.allowed === false && receipt?.status !== 400) { quotaBlocked = true; blocked = true; stop(); }
             else leaseMode = 'local';
             return;
           }
@@ -79,6 +86,7 @@ enum YouTubeUsageReporter {
           leaseMode = 'local';
         } finally {
           leaseRequestPending = false;
+          enforcePolicy();
           if (!blocked && (leaseMode === 'local' || accountLease)) {
             document.querySelectorAll('video').forEach(v => { if (v.paused) v.play().catch(() => {}); });
           }
@@ -102,6 +110,7 @@ enum YouTubeUsageReporter {
       };
       const tick = async (flush = false) => {
         await refreshQuota();
+        enforcePolicy();
         const host = location.hostname.toLowerCase();
         const onYouTube = isYouTubeHost(host);
         const now = performance.now(), elapsed = now - lastAt, current = snapshot();
@@ -139,7 +148,7 @@ enum YouTubeUsageReporter {
           if (performance.now() >= accountLease.deadline && !leaseRequestPending && !blocked) {
             await sendAccountReport();
             if (!accountReportPending && accountIntervals.length === 0) await requestAccountLease(true);
-            else { blocked = true; stop(); }
+            else { quotaBlocked = true; blocked = true; stop(); }
           }
           return;
         }
@@ -157,7 +166,7 @@ enum YouTubeUsageReporter {
           watchMs = remainingSeconds < 0 ? watchMs - reportSeconds * 1000 : Math.max(0, watchMs - reportSeconds * 1000);
           if (remainingSeconds >= 0) {
             remainingSeconds -= reportSeconds;
-            if (remainingSeconds === 0) { blocked = true; watchMs = 0; stop(); }
+            if (remainingSeconds === 0) { quotaBlocked = true; blocked = true; watchMs = 0; stop(); }
           }
         }
         if (!pendingReport || sending) return;
@@ -175,7 +184,7 @@ enum YouTubeUsageReporter {
         } catch (_) { /* retain the batch and report ID for a deduplicated retry */ }
         finally { sending = false; }
       };
-      document.addEventListener('play', () => { if (blocked) stop(); }, true);
+      document.addEventListener('play', enforcePolicy, true);
       document.addEventListener('playing', event => {
         if (!event.target || event.target.tagName !== 'VIDEO') return;
         lastAt = performance.now();
@@ -187,7 +196,7 @@ enum YouTubeUsageReporter {
       document.addEventListener('visibilitychange', () => tick(true), true);
       refreshQuota(true);
       setInterval(tick, 1000);
-      addEventListener('yt-navigate-finish', () => tick(true), true);
+      addEventListener('yt-navigate-finish', () => { enforcePolicy(); tick(true); }, true);
     })();
     """#
 }
@@ -332,7 +341,8 @@ final class YouTubeUsageScriptMessageHandler: NSObject, WKScriptMessageHandlerWi
         if usage.hourlyCapMinutes > 0 { remaining.append(usage.hourlyRemainingSeconds) }
         let remainingSeconds = remaining.min() ?? -1
         return ["youtubeQuotaBlocked": blocked || usage.blocked || remainingSeconds == 0,
-                "remainingSeconds": remainingSeconds]
+                "remainingSeconds": remainingSeconds,
+                "blockShorts": object["blockShorts"] as? Bool ?? false]
     }
 
     private func sendReport(_ payload: [String: Any]) async -> Bool {

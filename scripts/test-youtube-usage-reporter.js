@@ -10,7 +10,7 @@ assert.ok(match, 'Swift YouTubeUsageReporter script literal exists');
 async function run(host, quotaBlocked = true, {
   failFirstAck = false, videoAtStart = true, playbackRate = 1, remainingSeconds = -1,
   accountLeaseUnsupported = true, accountLeaseUnavailable = false, failFirstLeaseAck = false,
-  mismatchLeaseRequestId = false
+  mismatchLeaseRequestId = false, shortsBlocked = false, pagePath = '/watch'
 } = {}) {
   let paused = 0;
   let now = 1;
@@ -36,7 +36,7 @@ async function run(host, quotaBlocked = true, {
     async postMessage(message) {
       if (message.type === 'policy') {
         rulesReads += 1;
-        return { youtubeQuotaBlocked: currentQuotaBlocked, remainingSeconds: currentRemainingSeconds };
+        return { youtubeQuotaBlocked: currentQuotaBlocked, remainingSeconds: currentRemainingSeconds, blockShorts: shortsBlocked };
       }
       if (message.type === 'report') {
         const report = message.report;
@@ -96,7 +96,7 @@ async function run(host, quotaBlocked = true, {
   };
   const context = {
     window: { webkit: { messageHandlers: { threefYouTubeUsage: bridge } } },
-    location: { hostname: host, href: `https://${host}/watch` }, document,
+    location: { hostname: host, pathname: pagePath, href: `https://${host}${pagePath}` }, document,
     performance: { now: () => now },
     Date: { now: () => epoch + now },
     setInterval(callback) { timer = callback; }, addEventListener() {}, crypto: { randomUUID: () => `test-report-${++idCounter}` }
@@ -119,6 +119,7 @@ async function run(host, quotaBlocked = true, {
     },
     async advance(ms) { now += ms; await timer(); },
     setQuotaBlocked(value) { currentQuotaBlocked = value; },
+    setPath(value) { context.location.pathname = value; context.location.href = `https://${host}${value}`; },
     setAccountLeaseUnavailable(value) { leaseUnavailable = value; },
     get serverAccountWatchSeconds() { return serverAccountWatchSeconds; },
     setHost(value) { context.location.hostname = value; },
@@ -332,5 +333,25 @@ async function run(host, quotaBlocked = true, {
   assert.equal(recoversSharedService.serverWatchSeconds, 35,
     'shared lease reporting does not double-count local usage');
 
-  console.log('YouTube usage reporter account-lease playback, outage fallback, interval, retry, privacy, and quota checks passed');
+  const shorts = await run('youtube.com', false, { videoAtStart: false, pagePath: '/shorts/abcdefghijk' });
+  shorts.startPlayback();
+  for (let i = 0; i < 5; i++) await shorts.reportProgress(1);
+  assert.equal(shorts.serverWatchSeconds, 5, 'Shorts playback consumes the same YouTube viewing time');
+
+  const blockedShorts = await run('youtube.com', false, {
+    videoAtStart: false, pagePath: '/shorts/abcdefghijk', shortsBlocked: true
+  });
+  blockedShorts.startPlayback();
+  for (let i = 0; i < 5; i++) await blockedShorts.reportProgress(1);
+  assert.equal(blockedShorts.video.paused, true, 'shared blockShorts rule pauses Shorts');
+  assert.equal(blockedShorts.serverWatchSeconds, 0, 'policy-paused Shorts do not accumulate viewing time');
+  blockedShorts.setPath('/watch');
+  blockedShorts.startPlayback();
+  for (let i = 0; i < 5; i++) await blockedShorts.reportProgress(1);
+  assert.equal(blockedShorts.serverWatchSeconds, 5, 'a Shorts-only rule does not block ordinary videos after SPA navigation');
+  blockedShorts.setPath('/shorts/zyxwvutsrqp');
+  blockedShorts.startPlayback();
+  assert.equal(blockedShorts.video.paused, true, 'returning to Shorts re-applies the shared policy immediately');
+
+  console.log('YouTube usage reporter Shorts policy/transitions, account-lease playback, outage fallback, interval, retry, privacy, and quota checks passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });
