@@ -209,6 +209,15 @@ final class FocusFenceSearchResultFilterTests: XCTestCase {
         XCTAssertEqual(context.evaluateScript("__test.card.style.display")?.toString(), "none")
         XCTAssertEqual(context.evaluateScript("__test.root.dataset.threefSearchGate")?.toString(), "blocked")
 
+        context.evaluateScript("history.pushState({}, '', 'https://www.google.co.kr/search?q=주소모음')")
+        XCTAssertFalse(context.evaluateScript("Boolean(__test.root.dataset.threefSearchGate)")?.toBool() ?? true)
+        XCTAssertFalse(context.evaluateScript("Boolean(document.getElementById('threef-search-policy-notice'))")?.toBool() ?? true)
+        XCTAssertEqual(context.evaluateScript("__test.card.style.display")?.toString(), "none",
+                       "ordinary Google Search still applies shared Focus Fence destination rules")
+
+        context.evaluateScript("history.pushState({}, '', 'https://www.google.co.kr/search?q=주소모음&udm=2')")
+        XCTAssertEqual(context.evaluateScript("__test.root.dataset.threefSearchGate")?.toString(), "blocked")
+
         context.evaluateScript("history.pushState({}, '', 'https://www.google.co.kr/?q=주소모음&udm=2')")
         XCTAssertEqual(context.evaluateScript("__test.card.getAttribute('style')")?.toString(), "color: red; display: grid !important; margin: 2px")
         XCTAssertFalse(context.evaluateScript("Boolean(__test.root.dataset.threefSearchGate)")?.toBool() ?? true)
