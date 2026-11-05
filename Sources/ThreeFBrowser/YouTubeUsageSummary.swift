@@ -134,7 +134,9 @@ struct FocusFenceYouTubeUsageSummary: Decodable, Equatable, Sendable {
 
 enum FocusFenceYouTubeUsageClient {
     static let endpoint = URL(string: "http://127.0.0.1:17361/usage/youtube")!
-    static let requestTimeoutInterval: TimeInterval = 5
+    // Focus Fence keeps local requests open for up to 12 seconds while servicing its main-actor route.
+    static let requestTimeoutInterval: TimeInterval = 10
+    static let policyRequestTimeoutInterval: TimeInterval = 5
 
     static func makeRequest() -> URLRequest {
         var request = URLRequest(url: endpoint)
@@ -156,7 +158,7 @@ enum FocusFenceYouTubeUsageClient {
 
     static func fetchPolicy(session: URLSession = .shared) async -> FocusFenceYouTubePlaybackPolicy? {
         var request = URLRequest(url: URL(string: "http://127.0.0.1:17361/rules?browser=3f")!)
-        request.timeoutInterval = requestTimeoutInterval
+        request.timeoutInterval = policyRequestTimeoutInterval
         request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
         guard let (data, response) = try? await session.data(for: request),
               (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }

@@ -8,7 +8,7 @@ final class YouTubeUsageSummaryTests: XCTestCase {
 
         XCTAssertEqual(request.url, FocusFenceYouTubeUsageClient.endpoint)
         XCTAssertEqual(request.httpMethod, "GET")
-        XCTAssertEqual(request.timeoutInterval, 5)
+        XCTAssertEqual(request.timeoutInterval, 10)
         XCTAssertEqual(request.value(forHTTPHeaderField: "Cache-Control"), "no-cache")
     }
 
