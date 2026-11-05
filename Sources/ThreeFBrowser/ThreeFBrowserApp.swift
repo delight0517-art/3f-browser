@@ -91,13 +91,9 @@ struct ThreeFBrowserApp: App {
                             completion(.allowed)
                             return
                         }
-                        guard let rules = await ThreeFBrowserControlController.fetchFocusFenceRules() else {
-                            completion(.unavailable)
-                            return
-                        }
                         completion(ThreeFBrowserControlController.navigationAuthorizationDecision(
                             for: url,
-                            rules: rules
+                            rules: await ThreeFBrowserControlController.fetchFocusFenceRules()
                         ))
                     }
                 },

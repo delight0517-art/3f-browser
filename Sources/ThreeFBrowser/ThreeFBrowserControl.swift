@@ -144,14 +144,20 @@ final class ThreeFBrowserControlController {
 
     nonisolated static func focusFencePolicyDecision(for url: URL) async -> Bool? {
         guard OptionalFeatureAvailability.focusFenceEnforcement else { return true }
-        guard let data = await fetchFocusFenceRules() else { return nil }
+        guard let data = await fetchFocusFenceRules() else {
+            // Keep ordinary web navigation usable during a Focus Fence outage.
+            // YouTube playback accounting still fails closed in its own reporter.
+            return isOrdinaryWebURL(url) ? true : nil
+        }
+        guard usableFocusFenceRules(data) else { return nil }
         return focusFenceAllows(url, rules: data)
     }
 
     nonisolated static func navigationAuthorizationDecision(
         for url: URL,
-        rules data: Data
+        rules data: Data?
     ) -> BrowserNavigationAuthorizationDecision {
+        guard let data else { return isOrdinaryWebURL(url) ? .allowed : .unavailable }
         guard let allowed = focusFenceAllows(url, rules: data) else { return .unavailable }
         if allowed { return .allowed }
 
@@ -163,8 +169,15 @@ final class ThreeFBrowserControlController {
         return .youtubeBlocked
     }
 
+    nonisolated static func isOrdinaryWebURL(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme),
+              let host = url.host, !host.isEmpty else { return false }
+        return true
+    }
+
     nonisolated static func refreshFocusFencePolicyContact() async -> Bool {
-        await fetchFocusFenceRules() != nil
+        guard let data = await fetchFocusFenceRules() else { return false }
+        return usableFocusFenceRules(data)
     }
 
     nonisolated static func fetchFocusFenceRules() async -> Data? {
@@ -175,8 +188,7 @@ final class ThreeFBrowserControlController {
         request.timeoutInterval = 2
         request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
         guard let (data, response) = try? await URLSession.shared.data(for: request),
-              let status = response as? HTTPURLResponse, status.statusCode == 200,
-              usableFocusFenceRules(data) else { return nil }
+              let status = response as? HTTPURLResponse, status.statusCode == 200 else { return nil }
         return data
     }
 
