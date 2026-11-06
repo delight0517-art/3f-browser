@@ -213,26 +213,47 @@ struct BrowserWebView: NSViewRepresentable {
             for navigationAction: WKNavigationAction,
             windowFeatures: WKWindowFeatures
         ) -> WKWebView? {
-            guard let source = webView as? ThreeFWindowAwareWebView,
-                  let action = source.contextMenuAction else { return nil }
-            source.contextMenuAction = nil
-            guard navigationAction.targetFrame == nil,
-                  navigationAction.navigationType == .linkActivated,
-                  let url = ThreeFContextMenuPolicy.safeHTTPURL(navigationAction.request.url),
-                  let authorizeNavigation = parent.authorizeNavigation else { return nil }
+            if let source = webView as? ThreeFWindowAwareWebView,
+               let action = source.contextMenuAction {
+                source.contextMenuAction = nil
+                guard navigationAction.targetFrame == nil,
+                      navigationAction.navigationType == .linkActivated,
+                      let url = ThreeFContextMenuPolicy.safeHTTPURL(navigationAction.request.url),
+                      let authorizeNavigation = parent.authorizeNavigation else { return nil }
 
-            authorizeNavigation(url) { [weak self] decision in
-                guard let self,
-                      let intent = ThreeFContextMenuPolicy.intent(action: action, url: url, isAllowed: decision.isAllowed) else {
-                    if !decision.isAllowed { self?.parent.onRejectedNavigation?(url, decision) }
-                    return
+                authorizeNavigation(url) { [weak self] decision in
+                    guard let self,
+                          let intent = ThreeFContextMenuPolicy.intent(action: action, url: url, isAllowed: decision.isAllowed) else {
+                        if !decision.isAllowed { self?.parent.onRejectedNavigation?(url, decision) }
+                        return
+                    }
+                    switch intent {
+                    case .newTab(let destination): self.parent.onOpenLinkInNewTab?(destination)
+                    case .newWindow(let destination): self.parent.onOpenLinkInNewWindow?(destination)
+                    }
                 }
-                switch intent {
-                case .newTab(let destination): self.parent.onOpenLinkInNewTab?(destination)
-                case .newWindow(let destination): self.parent.onOpenLinkInNewWindow?(destination)
-                }
+                return nil
             }
+
+            Self.routePopup(
+                targetFrameIsAbsent: navigationAction.targetFrame == nil,
+                url: navigationAction.request.url,
+                openInNewTab: parent.onOpenLinkInNewTab
+            )
             return nil
+        }
+
+        @discardableResult
+        static func routePopup(
+            targetFrameIsAbsent: Bool,
+            url: URL?,
+            openInNewTab: ((URL) -> Void)?
+        ) -> Bool {
+            guard targetFrameIsAbsent,
+                  let destination = ThreeFContextMenuPolicy.safeHTTPURL(url),
+                  let openInNewTab else { return false }
+            openInNewTab(destination)
+            return true
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
