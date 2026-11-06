@@ -134,12 +134,17 @@ final class ThreeFBrowserControlController {
     private weak var model: BrowserModel?
     private weak var webView: (any ThreeFBrowserControlSurface)?
     private let authorizeNavigation: ((URL) async -> Bool?)?
+    private var browserWindowPresenter: (() -> Bool)?
     private var navigationCompletion: CheckedContinuation<Bool, Never>?
     private var navigationTimeout: Task<Void, Never>?
     private var navigationTargetID: ObjectIdentifier?
 
     init(navigationAuthorizer: ((URL) async -> Bool?)? = ThreeFBrowserControlController.focusFencePolicyDecision) {
         authorizeNavigation = navigationAuthorizer
+    }
+
+    func setBrowserWindowPresenter(_ presenter: (() -> Bool)?) {
+        browserWindowPresenter = presenter
     }
 
     nonisolated static func focusFencePolicyDecision(for url: URL) async -> Bool? {
@@ -401,6 +406,7 @@ final class ThreeFBrowserControlController {
                 return (403, ["ok": false, "error": "navigation blocked by Focus Fence"])
             }
             guard let targetModel, let targetWebView else { return (503, ["ok": false, "error": "browser view not ready"]) }
+            guard browserWindowPresenter?() == true else { return (503, ["ok": false, "error": "browser view not ready"]) }
             let completed = await performNavigation(for: targetWebView) { targetModel.navigate(to: url) }
             guard completed, let currentURL = targetWebView.url else {
                 return (504, ["ok": false, "error": "browser page load could not be confirmed"])

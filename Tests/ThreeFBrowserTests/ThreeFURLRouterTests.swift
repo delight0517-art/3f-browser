@@ -35,6 +35,24 @@ final class ThreeFURLRouterTests: XCTestCase {
     }
 
     @MainActor
+    func testAcceptedExternalURLRequestsStandaloneWindowPresentation() throws {
+        let router = ThreeFURLRouter()
+        var presentationRequests = 0
+        router.setBrowserWindowPresenter {
+            presentationRequests += 1
+            return true
+        }
+
+        router.receive([
+            try XCTUnwrap(URL(string: "javascript:alert(1)")),
+            try XCTUnwrap(URL(string: "https://example.com/"))
+        ])
+
+        XCTAssertEqual(presentationRequests, 1)
+        XCTAssertEqual(router.takePendingURLs().count, 1)
+    }
+
+    @MainActor
     func testExistingThreeFHTTPSDeepLinkRemainsSupportedButHTTPDeepLinkIsRejected() throws {
         let router = ThreeFURLRouter()
         router.receive([

@@ -73,7 +73,10 @@ struct BrowserView: View {
                 onDeferred: model.deferMediaSiteCandidate
             )
         }
-        .onAppear(perform: consumeExternalURLs)
+        .onAppear {
+            registerBrowserWindowPresenter()
+            consumeExternalURLs()
+        }
         .onAppear(perform: initializeWindow)
         .onChange(of: model.currentURL) { _, url in
             updateActiveTab(url: url, title: url?.host)
@@ -178,6 +181,27 @@ struct BrowserView: View {
 
     private func consumeExternalURLs() {
         externalURLs.takePendingURLs().forEach { model.openExternalURL($0, authorize: authorizeNavigation) }
+    }
+
+    private func registerBrowserWindowPresenter() {
+        var openWindowRequested = false
+        let presenter: () -> Bool = { [openWindow] in
+            let window = NSApp.windows.first { $0.title == "3F Browser" }
+            if let window {
+                openWindowRequested = false
+                if window.isMiniaturized { window.deminiaturize(nil) }
+                window.makeKeyAndOrderFront(nil)
+            } else {
+                if !openWindowRequested {
+                    openWindow(id: "browser")
+                    openWindowRequested = true
+                }
+            }
+            NSApp.activate(ignoringOtherApps: true)
+            return NSApp.windows.contains { $0.title == "3F Browser" && $0.isVisible && $0.isKeyWindow }
+        }
+        externalURLs.setBrowserWindowPresenter(presenter)
+        ThreeFBrowserControlController.shared.setBrowserWindowPresenter(presenter)
     }
 
     private func attachWebViewIfActive() {

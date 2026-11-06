@@ -6,11 +6,17 @@ final class ThreeFURLRouter: ObservableObject {
     static let shared = ThreeFURLRouter()
 
     @Published private(set) var pendingURLs: [URL] = []
+    private var browserWindowPresenter: (() -> Bool)?
+
+    func setBrowserWindowPresenter(_ presenter: (() -> Bool)?) {
+        browserWindowPresenter = presenter
+    }
 
     func receive(_ urls: [URL]) {
         let supported = urls.compactMap(Self.normalizedNavigationURL)
         guard !supported.isEmpty else { return }
         pendingURLs.append(contentsOf: supported)
+        _ = browserWindowPresenter?()
     }
 
     func takePendingURLs() -> [URL] {

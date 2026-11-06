@@ -129,6 +129,46 @@ final class ThreeFBrowserControlTests: XCTestCase {
     }
 
     @MainActor
+    func testControlNavigationDoesNotClaimSuccessWhenBrowserViewIsNotReady() async throws {
+        var presentationRequests = 0
+        let controller = ThreeFBrowserControlController(navigationAuthorizer: { _ in true })
+        controller.setBrowserWindowPresenter {
+            presentationRequests += 1
+            return false
+        }
+
+        let (status, payload) = await controller.handle(try navigationRequest("https://example.com/"))
+
+        XCTAssertEqual(presentationRequests, 0)
+        XCTAssertEqual(status, 503)
+        XCTAssertEqual(payload["error"] as? String, "browser view not ready")
+    }
+
+    @MainActor
+    func testControlNavigationPresentsStandaloneWindowBeforeNavigating() async throws {
+        let destination = try XCTUnwrap(URL(string: "https://example.com/"))
+        let controller = ThreeFBrowserControlController(navigationAuthorizer: { _ in true })
+        let model = BrowserModel()
+        let surface = TestThreeFBrowserControlSurface(url: destination)
+        var presentationRequests = 0
+        controller.attach(model: model, surface: surface)
+        controller.setBrowserWindowPresenter {
+            presentationRequests += 1
+            return true
+        }
+
+        let request = try navigationRequest(destination.absoluteString)
+        let navigation = Task { @MainActor in await controller.handle(request) }
+        try await Task.sleep(nanoseconds: 5_000_000)
+        controller.navigationDidFinish(for: surface)
+        let (status, payload) = await navigation.value
+
+        XCTAssertEqual(presentationRequests, 1)
+        XCTAssertEqual(status, 200)
+        XCTAssertEqual(payload["url"] as? String, destination.absoluteString)
+    }
+
+    @MainActor
     func testNavigationWaitsForWebViewCompletionAndPropagatesFailure() async throws {
         let controller = ThreeFBrowserControlController(navigationAuthorizer: { _ in true })
         var started = false
@@ -315,6 +355,21 @@ final class ThreeFBrowserControlTests: XCTestCase {
         let body = try JSONSerialization.data(withJSONObject: ["url": url])
         return ThreeFControlRequest(method: "POST", path: "/v1/navigate", headers: [:], body: body)
     }
+}
+
+@MainActor
+private final class TestThreeFBrowserControlSurface: ThreeFBrowserControlSurface {
+    var url: URL?
+    var title: String? = "Example"
+    var backURL: URL?
+    var forwardURL: URL?
+
+    init(url: URL?) { self.url = url }
+
+    func goBackInBrowser() {}
+    func goForwardInBrowser() {}
+    func reloadBrowserPage() {}
+    func evaluateBrowserJavaScript(_ script: String) async throws -> Any? { "" }
 }
 
 private enum ThreeFControlControllerTestShim {
