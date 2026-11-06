@@ -3,6 +3,7 @@
 ## Latest source update — 2026-11-06 11:35 KST
 
 - Current source is `main@24ee391`. The Gemini/website installation slice saves HTTPS pages as local 3F web apps, opens them in a separate window without browser tabs/address bar, and exposes installed apps as removable shortcuts in the main window. `InstalledWebAppTests` passes 2/2; `BrowserNavigationFeedbackTests` passes 22/22. Signed candidate: `.build/gemini-webapp-candidate-20261106/3F Browser.app`, executable SHA-256 `e97b98763cc2ebbd2ae708b1cd624880b243ccd2283fbc934f80cb55be084959`; `codesign --verify --deep --strict` and `workflow-control verify-mac` pass. The candidate is not installed or launched; visible runtime validation remains unavailable because no isolated AI-only UI route is verified.
+- Quick-link context menus now offer `앱으로 설치` for Gemini and every other configured HTTPS shortcut. Choosing one saves the shortcut and opens its address in the same standalone, toolbar-free 3F web-app window; no Chrome profile or cookies are copied. Build/install/runtime verification is still pending.
 - Chrome bookmarks can already be imported through Settings → HTML에서 가져오기 after exporting bookmarks from Chrome. Chrome extensions are not supported by the current WKWebView engine; the CEF work remains a probe and is not yet the 3F product engine.
 
 ## Previous verified state — 2026-11-05 14:08 KST

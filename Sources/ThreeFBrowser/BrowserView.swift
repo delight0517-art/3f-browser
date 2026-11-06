@@ -471,6 +471,12 @@ struct BrowserView: View {
         openWindow(value: app)
     }
 
+    private func installQuickLinkAsApp(_ link: BrowserQuickLink) {
+        guard !embedded, installedWebApp == nil,
+              let app = model.installCurrentWebsiteAsApp(title: link.title, url: link.destination) else { return }
+        openWindow(value: app)
+    }
+
     private func openInstalledWebApp(_ app: InstalledWebApp) {
         guard app.isValid else { return }
         openWindow(value: app)
@@ -655,6 +661,13 @@ struct BrowserView: View {
                                         .help("\(link.title) · 주소를 입력하고 Enter를 누른 것처럼 바로 엽니다")
                                         .accessibilityLabel(link.title)
                                         .accessibilityHint("주소창에 입력 후 Enter를 누른 것처럼 바로 페이지를 엽니다.")
+                                        .contextMenu {
+                                            if !embedded {
+                                                Button { installQuickLinkAsApp(link) } label: {
+                                                    Label("\(link.title) 앱으로 설치", systemImage: "square.and.arrow.down")
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -680,6 +693,13 @@ struct BrowserView: View {
                                     .help("\(link.title) · 주소를 입력하고 Enter를 누른 것처럼 바로 엽니다")
                                     .accessibilityLabel(link.title)
                                     .accessibilityHint("주소창에 입력 후 Enter를 누른 것처럼 바로 페이지를 엽니다.")
+                                    .contextMenu {
+                                        if !embedded {
+                                            Button { installQuickLinkAsApp(link) } label: {
+                                                Label("\(link.title) 앱으로 설치", systemImage: "square.and.arrow.down")
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -722,6 +742,13 @@ struct BrowserView: View {
                     .help("\(link.title) · 주소를 입력하고 Enter를 누른 것처럼 바로 엽니다")
                     .accessibilityLabel(link.title)
                     .accessibilityHint("주소창에 입력 후 Enter를 누른 것처럼 바로 페이지를 엽니다.")
+                    .contextMenu {
+                        if !embedded {
+                            Button { installQuickLinkAsApp(link) } label: {
+                                Label("\(link.title) 앱으로 설치", systemImage: "square.and.arrow.down")
+                            }
+                        }
+                    }
                 }
                 ForEach(model.installedWebApps) { app in
                     Button { openInstalledWebApp(app) } label: {
