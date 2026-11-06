@@ -7,6 +7,7 @@ final class ThreeFBrowserAppDelegate: NSObject, NSApplicationDelegate {
     private var controlServer: ThreeFBrowserControlServer?
     private var focusFenceContactTask: Task<Void, Never>?
     private var keyboardEventMonitor: Any?
+    private var didRequestFocusFenceLaunch = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         keyboardEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
@@ -41,9 +42,28 @@ final class ThreeFBrowserAppDelegate: NSObject, NSApplicationDelegate {
             while !Task.isCancelled {
                 guard OptionalFeatureAvailability.focusFenceEnforcement else { return }
                 let connected = await ThreeFBrowserControlController.refreshFocusFencePolicyContact()
+                if !connected {
+                    requestFocusFenceLaunchIfNeeded()
+                }
                 try? await Task.sleep(nanoseconds: connected ? 30_000_000_000 : 2_000_000_000)
             }
         }
+    }
+
+    private func requestFocusFenceLaunchIfNeeded() {
+        guard !didRequestFocusFenceLaunch else { return }
+        didRequestFocusFenceLaunch = true
+
+        let bundleID = "com.rogan.VeliMac"
+        guard NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).isEmpty,
+              let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else {
+            return
+        }
+
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = false
+        configuration.addsToRecentItems = false
+        NSWorkspace.shared.openApplication(at: appURL, configuration: configuration) { _, _ in }
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
