@@ -109,6 +109,27 @@ struct BrowserQuickLink: Codable, Equatable, Sendable, Identifiable {
     }
 }
 
+struct InstalledWebApp: Codable, Hashable, Identifiable, Sendable {
+    let title: String
+    let url: String
+    var id: String { url }
+
+    var destination: URL? {
+        guard isValid else { return nil }
+        return URL(string: url)
+    }
+
+    var isValid: Bool {
+        guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              title.count <= 80,
+              let components = URLComponents(string: url),
+              components.scheme?.lowercased() == "https",
+              components.host != nil,
+              components.user == nil, components.password == nil else { return false }
+        return true
+    }
+}
+
 struct BrowserHistoryEntry: Codable, Equatable, Identifiable {
     let url: String
     let title: String
@@ -136,6 +157,7 @@ final class BrowserModel: ObservableObject {
     @Published private(set) var theme = BrowserTheme.standard
     @Published private(set) var themeModuleStatus = "기본 테마"
     @Published private(set) var bookmarks: [BrowserQuickLink] = []
+    @Published private(set) var installedWebApps: [InstalledWebApp] = []
     @Published private(set) var history: [BrowserHistoryEntry] = []
     @Published var pendingMediaSiteCandidate: MediaSiteCandidate?
     private var navigationAuthorizationID: UUID?
@@ -143,6 +165,7 @@ final class BrowserModel: ObservableObject {
     private let hotModuleStore = HotModuleStore()
     private let mediaSiteSnoozeStore = MediaSiteSnoozeStore()
     private let bookmarksKey = "browser.v1.bookmarks"
+    private let installedWebAppsKey = "browser.v1.installedWebApps"
     private let historyKey = "browser.v1.history"
 
     var isYouTubePage: Bool {
@@ -181,6 +204,7 @@ final class BrowserModel: ObservableObject {
         let savedProvider = UserDefaults.standard.string(forKey: SearchProvider.preferenceKey)
         searchProvider = SearchProvider(rawValue: savedProvider ?? "") ?? .google
         bookmarks = Self.load([BrowserQuickLink].self, forKey: bookmarksKey) ?? BrowserTheme.standard.quickLinks
+        installedWebApps = (Self.load([InstalledWebApp].self, forKey: installedWebAppsKey) ?? []).filter(\.isValid)
         history = Self.load([BrowserHistoryEntry].self, forKey: historyKey) ?? []
         reloadThemeModule()
     }
@@ -481,6 +505,30 @@ final class BrowserModel: ObservableObject {
         bookmarks.insert(value, at: 0)
         if bookmarks.count > 100 { bookmarks = Array(bookmarks.prefix(100)) }
         Self.save(bookmarks, forKey: bookmarksKey)
+    }
+
+    @discardableResult
+    func installCurrentWebsiteAsApp(title: String?, url: URL?) -> InstalledWebApp? {
+        guard let url, ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+              url.user == nil, url.password == nil else { return nil }
+        let cleanTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let appTitle = cleanTitle.flatMap { $0.isEmpty ? nil : String($0.prefix(80)) } ?? (url.host ?? "웹 앱")
+        let app = InstalledWebApp(
+            title: appTitle,
+            url: url.absoluteString
+        )
+        guard app.isValid else { return nil }
+        if !installedWebApps.contains(where: { $0.id == app.id }) {
+            installedWebApps.insert(app, at: 0)
+            if installedWebApps.count > 50 { installedWebApps = Array(installedWebApps.prefix(50)) }
+            Self.save(installedWebApps, forKey: installedWebAppsKey)
+        }
+        return installedWebApps.first(where: { $0.id == app.id })
+    }
+
+    func removeInstalledWebApp(_ app: InstalledWebApp) {
+        installedWebApps.removeAll { $0.id == app.id }
+        Self.save(installedWebApps, forKey: installedWebAppsKey)
     }
 
     func removeBookmark(_ bookmark: BrowserQuickLink) {

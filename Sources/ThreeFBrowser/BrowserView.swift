@@ -21,6 +21,7 @@ struct BrowserView: View {
     @State private var isWindowClosing = false
     @State private var isAppTerminating = false
     private let embedded: Bool
+    private let installedWebApp: InstalledWebApp?
     private let authorizeNavigation: ((URL, @escaping (BrowserNavigationAuthorizationDecision) -> Void) -> Void)?
     private let onWebView: ((BrowserModel, WKWebView) -> Void)?
     private let onPageStateChange: ((URL?) -> Void)?
@@ -28,18 +29,20 @@ struct BrowserView: View {
 
     init(
         embedded: Bool = false,
+        installedWebApp: InstalledWebApp? = nil,
         authorizeNavigation: ((URL, @escaping (BrowserNavigationAuthorizationDecision) -> Void) -> Void)? = nil,
         onWebView: ((BrowserModel, WKWebView) -> Void)? = nil,
         onPageStateChange: ((URL?) -> Void)? = nil,
         onBlockedNavigation: ((URL) -> Void)? = nil
     ) {
         self.embedded = embedded
+        self.installedWebApp = installedWebApp
         self.authorizeNavigation = authorizeNavigation
         self.onWebView = onWebView
         self.onPageStateChange = onPageStateChange
         self.onBlockedNavigation = onBlockedNavigation
         _model = StateObject(wrappedValue: BrowserModel())
-        let initialTab = BrowserSessionTab(title: "새 탭")
+        let initialTab = BrowserSessionTab(title: installedWebApp?.title ?? "새 탭", url: installedWebApp?.destination)
         _tabs = State(initialValue: [initialTab])
         _selectedTabID = State(initialValue: initialTab.id)
     }
@@ -48,20 +51,21 @@ struct BrowserView: View {
         VStack(spacing: 0) {
             if embedded {
                 tabStrip
-            } else {
+            } else if installedWebApp == nil {
                 VStack(spacing: 0) {
                     tabStrip
                     addressBar
-                    if !model.theme.quickLinks.isEmpty { quickLinksBar }
+                    if !model.theme.quickLinks.isEmpty || !model.installedWebApps.isEmpty { quickLinksBar }
                 }
                 .background(ThreeFPalette.canvas)
             }
-            if !embedded && model.shouldShowYouTubeUsage { youtubePolicyStatus }
+            if !embedded && installedWebApp == nil && model.shouldShowYouTubeUsage { youtubePolicyStatus }
             browserContent
-            if !embedded { statusBar }
+            if !embedded && installedWebApp == nil { statusBar }
         }
-        .padding(.top, embedded ? 0 : 28)
-        .frame(minWidth: embedded ? 280 : 760, minHeight: embedded ? 220 : 520)
+        .padding(.top, (embedded || installedWebApp != nil) ? 0 : 28)
+        .frame(minWidth: embedded ? 280 : (installedWebApp == nil ? 760 : 520), minHeight: embedded ? 220 : (installedWebApp == nil ? 520 : 360))
+        .navigationTitle(installedWebApp?.title ?? "3F Browser")
         .tint(model.theme.color)
         .sheet(isPresented: $model.isShowingSettings) {
             BrowserSettingsView(model: model)
@@ -291,6 +295,9 @@ struct BrowserView: View {
             chromeButton("star", help: "북마크 추가", disabled: model.currentURL == nil) {
                 model.addBookmarkForCurrentPage()
             }
+            chromeButton("square.and.arrow.down", help: "현재 웹사이트를 앱으로 설치", disabled: model.currentURL == nil) {
+                installCurrentWebsiteAsApp()
+            }
             chromeButton("text.alignleft", help: "읽기 모드", disabled: model.currentURL == nil || isExtractingReaderArticle) {
                 openReaderMode()
             }
@@ -458,6 +465,17 @@ struct BrowserView: View {
         webView?.window?.makeFirstResponder(nil)
     }
 
+    private func installCurrentWebsiteAsApp() {
+        guard installedWebApp == nil,
+              let app = model.installCurrentWebsiteAsApp(title: webView?.title, url: webView?.url ?? model.currentURL) else { return }
+        openWindow(value: app)
+    }
+
+    private func openInstalledWebApp(_ app: InstalledWebApp) {
+        guard app.isValid else { return }
+        openWindow(value: app)
+    }
+
     private func pulseNavigationFeedback() {
         let requestID = model.navigationRequestID
         navigationFeedbackPulse = false
@@ -503,12 +521,12 @@ struct BrowserView: View {
     private func closeCurrentWindow() {
         guard !embedded, !isWindowClosing else { return }
         isWindowClosing = true
-        try? BrowserSessionStore.remove(windowID: sessionWindowID)
+        if installedWebApp == nil { try? BrowserSessionStore.remove(windowID: sessionWindowID) }
         dismiss()
     }
 
     private func handleBrowserWindowWillClose(_ notification: Notification) {
-        guard !embedded, !isWindowClosing,
+        guard !embedded, installedWebApp == nil, !isWindowClosing,
               ThreeFBrowserWindowRouting.targets(notification.object as? NSWindow, window: webView?.window) else { return }
         if isAppTerminating {
             saveCurrentTab()
@@ -519,7 +537,7 @@ struct BrowserView: View {
     }
 
     private func saveCurrentTab() {
-        guard !isWindowClosing,
+        guard installedWebApp == nil, !isWindowClosing,
               let selectedTabID, let index = tabs.firstIndex(where: { $0.id == selectedTabID }) else { return }
         tabs[index].url = model.currentURL
         if let host = model.currentURL?.host { tabs[index].title = host }
@@ -534,13 +552,17 @@ struct BrowserView: View {
     }
 
     private func saveSession() {
-        guard !embedded, !isWindowClosing else { return }
+        guard !embedded, installedWebApp == nil, !isWindowClosing else { return }
         try? BrowserSessionStore.save(BrowserSessionSnapshot(tabs: tabs, selectedTabID: selectedTabID), windowID: sessionWindowID)
     }
 
     private func initializeWindow() {
         guard !embedded, !didRestoreSession else { return }
         didRestoreSession = true
+        if let installedWebApp, let destination = installedWebApp.destination {
+            model.navigate(to: destination, authorize: authorizeNavigation)
+            return
+        }
         let session = try? BrowserSessionStore.restoreWindow(sessionWindowID)
         if let destination = ThreeFContextMenuWindowRoute.takeNext() {
             model.navigate(to: destination, authorize: authorizeNavigation)
@@ -679,28 +701,49 @@ struct BrowserView: View {
     }
 
     private var quickLinksBar: some View {
-        HStack(spacing: 8) {
-            ForEach(model.theme.quickLinks) { link in
-                Button { navigateToQuickLink(link) } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "globe")
-                            .font(.system(size: 10, weight: .semibold))
-                        Text(link.title)
-                            .lineLimit(1)
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(model.theme.quickLinks) { link in
+                    Button { navigateToQuickLink(link) } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "globe")
+                                .font(.system(size: 10, weight: .semibold))
+                            Text(link.title)
+                                .lineLimit(1)
+                        }
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(ThreeFPalette.ink)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(ThreeFPalette.surface, in: Capsule())
+                        .overlay(Capsule().stroke(ThreeFPalette.border, lineWidth: 1))
                     }
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(ThreeFPalette.ink)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(ThreeFPalette.surface, in: Capsule())
-                    .overlay(Capsule().stroke(ThreeFPalette.border, lineWidth: 1))
+                    .buttonStyle(.plain)
+                    .help("\(link.title) · 주소를 입력하고 Enter를 누른 것처럼 바로 엽니다")
+                    .accessibilityLabel(link.title)
+                    .accessibilityHint("주소창에 입력 후 Enter를 누른 것처럼 바로 페이지를 엽니다.")
                 }
-                .buttonStyle(.plain)
-                .help("\(link.title) · 주소를 입력하고 Enter를 누른 것처럼 바로 엽니다")
-                .accessibilityLabel(link.title)
-                .accessibilityHint("주소창에 입력 후 Enter를 누른 것처럼 바로 페이지를 엽니다.")
+                ForEach(model.installedWebApps) { app in
+                    Button { openInstalledWebApp(app) } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "macwindow").font(.system(size: 10, weight: .semibold))
+                            Text(app.title).lineLimit(1)
+                        }
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(ThreeFPalette.ink)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(ThreeFPalette.surface, in: Capsule())
+                        .overlay(Capsule().stroke(ThreeFPalette.border, lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                    .help("\(app.title) 앱 창 열기")
+                    .contextMenu {
+                        Button("설치한 앱에서 제거", role: .destructive) { model.removeInstalledWebApp(app) }
+                    }
+                }
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 0)
         }
         .padding(.horizontal, 18)
         .padding(.bottom, 9)

@@ -106,5 +106,30 @@ struct ThreeFBrowserApp: App {
                     ThreeFURLRouter.shared.receive([url])
                 }
         }
+        WindowGroup("3F Web App", id: "web-app", for: InstalledWebApp.self) { installedApp in
+            if let installedApp = installedApp.wrappedValue {
+                BrowserView(
+                    installedWebApp: installedApp,
+                    authorizeNavigation: { url, completion in
+                        Task {
+                            guard OptionalFeatureAvailability.focusFenceEnforcement else {
+                                completion(.allowed)
+                                return
+                            }
+                            completion(ThreeFBrowserControlController.navigationAuthorizationDecision(
+                                for: url,
+                                rules: await ThreeFBrowserControlController.fetchFocusFenceRules()
+                            ))
+                        }
+                    },
+                    onWebView: { model, webView in
+                        ThreeFBrowserControlController.shared.attach(model: model, webView: webView)
+                    }
+                )
+                .environmentObject(ThreeFURLRouter.shared)
+            } else {
+                ContentUnavailableView("설치한 웹 앱을 찾을 수 없습니다", systemImage: "app.dashed")
+            }
+        }
     }
 }
