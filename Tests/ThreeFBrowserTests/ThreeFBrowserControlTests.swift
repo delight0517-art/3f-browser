@@ -48,9 +48,9 @@ final class ThreeFBrowserControlTests: XCTestCase {
     }
 
     func testFocusFenceContactRequiresAValidRulesPayload() {
-        let usageSummaryWithoutPlaybackFields = Data(#"{"todaySeconds":0,"dailyCapMinutes":180,"blocked":false,"browserSeconds":{}}"#.utf8)
-        XCTAssertFalse(ThreeFBrowserControlController.usableFocusFenceRules(usageSummaryWithoutPlaybackFields),
-                       "a usage summary is not a navigation rules payload")
+        XCTAssertFalse(ThreeFBrowserControlController.usableFocusFenceRules(
+            Data(#"{"todaySeconds":0,"dailyCapMinutes":180,"blocked":false,"browserSeconds":{}}"#.utf8)
+        ), "a usage summary is not a navigation rules payload")
         XCTAssertTrue(ThreeFBrowserControlController.usableFocusFenceRules(
             Data(#"{"blockedDomains":[],"blockedUrlParts":[],"keywords":[],"blockExceptions":[]}"#.utf8)
         ))
