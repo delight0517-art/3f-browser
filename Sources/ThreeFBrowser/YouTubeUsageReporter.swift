@@ -339,7 +339,11 @@ final class YouTubeUsageScriptMessageHandler: NSObject, WKScriptMessageHandlerWi
         if usage.dailyCapMinutes > 0 {
             remaining.append(max(0, usage.dailyCapMinutes * 60 - usage.todaySeconds))
         }
-        if usage.hourlyCapMinutes > 0 { remaining.append(usage.hourlyRemainingSeconds) }
+        if let hourlyCapMinutes = usage.hourlyCapMinutes,
+           let hourlyRemainingSeconds = usage.hourlyRemainingSeconds,
+           hourlyCapMinutes > 0 {
+            remaining.append(hourlyRemainingSeconds)
+        }
         let remainingSeconds = remaining.min() ?? -1
         return ["youtubeQuotaBlocked": blocked || youtubeSiteBlocked || usage.blocked || remainingSeconds == 0,
                 "remainingSeconds": remainingSeconds,

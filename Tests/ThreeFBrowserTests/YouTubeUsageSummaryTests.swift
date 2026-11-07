@@ -110,6 +110,24 @@ final class YouTubeUsageSummaryTests: XCTestCase {
         XCTAssertNil(FocusFenceYouTubeUsageSummary.decode(incomplete))
     }
 
+    func testMissingHourlySummaryFieldsRemainUnknownAndDoNotBecomeZero() throws {
+        let data = try JSONSerialization.data(withJSONObject: [
+            "todaySeconds": 12,
+            "dailyCapMinutes": 180,
+            "blocked": false,
+            "browserSeconds": ["3f": 12],
+        ])
+
+        let summary = try XCTUnwrap(FocusFenceYouTubeUsageSummary.decode(data))
+
+        XCTAssertNil(summary.hourlyCapMinutes)
+        XCTAssertNil(summary.hourlyUsedSeconds)
+        XCTAssertNil(summary.hourlyRemainingSeconds)
+        XCTAssertTrue(summary.statusLine.contains("최근 1시간 사용량 확인 불가"))
+        XCTAssertFalse(summary.compactStatusLine.contains("최근 1시간"))
+        XCTAssertNil(summary.withPolicy(nil).playbackPolicy)
+    }
+
     func testUsageDurationKeepsSecondsVisibleForAmbiguousMinutes() {
         XCTAssertEqual(FocusFenceYouTubeUsageSummary.duration(0), "0분")
         XCTAssertEqual(FocusFenceYouTubeUsageSummary.duration(60), "1분")

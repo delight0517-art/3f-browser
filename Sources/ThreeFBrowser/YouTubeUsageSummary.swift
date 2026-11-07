@@ -22,9 +22,9 @@ private struct FocusFenceAccountBudgetStatus: Decodable, Equatable, Sendable {
 struct FocusFenceYouTubeUsageSummary: Decodable, Equatable, Sendable {
     let todaySeconds: Int
     let dailyCapMinutes: Int
-    let hourlyCapMinutes: Int
-    let hourlyUsedSeconds: Int
-    let hourlyRemainingSeconds: Int
+    let hourlyCapMinutes: Int?
+    let hourlyUsedSeconds: Int?
+    let hourlyRemainingSeconds: Int?
     let blocked: Bool
     private let cloudSignedIn: Bool?
     private let accountBudget: FocusFenceAccountBudgetStatus?
@@ -48,7 +48,10 @@ struct FocusFenceYouTubeUsageSummary: Decodable, Equatable, Sendable {
         if playbackPolicy?.youtubeBlockedByActiveSchedule == true { return "활성 스케줄로 YouTube 영상 재생이 제한됩니다." }
         guard blocked || playbackPolicy?.youtubeQuotaBlocked == true else { return nil }
         if dailyCapMinutes > 0 && todaySeconds >= dailyCapMinutes * 60 { return "오늘 YouTube 시청 한도 \(dailyCapMinutes)분을 모두 사용했습니다." }
-        if hourlyCapMinutes > 0 && hourlyUsedSeconds >= hourlyCapMinutes * 60 { return "최근 1시간 YouTube 시청 한도 \(hourlyCapMinutes)분을 모두 사용했습니다." }
+        if let hourlyCapMinutes, let hourlyUsedSeconds,
+           hourlyCapMinutes > 0, hourlyUsedSeconds >= hourlyCapMinutes * 60 {
+            return "최근 1시간 YouTube 시청 한도 \(hourlyCapMinutes)분을 모두 사용했습니다."
+        }
         return "FF의 YouTube 재생 정책으로 제한 중입니다."
     }
 
@@ -88,9 +91,9 @@ struct FocusFenceYouTubeUsageSummary: Decodable, Equatable, Sendable {
         guard let summary = try? JSONDecoder().decode(Self.self, from: data),
               summary.todaySeconds >= 0,
               summary.dailyCapMinutes >= 0,
-              summary.hourlyCapMinutes >= 0,
-              summary.hourlyUsedSeconds >= 0,
-              summary.hourlyRemainingSeconds >= 0 else { return nil }
+              summary.hourlyCapMinutes.map({ $0 >= 0 }) ?? true,
+              summary.hourlyUsedSeconds.map({ $0 >= 0 }) ?? true,
+              summary.hourlyRemainingSeconds.map({ $0 >= 0 }) ?? true else { return nil }
         return summary
     }
 
@@ -104,9 +107,14 @@ struct FocusFenceYouTubeUsageSummary: Decodable, Equatable, Sendable {
         } else {
             daily = "오늘 시청 \(Self.duration(todaySeconds)) · 일 한도 없음\(blocked ? " · YouTube 영상 재생 제한 중" : "")"
         }
-        let hourly = hourlyCapMinutes > 0
-            ? "최근 1시간 시청 \(Self.duration(hourlyUsedSeconds)) · 시간 한도 \(hourlyCapMinutes)분 · 남은 한도 \(Self.duration(hourlyRemainingSeconds))"
-            : "시간 한도 없음"
+        let hourly: String
+        if let hourlyCapMinutes, let hourlyUsedSeconds, let hourlyRemainingSeconds {
+            hourly = hourlyCapMinutes > 0
+                ? "최근 1시간 시청 \(Self.duration(hourlyUsedSeconds)) · 시간 한도 \(hourlyCapMinutes)분 · 남은 한도 \(Self.duration(hourlyRemainingSeconds))"
+                : "시간 한도 없음"
+        } else {
+            hourly = "최근 1시간 사용량 확인 불가"
+        }
         return ([daily, hourly, accountSyncStatusLine].compactMap { $0 }).joined(separator: " · ")
     }
 
@@ -114,9 +122,12 @@ struct FocusFenceYouTubeUsageSummary: Decodable, Equatable, Sendable {
         let daily = dailyCapMinutes > 0
             ? "오늘 \(Self.duration(todaySeconds)) / 일 \(dailyCapMinutes)분 · 남은 \(Self.duration(max(0, dailyCapMinutes * 60 - todaySeconds)))"
             : "오늘 \(Self.duration(todaySeconds)) · 일 한도 없음"
-        let hourly = hourlyCapMinutes > 0
-            ? "최근 1시간 \(Self.duration(hourlyUsedSeconds)) / \(hourlyCapMinutes)분 · 남은 \(Self.duration(hourlyRemainingSeconds))"
-            : nil
+        let hourly: String?
+        if let hourlyCapMinutes, let hourlyUsedSeconds, let hourlyRemainingSeconds, hourlyCapMinutes > 0 {
+            hourly = "최근 1시간 \(Self.duration(hourlyUsedSeconds)) / \(hourlyCapMinutes)분 · 남은 \(Self.duration(hourlyRemainingSeconds))"
+        } else {
+            hourly = nil
+        }
         return ([compactAccountSyncStatus, daily, hourly, blocked ? "재생 제한 중" : nil].compactMap { $0 }).joined(separator: " · ")
     }
 
