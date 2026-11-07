@@ -110,6 +110,55 @@ final class ThreeFBrowserControlTests: XCTestCase {
     }
 
     @MainActor
+    func testPolicyStatusReportsAllowedWithoutLeakingSensitiveURL() async throws {
+        let secretURL = try XCTUnwrap(URL(string: "https://example.com/private/path?query=secret"))
+        let rules = Data(#"{"blockedDomains":[],"blockedUrlParts":[],"keywords":[],"blockExceptions":[]}"#.utf8)
+        let controller = ThreeFBrowserControlController(policyRulesFetcher: { rules })
+        let model = BrowserModel()
+        model.currentURL = secretURL
+        let surface = TestThreeFBrowserControlSurface(url: secretURL)
+        controller.attach(model: model, surface: surface)
+
+        let (status, payload) = await controller.handle(ThreeFControlRequest(method: "GET", path: "/v1/policy/status", headers: [:], body: Data()))
+
+        XCTAssertEqual(status, 200)
+        XCTAssertEqual(payload["decision"] as? String, "allowed")
+        XCTAssertEqual(payload["fetchStatus"] as? String, "success")
+        XCTAssertEqual(payload["schemaValid"] as? Bool, true)
+        let serialized = String(describing: payload)
+        XCTAssertFalse(serialized.contains("example.com"))
+        XCTAssertFalse(serialized.contains("private"))
+        XCTAssertFalse(serialized.contains("secret"))
+    }
+
+    @MainActor
+    func testPolicyStatusReportsBlockedAndFetchOrSchemaFailureAsUnknown() async throws {
+        let url = try XCTUnwrap(URL(string: "https://blocked.example/private?q=needle"))
+        let blockedRules = Data(#"{"blockedDomains":["blocked.example"],"blockedUrlParts":[],"keywords":[],"blockExceptions":[]}"#.utf8)
+        let blockedController = ThreeFBrowserControlController(policyRulesFetcher: { blockedRules })
+        let blockedModel = BrowserModel()
+        blockedModel.currentURL = url
+        let blockedSurface = TestThreeFBrowserControlSurface(url: url)
+        blockedController.attach(model: blockedModel, surface: blockedSurface)
+        let request = ThreeFControlRequest(method: "GET", path: "/v1/policy/status", headers: [:], body: Data())
+        let (blockedStatus, blockedPayload) = await blockedController.handle(request)
+        XCTAssertEqual(blockedStatus, 200)
+        XCTAssertEqual(blockedPayload["decision"] as? String, "blocked")
+        XCTAssertEqual(blockedPayload["reasonCode"] as? String, "rules_block")
+
+        for fetcher in [({ nil as Data? }), ({ Data("{}".utf8) as Data? })] {
+            let controller = ThreeFBrowserControlController(policyRulesFetcher: fetcher)
+            let model = BrowserModel()
+            controller.attach(model: model, surface: TestThreeFBrowserControlSurface(url: url))
+            let (status, payload) = await controller.handle(request)
+            XCTAssertEqual(status, 200)
+            XCTAssertEqual(payload["decision"] as? String, "unknown")
+            XCTAssertFalse((String(describing: payload)).contains("blocked.example"))
+            XCTAssertFalse((String(describing: payload)).contains("needle"))
+        }
+    }
+
+    @MainActor
     func testControlNavigationFailsClosedWithoutFocusFencePolicy() async throws {
         let controller = ThreeFBrowserControlController(navigationAuthorizer: { _ in nil })
         let request = try navigationRequest("https://developer.apple.com/documentation")

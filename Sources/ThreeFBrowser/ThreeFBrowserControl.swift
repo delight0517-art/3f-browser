@@ -134,13 +134,18 @@ final class ThreeFBrowserControlController {
     private weak var model: BrowserModel?
     private weak var webView: (any ThreeFBrowserControlSurface)?
     private let authorizeNavigation: ((URL) async -> Bool?)?
+    private let fetchPolicyRules: () async -> Data?
     private var browserWindowPresenter: (() -> Bool)?
     private var navigationCompletion: CheckedContinuation<Bool, Never>?
     private var navigationTimeout: Task<Void, Never>?
     private var navigationTargetID: ObjectIdentifier?
 
-    init(navigationAuthorizer: ((URL) async -> Bool?)? = ThreeFBrowserControlController.focusFencePolicyDecision) {
+    init(
+        navigationAuthorizer: ((URL) async -> Bool?)? = ThreeFBrowserControlController.focusFencePolicyDecision,
+        policyRulesFetcher: @escaping () async -> Data? = ThreeFBrowserControlController.fetchFocusFenceRules
+    ) {
         authorizeNavigation = navigationAuthorizer
+        fetchPolicyRules = policyRulesFetcher
     }
 
     func setBrowserWindowPresenter(_ presenter: (() -> Bool)?) {
@@ -355,6 +360,43 @@ final class ThreeFBrowserControlController {
                           "title": pageReady ? (webView.title ?? "") : "", "ready": pageReady,
                           "backURL": pageReady ? (webView.backURL?.absoluteString ?? "") : "",
                           "forwardURL": pageReady ? (webView.forwardURL?.absoluteString ?? "") : ""])
+        case ("GET", "/v1/policy/status"):
+            let enforcementEnabled = OptionalFeatureAvailability.focusFenceEnforcement
+            var payload: [String: Any] = [
+                "ok": true,
+                "enforcementEnabled": enforcementEnabled,
+                "fetchStatus": "not_attempted",
+                "schemaValid": false,
+                "decision": "unknown",
+                "reasonCode": "url_unavailable"
+            ]
+            guard enforcementEnabled else {
+                payload["reasonCode"] = "enforcement_disabled"
+                return (200, payload)
+            }
+            guard let webViewURL = webView?.url, model?.currentURL == webViewURL,
+                  let host = webViewURL.host, !host.isEmpty else {
+                return (200, payload)
+            }
+            guard let rules = await fetchPolicyRules() else {
+                payload["fetchStatus"] = "failed"
+                payload["reasonCode"] = "fetch_failed_or_timeout"
+                return (200, payload)
+            }
+            payload["fetchStatus"] = "success"
+            guard Self.usableFocusFenceRules(rules) else {
+                payload["schemaValid"] = false
+                payload["reasonCode"] = "invalid_rules_schema"
+                return (200, payload)
+            }
+            payload["schemaValid"] = true
+            guard let allowed = Self.focusFenceAllows(webViewURL, rules: rules) else {
+                payload["reasonCode"] = "decision_unavailable"
+                return (200, payload)
+            }
+            payload["decision"] = allowed ? "allowed" : "blocked"
+            payload["reasonCode"] = allowed ? "rules_allow" : "rules_block"
+            return (200, payload)
         case ("GET", "/v1/read"):
             guard let webView else { return (503, ["ok": false, "error": "browser view not ready"]) }
             guard let pageURL = model?.currentURL,
