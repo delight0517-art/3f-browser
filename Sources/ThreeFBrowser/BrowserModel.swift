@@ -385,6 +385,7 @@ final class BrowserModel: ObservableObject {
         navigationAuthorizationID = nil
         currentURL = url
         addressText = url.absoluteString
+        addressBlockNotice = nil
         isLoading = false
         if !isYouTubePage { clearYouTubeUsage() }
         recordVisit(to: url, title: title?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? url.host ?? url.absoluteString)

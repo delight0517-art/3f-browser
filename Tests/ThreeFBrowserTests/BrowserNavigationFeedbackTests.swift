@@ -27,6 +27,21 @@ final class BrowserNavigationFeedbackTests: XCTestCase {
         }
     }
 
+    func testSuccessfulNavigationClearsPriorConnectionFailureNotice() throws {
+        let model = BrowserModel()
+        let destination = try XCTUnwrap(URL(string: "https://example.org/"))
+        model.pageDidFailToNavigate(NSError(domain: NSURLErrorDomain, code: NSURLErrorNotConnectedToInternet))
+        XCTAssertNotNil(model.addressBlockNotice)
+
+        model.submit(destination.absoluteString)
+        XCTAssertTrue(model.isLoading)
+
+        model.pageDidNavigate(to: destination, title: "Example")
+
+        XCTAssertNil(model.addressBlockNotice)
+        XCTAssertFalse(model.isLoading)
+    }
+
     func testAddressBarSubmitCreatesANewNavigationRequestInsteadOfOnlyReplacingText() throws {
         let model = BrowserModel()
         let requested = try XCTUnwrap(URL(string: "https://www.youtube.com/"))
