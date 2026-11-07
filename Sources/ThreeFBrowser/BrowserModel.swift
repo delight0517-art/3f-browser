@@ -161,6 +161,7 @@ final class BrowserModel: ObservableObject {
     @Published private(set) var history: [BrowserHistoryEntry] = []
     @Published var pendingMediaSiteCandidate: MediaSiteCandidate?
     private var navigationAuthorizationID: UUID?
+    private var activeNavigationDidComplete = false
     private var mediaCandidateCheck: Task<Void, Never>?
     private let hotModuleStore = HotModuleStore()
     private let mediaSiteSnoozeStore = MediaSiteSnoozeStore()
@@ -320,6 +321,7 @@ final class BrowserModel: ObservableObject {
     }
 
     func pageDidStartNavigation(to url: URL?) {
+        activeNavigationDidComplete = false
         rejectedNavigationURL = nil
         navigationAuthorizationID = nil
         if let url,
@@ -345,6 +347,7 @@ final class BrowserModel: ObservableObject {
         authorize: (((URL, @escaping (BrowserNavigationAuthorizationDecision) -> Void) -> Void))?
     ) {
         let destination = Self.canonicalNavigationDestination(destination)
+        activeNavigationDidComplete = false
         rejectedNavigationURL = nil
         addressBlockNotice = nil
         addressText = destination.absoluteString
@@ -387,6 +390,7 @@ final class BrowserModel: ObservableObject {
         addressText = url.absoluteString
         addressBlockNotice = nil
         isLoading = false
+        activeNavigationDidComplete = true
         if !isYouTubePage { clearYouTubeUsage() }
         recordVisit(to: url, title: title?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? url.host ?? url.absoluteString)
         mediaCandidateCheck?.cancel()
@@ -471,7 +475,8 @@ final class BrowserModel: ObservableObject {
     }
 
     func pageDidFailToNavigate(_ error: Error) {
-        guard (error as NSError).code != NSURLErrorCancelled else { return }
+        guard (error as NSError).code != NSURLErrorCancelled,
+              !activeNavigationDidComplete else { return }
         isLoading = false
         switch (error as NSError).code {
         case NSURLErrorTimedOut: addressBlockNotice = "페이지 응답 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요."

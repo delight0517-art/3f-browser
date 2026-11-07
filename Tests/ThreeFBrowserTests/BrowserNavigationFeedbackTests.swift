@@ -212,6 +212,32 @@ final class BrowserNavigationFeedbackTests: XCTestCase {
         XCTAssertEqual(model.navigationRequestID, 0)
     }
 
+    func testLateFailureAfterSuccessfulNavigationDoesNotShowGenericFailure() throws {
+        let model = BrowserModel()
+        let destination = try XCTUnwrap(URL(string: "https://example.org/video.mp4"))
+
+        model.pageDidStartNavigation(to: destination)
+        model.pageDidNavigate(to: destination, title: "Video")
+        model.pageDidFailToNavigate(NSError(domain: "Navigation", code: 1))
+
+        XCTAssertFalse(model.isLoading)
+        XCTAssertNil(model.addressBlockNotice)
+    }
+
+    func testCurrentNavigationFailureStillShowsFailureAfterNewNavigationStarts() throws {
+        let model = BrowserModel()
+        let completed = try XCTUnwrap(URL(string: "https://example.org/"))
+        let current = try XCTUnwrap(URL(string: "https://example.org/video.mp4"))
+
+        model.pageDidStartNavigation(to: completed)
+        model.pageDidNavigate(to: completed, title: "Example")
+        model.pageDidStartNavigation(to: current)
+        model.pageDidFailToNavigate(NSError(domain: "Navigation", code: 1))
+
+        XCTAssertFalse(model.isLoading)
+        XCTAssertEqual(model.addressBlockNotice, "페이지 연결에 실패했습니다. 연결 상태를 확인한 뒤 다시 시도해 주세요.")
+    }
+
     func testNavigationFailureStopsLoadingAndShowsAnExplanation() {
         let model = BrowserModel()
         model.isLoading = true
