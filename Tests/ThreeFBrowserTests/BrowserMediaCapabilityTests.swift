@@ -60,6 +60,8 @@ final class BrowserMediaCapabilityTests: XCTestCase {
             webView.navigationDelegate = nil
             window.orderOut(nil)
         }
+        window.makeKeyAndOrderFront(nil)
+        await Task.yield()
         let html = """
         <!doctype html><meta charset="utf-8">
         <video id="fixture" preload="auto" muted playsinline>
@@ -69,6 +71,10 @@ final class BrowserMediaCapabilityTests: XCTestCase {
         let navigationWaiter = try await loadLocalHTML(html, in: webView)
         withExtendedLifetime(navigationWaiter) {}
 
+        let callbackAvailability = try await webView.evaluateJavaScript("""
+          (() => { const v = document.getElementById('fixture');
+            return typeof v.requestVideoFrameCallback === 'function'; })()
+          """) as? Bool ?? false
         let deadline = Date().addingTimeInterval(8)
         var state = ""
         var ready = false
@@ -80,6 +86,7 @@ final class BrowserMediaCapabilityTests: XCTestCase {
                   width: v.videoWidth, height: v.videoHeight, currentTime: v.currentTime,
                   paused: v.paused, decoded: v.getVideoPlaybackQuality
                     ? v.getVideoPlaybackQuality().totalVideoFrames : null,
+                  presented: window.__presentedVideoFrames || 0,
                   canPlay: v.canPlayType('video/mp4') }); })()
               """) as? String ?? ""
             let parsed = try XCTUnwrap(state.data(using: .utf8))
@@ -91,7 +98,16 @@ final class BrowserMediaCapabilityTests: XCTestCase {
                values["canPlay"] is String { ready = true; break }
             try await Task.sleep(for: .milliseconds(100))
         } while Date() < deadline
-        XCTAssertTrue(ready, "Local video fixture did not become playable; last state: \\(state)")
+        XCTAssertTrue(ready, "Local video fixture did not become playable; last state: \(state)")
+        if callbackAvailability {
+            _ = try await webView.evaluateJavaScript("""
+              (() => { const v = document.getElementById('fixture');
+                window.__presentedVideoFrames = 0;
+                const count = () => { window.__presentedVideoFrames++;
+                  v.requestVideoFrameCallback(count); };
+                v.requestVideoFrameCallback(count); return true; })()
+              """)
+        }
         let startData = try XCTUnwrap(state.data(using: .utf8))
         let start = try XCTUnwrap(JSONSerialization.jsonObject(with: startData) as? [String: Any])
         let startTime = try XCTUnwrap(start["currentTime"] as? Double)
@@ -100,19 +116,25 @@ final class BrowserMediaCapabilityTests: XCTestCase {
         let rawEndState = try await webView.evaluateJavaScript("""
           (() => { const v = document.getElementById('fixture'); return JSON.stringify({
             currentTime: v.currentTime, decoded: v.getVideoPlaybackQuality
-              ? v.getVideoPlaybackQuality().totalVideoFrames : null }); })()
+              ? v.getVideoPlaybackQuality().totalVideoFrames : null,
+            presented: window.__presentedVideoFrames || 0 }); })()
           """)
         let endState = try XCTUnwrap(rawEndState as? String)
         let endData = try XCTUnwrap(endState.data(using: .utf8))
         let end = try XCTUnwrap(JSONSerialization.jsonObject(with: endData) as? [String: Any])
         let endTime = try XCTUnwrap(end["currentTime"] as? Double)
         XCTAssertGreaterThan(endTime - startTime, 0.15, "Video playback did not advance: \(endState)")
-        if let endFrames = end["decoded"] as? Int, endFrames > 0 {
-            XCTAssertGreaterThan(endFrames, startFrames, "Decoded video frames did not increase")
+        if callbackAvailability {
+            let presentedFrames = try XCTUnwrap(end["presented"] as? Int)
+            XCTAssertGreaterThan(presentedFrames, 0, "requestVideoFrameCallback reported no presented frames")
+        } else if let endFrames = end["decoded"] as? Int {
+            XCTAssertGreaterThan(endFrames, startFrames, "getVideoPlaybackQuality is unavailable for presented-frame observation; decoded frame count did not increase")
+        } else {
+            XCTFail("Neither requestVideoFrameCallback nor getVideoPlaybackQuality is available to observe presented frames")
         }
     }
 
-    func testWebGLContextCanBeCreatedFromLocalFixture() async throws {
+    func testWebGLRendersTriangleFromLocalFixture() async throws {
         let (webView, window) = attachedWebView()
         defer {
             webView.stopLoading()
