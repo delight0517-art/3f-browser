@@ -167,6 +167,13 @@ async function run(host, quotaBlocked = true, {
     'usage telemetry contains aggregate playback fields only');
   assert.equal(usage.payloads[0].watchSeconds, 2);
 
+  const feedPreview = await run('youtube.com', false, { videoAtStart: false, pagePath: '/' });
+  feedPreview.startPlayback();
+  await feedPreview.reportProgress(6);
+  await feedPreview.pausePlayback();
+  assert.equal(feedPreview.payloads[0].watchSeconds, 6,
+    'a playing video element on the YouTube feed path is counted by the page-host policy');
+
   const retry = await run('youtube.com', false, { failFirstAck: true });
   await retry.reportProgress();
   await retry.pausePlayback();
