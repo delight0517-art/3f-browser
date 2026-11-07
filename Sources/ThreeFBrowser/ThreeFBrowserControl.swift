@@ -523,7 +523,8 @@ final class ThreeFBrowserControlServer {
         descriptorURL = Self.descriptorURL(
             applicationSupportDirectory: support,
             bundleIdentifier: Bundle.main.bundleIdentifier,
-            override: customDescriptorURL
+            override: customDescriptorURL,
+            sessionDirectory: BrowserSessionStore.defaultDirectory
         )
         token = UUID().uuidString.replacingOccurrences(of: "-", with: "") + UUID().uuidString.replacingOccurrences(of: "-", with: "") + UUID().uuidString.replacingOccurrences(of: "-", with: "")
     }
@@ -531,13 +532,15 @@ final class ThreeFBrowserControlServer {
     static func descriptorURL(
         applicationSupportDirectory: URL,
         bundleIdentifier: String?,
-        override: URL? = nil
+        override: URL? = nil,
+        sessionDirectory: URL? = nil
     ) -> URL {
         if let override { return override }
-        return BrowserSessionStore.directory(
+        let directory = sessionDirectory ?? BrowserSessionStore.directory(
             applicationSupportDirectory: applicationSupportDirectory,
             bundleIdentifier: bundleIdentifier
-        ).appendingPathComponent("only-chat-control.json")
+        )
+        return directory.appendingPathComponent("only-chat-control.json")
     }
 
     func start() {

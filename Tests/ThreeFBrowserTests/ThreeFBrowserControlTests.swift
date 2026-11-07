@@ -22,11 +22,18 @@ final class ThreeFBrowserControlTests: XCTestCase {
             bundleIdentifier: "com.rogan.threef.browser.cef-dev",
             override: explicit
         )
+        let aiProfile = URL(fileURLWithPath: "/tmp/spaceo-agent-profile-3f-test", isDirectory: true)
+        let aiDescriptor = ThreeFBrowserControlServer.descriptorURL(
+            applicationSupportDirectory: support,
+            bundleIdentifier: "com.rogan.threef.browser",
+            sessionDirectory: aiProfile
+        )
 
         XCTAssertEqual(production, shared)
         XCTAssertNotEqual(candidate, shared)
         XCTAssertTrue(candidate.path.contains("QA Profiles/com.rogan.threef.browser.cef-dev"))
         XCTAssertEqual(overridden, explicit)
+        XCTAssertEqual(aiDescriptor, aiProfile.appendingPathComponent("only-chat-control.json"))
     }
 
     func testControlPageStateTracksTheSelectedTabAndRejectsStaleWebViewURL() throws {
@@ -41,6 +48,9 @@ final class ThreeFBrowserControlTests: XCTestCase {
     }
 
     func testFocusFenceContactRequiresAValidRulesPayload() {
+        let usageSummaryWithoutPlaybackFields = Data(#"{"todaySeconds":0,"dailyCapMinutes":180,"blocked":false,"browserSeconds":{}}"#.utf8)
+        XCTAssertFalse(ThreeFBrowserControlController.usableFocusFenceRules(usageSummaryWithoutPlaybackFields),
+                       "a usage summary is not a navigation rules payload")
         XCTAssertTrue(ThreeFBrowserControlController.usableFocusFenceRules(
             Data(#"{"blockedDomains":[],"blockedUrlParts":[],"keywords":[],"blockExceptions":[]}"#.utf8)
         ))
