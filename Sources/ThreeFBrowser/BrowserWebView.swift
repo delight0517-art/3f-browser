@@ -218,13 +218,18 @@ struct BrowserWebView: NSViewRepresentable {
                 source.contextMenuAction = nil
                 guard navigationAction.targetFrame == nil,
                       navigationAction.navigationType == .linkActivated,
+                      !navigationAction.shouldPerformDownload,
                       let url = ThreeFContextMenuPolicy.safeHTTPURL(navigationAction.request.url),
                       let authorizeNavigation = parent.authorizeNavigation else { return nil }
 
                 authorizeNavigation(url) { [weak self] decision in
-                    guard let self,
-                          let intent = ThreeFContextMenuPolicy.intent(action: action, url: url, isAllowed: decision.isAllowed) else {
-                        if !decision.isAllowed { self?.parent.onRejectedNavigation?(url, decision) }
+                    guard let self else { return }
+                    if decision.isAllowed, GoogleOAuthNavigationPolicy.requiresSystemBrowser(for: url) {
+                        self.openOAuthInSystemBrowser(url)
+                        return
+                    }
+                    guard let intent = ThreeFContextMenuPolicy.intent(action: action, url: url, isAllowed: decision.isAllowed) else {
+                        if !decision.isAllowed { self.parent.onRejectedNavigation?(url, decision) }
                         return
                     }
                     switch intent {
@@ -235,12 +240,46 @@ struct BrowserWebView: NSViewRepresentable {
                 return nil
             }
 
+            if let url = navigationAction.request.url,
+               GoogleOAuthNavigationPolicy.requiresSystemBrowser(for: url) {
+                guard !navigationAction.shouldPerformDownload else { return nil }
+                guard let authorizeNavigation = parent.authorizeNavigation else {
+                    let decision = Self.navigationDecision(
+                        isAllowed: nil,
+                        shouldDownload: navigationAction.shouldPerformDownload,
+                        allowsDownloads: parent.allowsDownloads
+                    )
+                    if decision == .allow {
+                        openOAuthInSystemBrowser(url)
+                    }
+                    return nil
+                }
+                authorizeNavigation(url) { [weak self] decision in
+                    guard let self else { return }
+                    guard decision.isAllowed else {
+                        self.parent.onRejectedNavigation?(url, decision)
+                        return
+                    }
+                    self.openOAuthInSystemBrowser(url)
+                }
+                return nil
+            }
             Self.routePopup(
                 targetFrameIsAbsent: navigationAction.targetFrame == nil,
                 url: navigationAction.request.url,
                 openInNewTab: parent.onOpenLinkInNewTab
             )
             return nil
+        }
+
+        private func openOAuthInSystemBrowser(_ url: URL) {
+            guard !NSWorkspace.shared.open(url) else { return }
+            let error = NSError(
+                domain: "ThreeFBrowser.GoogleOAuthNavigation",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Could not open Google authorization URL in the system browser."]
+            )
+            parent.onNavigationFailed?(error)
         }
 
         @discardableResult
@@ -322,12 +361,24 @@ struct BrowserWebView: NSViewRepresentable {
                 return
             }
             guard let authorize = parent.authorizeNavigation else {
-                decisionHandler(Self.webKitActionPolicy(Self.navigationDecision(isAllowed: nil, shouldDownload: navigationAction.shouldPerformDownload, allowsDownloads: parent.allowsDownloads)))
+                let navigationDecision = Self.navigationDecision(isAllowed: nil, shouldDownload: navigationAction.shouldPerformDownload, allowsDownloads: parent.allowsDownloads)
+                if navigationDecision == .allow, GoogleOAuthNavigationPolicy.requiresSystemBrowser(for: url) {
+                    decisionHandler(.cancel)
+                    openOAuthInSystemBrowser(url)
+                    return
+                }
+                decisionHandler(Self.webKitActionPolicy(navigationDecision))
                 return
             }
             authorize(url) { [weak self] decision in
                 if !decision.isAllowed { self?.parent.onRejectedNavigation?(url, decision) }
-                decisionHandler(Self.webKitActionPolicy(Self.navigationDecision(isAllowed: decision.isAllowed, shouldDownload: navigationAction.shouldPerformDownload, allowsDownloads: self?.parent.allowsDownloads ?? false)))
+                let navigationDecision = Self.navigationDecision(isAllowed: decision.isAllowed, shouldDownload: navigationAction.shouldPerformDownload, allowsDownloads: self?.parent.allowsDownloads ?? false)
+                if navigationDecision == .allow, GoogleOAuthNavigationPolicy.requiresSystemBrowser(for: url) {
+                    decisionHandler(.cancel)
+                    self?.openOAuthInSystemBrowser(url)
+                    return
+                }
+                decisionHandler(Self.webKitActionPolicy(navigationDecision))
             }
         }
 
