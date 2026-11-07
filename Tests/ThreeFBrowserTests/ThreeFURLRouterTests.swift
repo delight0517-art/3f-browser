@@ -4,6 +4,34 @@ import XCTest
 
 final class ThreeFURLRouterTests: XCTestCase {
     @MainActor
+    func testApplicationDelegateQueuesNormalizedExternalHTTPSURL() throws {
+        let router = ThreeFURLRouter()
+        var presentationRequests = 0
+        router.setBrowserWindowPresenter {
+            presentationRequests += 1
+            return true
+        }
+        defer {
+            _ = router.takePendingURLs()
+        }
+
+        let url = try XCTUnwrap(URL(string: "https://example.com/path"))
+        let delegate = ThreeFBrowserAppDelegate(externalURLRouter: router)
+        delegate.application(NSApplication.shared, open: [url])
+
+        let pending = router.takePendingURLs()
+        XCTAssertEqual(pending.count, 1)
+        XCTAssertEqual(pending.first?.scheme, "threef")
+        XCTAssertEqual(pending.first?.host, "open")
+        XCTAssertEqual(
+            URLComponents(url: try XCTUnwrap(pending.first), resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "url" })?.value,
+            url.absoluteString
+        )
+        XCTAssertEqual(presentationRequests, 1)
+    }
+
+    @MainActor
     func testDirectHTTPAndHTTPSURLsBecomeExistingBrowserDeepLinks() throws {
         let router = ThreeFURLRouter()
         let http = try XCTUnwrap(URL(string: "http://example.com/path?q=hello%20world"))

@@ -4,10 +4,20 @@ import WebKit
 
 @MainActor
 final class ThreeFBrowserAppDelegate: NSObject, NSApplicationDelegate {
+    private let externalURLRouter: ThreeFURLRouter?
     private var controlServer: ThreeFBrowserControlServer?
     private var focusFenceContactTask: Task<Void, Never>?
     private var keyboardEventMonitor: Any?
     private var didRequestFocusFenceLaunch = false
+
+    init(externalURLRouter: ThreeFURLRouter? = nil) {
+        self.externalURLRouter = externalURLRouter
+        super.init()
+    }
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        (externalURLRouter ?? ThreeFURLRouter.shared).receive(urls)
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         keyboardEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
@@ -122,9 +132,6 @@ struct ThreeFBrowserApp: App {
                 }
             )
                 .environmentObject(ThreeFURLRouter.shared)
-                .onOpenURL { url in
-                    ThreeFURLRouter.shared.receive([url])
-                }
         }
         WindowGroup("3F Web App", id: "web-app", for: InstalledWebApp.self) { installedApp in
             if let installedApp = installedApp.wrappedValue {
