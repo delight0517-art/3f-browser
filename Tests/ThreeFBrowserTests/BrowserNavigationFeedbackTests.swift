@@ -382,6 +382,18 @@ final class BrowserNavigationFeedbackTests: XCTestCase {
         XCTAssertEqual(ThreeFBrowserControlController.navigationAuthorizationDecision(for: javascript, rules: nil), .unavailable)
         XCTAssertEqual(ThreeFBrowserControlController.navigationAuthorizationDecision(for: https, rules: Data("{}".utf8)), .unavailable,
                        "An invalid policy response must stay fail-closed rather than being treated as an outage")
+
+        let restrictedRules = try JSONSerialization.data(withJSONObject: [
+            "blockedDomains": ["restricted.example"],
+            "blockedUrlParts": ["/blocked"],
+            "keywords": [String](),
+            "blockExceptions": [String]()
+        ])
+        let blockedDomain = try XCTUnwrap(URL(string: "https://sub.restricted.example/"))
+        let blockedPath = try XCTUnwrap(URL(string: "https://example.com/blocked"))
+        XCTAssertEqual(ThreeFBrowserControlController.navigationAuthorizationDecision(for: https, rules: restrictedRules), .allowed)
+        XCTAssertEqual(ThreeFBrowserControlController.navigationAuthorizationDecision(for: blockedDomain, rules: restrictedRules), .blocked)
+        XCTAssertEqual(ThreeFBrowserControlController.navigationAuthorizationDecision(for: blockedPath, rules: restrictedRules), .blocked)
     }
 
     func testWindowsWebtoonRouteRulesBlockOnlyTheConfiguredComicPaths() throws {
