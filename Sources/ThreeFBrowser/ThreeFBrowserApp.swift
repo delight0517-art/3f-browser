@@ -10,6 +10,11 @@ final class ThreeFBrowserAppDelegate: NSObject, NSApplicationDelegate {
     private var keyboardEventMonitor: Any?
     private var didRequestFocusFenceLaunch = false
 
+    override init() {
+        self.externalURLRouter = nil
+        super.init()
+    }
+
     init(externalURLRouter: ThreeFURLRouter? = nil) {
         self.externalURLRouter = externalURLRouter
         super.init()
@@ -62,18 +67,34 @@ final class ThreeFBrowserAppDelegate: NSObject, NSApplicationDelegate {
 
     private func requestFocusFenceLaunchIfNeeded() {
         guard !didRequestFocusFenceLaunch else { return }
-        didRequestFocusFenceLaunch = true
-
         let bundleID = "com.rogan.VeliMac"
-        guard NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).isEmpty,
-              let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else {
+        let installedURL = URL(fileURLWithPath: "/Applications/Focus Fence.app", isDirectory: true)
+        let installedBundleIsFocusFence = Bundle(url: installedURL)?.bundleIdentifier == bundleID
+        guard let appURL = installedBundleIsFocusFence
+            ? installedURL
+            : NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else {
+            return
+        }
+        let runningInstanceCount = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).count
+        let isSpaceOAgentSession = ProcessInfo.processInfo.environment["SPACEO_AGENT_SESSION"] == "1"
+            || CommandLine.arguments.contains("--spaceo-agent-session")
+        guard FocusFenceLaunchPolicy.shouldLaunch(
+            canonicalURL: appURL,
+            runningInstanceCount: runningInstanceCount,
+            isSpaceOAgentSession: isSpaceOAgentSession
+        ) else {
             return
         }
 
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.activates = false
         configuration.addsToRecentItems = false
-        NSWorkspace.shared.openApplication(at: appURL, configuration: configuration) { _, _ in }
+        configuration.allowsRunningApplicationSubstitution = false
+        didRequestFocusFenceLaunch = true
+        NSWorkspace.shared.openApplication(at: appURL, configuration: configuration) { _, error in
+            guard error != nil else { return }
+            Task { @MainActor in self.didRequestFocusFenceLaunch = false }
+        }
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
@@ -91,6 +112,17 @@ final class ThreeFBrowserAppDelegate: NSObject, NSApplicationDelegate {
         controlServer = nil
     }
 
+}
+
+enum FocusFenceLaunchPolicy {
+    static func shouldLaunch(
+        canonicalURL: URL,
+        runningInstanceCount: Int,
+        isSpaceOAgentSession: Bool = false
+    ) -> Bool {
+        guard !isSpaceOAgentSession, runningInstanceCount == 0 else { return false }
+        return FileManager.default.fileExists(atPath: canonicalURL.path)
+    }
 }
 
 private extension NSWindow {

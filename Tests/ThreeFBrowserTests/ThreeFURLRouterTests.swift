@@ -4,6 +4,12 @@ import XCTest
 
 final class ThreeFURLRouterTests: XCTestCase {
     @MainActor
+    func testApplicationDelegateCanBeConstructedWithoutInjectedRouter() {
+        let delegate = ThreeFBrowserAppDelegate()
+        XCTAssertNotNil(delegate)
+    }
+
+    @MainActor
     func testApplicationDelegateQueuesNormalizedExternalHTTPSURL() throws {
         let router = ThreeFURLRouter()
         var presentationRequests = 0
