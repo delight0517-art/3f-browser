@@ -12,6 +12,8 @@ final class BrowserThemeTests: XCTestCase {
         XCTAssertTrue(YouTubeUsageReporter.script.contains("qualificationMs:5000"))
         XCTAssertTrue(YouTubeUsageReporter.script.contains("minimum_5s_qualified_30s_account_lease_v1"))
         XCTAssertTrue(YouTubeUsageReporter.script.contains("type:'leaseReport'"))
+        XCTAssertTrue(YouTubeUsageReporter.script.contains("quotaBlocked = true"))
+        XCTAssertTrue(YouTubeUsageReporter.script.contains("if (blocked) stop();"))
         XCTAssertFalse(YouTubeUsageReporter.script.contains("fetch("), "The YouTube page must not call the local HTTP API directly")
     }
 

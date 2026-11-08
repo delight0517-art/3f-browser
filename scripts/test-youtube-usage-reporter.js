@@ -10,7 +10,7 @@ assert.ok(match, 'Swift YouTubeUsageReporter script literal exists');
 async function run(host, quotaBlocked = true, {
   failFirstAck = false, videoAtStart = true, playbackRate = 1, remainingSeconds = -1,
   accountLeaseUnsupported = true, accountLeaseUnavailable = false, failFirstLeaseAck = false,
-  mismatchLeaseRequestId = false, shortsBlocked = false, youtubeSiteBlocked = false, pagePath = '/watch'
+  mismatchLeaseRequestId = false, shortsBlocked = false, youtubeSiteBlocked = false, policyUnavailable = false, pagePath = '/watch'
 } = {}) {
   let paused = 0;
   let now = 1;
@@ -36,6 +36,7 @@ async function run(host, quotaBlocked = true, {
     async postMessage(message) {
       if (message.type === 'policy') {
         rulesReads += 1;
+        if (policyUnavailable) throw new Error('policy unavailable');
         return { youtubeQuotaBlocked: currentQuotaBlocked || youtubeSiteBlocked, remainingSeconds: currentRemainingSeconds, blockShorts: shortsBlocked };
       }
       if (message.type === 'report') {
@@ -147,8 +148,15 @@ async function run(host, quotaBlocked = true, {
   assert.equal(siteBlocked.video.paused, true, 'domain block must stop YouTube playback while its page is available');
   siteBlocked.startPlayback();
   assert.equal(siteBlocked.video.paused, true, 'playback remains stopped after a play attempt under a site block');
+  assert.equal(siteBlocked.serverWatchSeconds, 0, 'blocked feed preview is suppressed before any measured playback');
   await siteBlocked.reportProgress();
   assert.equal(siteBlocked.payloads.length, 0, 'blocked playback is not counted as viewing time');
+
+  const unavailablePreview = await run('youtube.com', false, { videoAtStart: true, pagePath: '/', policyUnavailable: true });
+  assert.equal(unavailablePreview.video.paused, true, 'unavailable policy pauses an autoplaying YouTube preview');
+  assert.ok(unavailablePreview.paused > 0, 'unavailable policy actively stops the preview');
+  await unavailablePreview.reportProgress(6);
+  assert.equal(unavailablePreview.payloads.length, 0, 'unavailable-policy preview does not accrue or report media time');
 
   const music = await run('music.youtube.com');
   assert.equal(music.video.paused, false, 'YouTube Music is excluded from YouTube video quota');
