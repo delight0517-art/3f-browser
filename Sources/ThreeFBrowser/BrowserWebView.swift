@@ -75,6 +75,7 @@ struct BrowserWebView: NSViewRepresentable {
     var onDownloadStatus: ((String) -> Void)? = nil
     var onWindowAttached: ((WKWebView) -> Void)? = nil
     var onNavigationStarted: ((URL?) -> Void)? = nil
+    var onNavigationCommitted: ((URL?) -> Void)? = nil
     var onLoadingChanged: ((Bool) -> Void)? = nil
     var onNavigationFailed: ((Error) -> Void)? = nil
     var onOpenLinkInNewTab: ((URL) -> Void)? = nil
@@ -293,6 +294,10 @@ struct BrowserWebView: NSViewRepresentable {
                   let openInNewTab else { return false }
             openInNewTab(destination)
             return true
+        }
+
+        func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+            onMain { self.parent.onNavigationCommitted?(webView.url) }
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {

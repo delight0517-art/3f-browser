@@ -224,6 +224,23 @@ final class BrowserNavigationFeedbackTests: XCTestCase {
         XCTAssertNil(model.addressBlockNotice)
     }
 
+    func testCommittedNavigationClearsEarlierFailureAndSuppressesLateFailure() throws {
+        let model = BrowserModel()
+        let destination = try XCTUnwrap(URL(string: "https://example.org/video.mp4"))
+
+        model.pageDidStartNavigation(to: destination)
+        model.pageDidFailToNavigate(NSError(domain: "Navigation", code: 1))
+        XCTAssertNotNil(model.addressBlockNotice)
+
+        model.pageDidCommitNavigation(to: destination)
+        XCTAssertNil(model.addressBlockNotice)
+        XCTAssertFalse(model.isLoading)
+
+        model.pageDidFailToNavigate(NSError(domain: "Navigation", code: 1))
+        XCTAssertNil(model.addressBlockNotice)
+        XCTAssertFalse(model.isLoading)
+    }
+
     func testCurrentNavigationFailureStillShowsFailureAfterNewNavigationStarts() throws {
         let model = BrowserModel()
         let completed = try XCTUnwrap(URL(string: "https://example.org/"))

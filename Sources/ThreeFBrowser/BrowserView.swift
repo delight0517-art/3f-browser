@@ -154,6 +154,7 @@ struct BrowserView: View {
                     onWebView?(model, attachedView)
                 },
                 onNavigationStarted: { model.pageDidStartNavigation(to: $0) },
+                onNavigationCommitted: { model.pageDidCommitNavigation(to: $0) },
                 onLoadingChanged: { model.isLoading = $0 },
                 onNavigationFailed: { model.pageDidFailToNavigate($0) },
                 onOpenLinkInNewTab: addTab(for:),

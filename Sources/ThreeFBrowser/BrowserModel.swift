@@ -382,6 +382,16 @@ final class BrowserModel: ObservableObject {
         return components.url ?? destination
     }
 
+    func pageDidCommitNavigation(to url: URL?) {
+        guard let url else { return }
+        currentURL = url
+        addressText = url.absoluteString
+        addressBlockNotice = nil
+        rejectedNavigationURL = nil
+        navigationAuthorizationID = nil
+        activeNavigationDidComplete = true
+    }
+
     func pageDidNavigate(to url: URL?, title: String? = nil) {
         guard let url else { return }
         rejectedNavigationURL = nil
@@ -475,9 +485,9 @@ final class BrowserModel: ObservableObject {
     }
 
     func pageDidFailToNavigate(_ error: Error) {
-        guard (error as NSError).code != NSURLErrorCancelled,
-              !activeNavigationDidComplete else { return }
+        guard (error as NSError).code != NSURLErrorCancelled else { return }
         isLoading = false
+        guard !activeNavigationDidComplete else { return }
         switch (error as NSError).code {
         case NSURLErrorTimedOut: addressBlockNotice = "페이지 응답 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요."
         case NSURLErrorCannotFindHost, NSURLErrorDNSLookupFailed: addressBlockNotice = "사이트 주소를 찾지 못했습니다. DNS 연결을 확인해 주세요."
