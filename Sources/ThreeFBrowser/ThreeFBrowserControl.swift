@@ -362,7 +362,8 @@ final class ThreeFBrowserControlController {
                           "forwardURL": pageReady ? (webView.forwardURL?.absoluteString ?? "") : "",
                           "bundleIdentifier": Bundle.main.bundleIdentifier ?? "",
                           "executablePath": Bundle.main.executableURL?.standardizedFileURL.path ?? "",
-                          "processIdentifier": Int32(ProcessInfo.processInfo.processIdentifier)])
+                          "processIdentifier": Int32(ProcessInfo.processInfo.processIdentifier),
+                          "qaProfilePath": BrowserSessionStore.isolatedQAProfileEnabled ? BrowserSessionStore.defaultDirectory.standardizedFileURL.path : ""])
         case ("GET", "/v1/policy/status"):
             let enforcementEnabled = OptionalFeatureAvailability.focusFenceEnforcement
             var payload: [String: Any] = [
