@@ -176,12 +176,16 @@ async function run(host, quotaBlocked = true, {
     'usage telemetry contains aggregate playback fields only');
   assert.equal(usage.payloads[0].watchSeconds, 2);
 
+  // Deterministic local-video fixture models a muted inline feed preview without loading YouTube or media.
   const feedPreview = await run('youtube.com', false, { videoAtStart: false, pagePath: '/' });
+  const usageBeforePreview = feedPreview.serverWatchSeconds;
   feedPreview.startPlayback();
   await feedPreview.reportProgress(6);
   await feedPreview.pausePlayback();
   assert.equal(feedPreview.payloads[0].watchSeconds, 6,
     'a playing video element on the YouTube feed path is counted by the page-host policy');
+  assert.equal(feedPreview.serverWatchSeconds - usageBeforePreview, 6,
+    'the controlled usage read-after-write increases by the measured preview media time');
 
   const sourceChangingPreview = await run('youtube.com', false, { videoAtStart: false, pagePath: '/' });
   sourceChangingPreview.startPlayback();
