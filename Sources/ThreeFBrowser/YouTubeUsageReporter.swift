@@ -120,7 +120,7 @@ enum YouTubeUsageReporter {
         if (!blocked && onYouTube && elapsed > 0 && elapsed <= maxElapsedMs) {
           for (const [video, next] of current) {
             const prev = samples.get(video);
-            if (!prev?.playing || prev.src !== next.src || !(prev.rate > 0)) continue;
+            if (!prev?.playing || !(prev.rate > 0)) continue;
             const progress = next.t - prev.t;
             if (progress > 0 && progress <= elapsed / 1000 * prev.rate + 0.5) {
               watchedMs = Math.max(watchedMs, Math.min(elapsed, progress / prev.rate * 1000));

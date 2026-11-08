@@ -106,6 +106,7 @@ async function run(host, quotaBlocked = true, {
   return {
     video, listeners, payloads, leaseRequests, leaseReports,
     async reportProgress(seconds = 2) { now += seconds * 1000; video.currentTime += seconds * video.playbackRate; await timer(); },
+    async reportProgressWithSourceChange(seconds = 2) { now += seconds * 1000; video.currentTime += seconds * video.playbackRate; video.currentSrc = `test-video-${now}`; await timer(); },
     async advancePlayback(ms) { now += ms; video.currentTime += ms / 1000 * video.playbackRate; await timer(); },
     startPlayback() {
       videoPresent = true;
@@ -173,6 +174,13 @@ async function run(host, quotaBlocked = true, {
   await feedPreview.pausePlayback();
   assert.equal(feedPreview.payloads[0].watchSeconds, 6,
     'a playing video element on the YouTube feed path is counted by the page-host policy');
+
+  const sourceChangingPreview = await run('youtube.com', false, { videoAtStart: false, pagePath: '/' });
+  sourceChangingPreview.startPlayback();
+  await sourceChangingPreview.reportProgressWithSourceChange(6);
+  await sourceChangingPreview.pausePlayback();
+  assert.equal(sourceChangingPreview.payloads[0].watchSeconds, 6,
+    'same-element playback progress is counted when currentSrc changes between samples');
 
   const retry = await run('youtube.com', false, { failFirstAck: true });
   await retry.reportProgress();
