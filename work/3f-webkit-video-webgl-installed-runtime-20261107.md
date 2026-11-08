@@ -23,3 +23,10 @@ This was a **5-second installed-app smoke only**, not long-form or YouTube-previ
 - Installed app: `/Users/rogan/Applications/3F Browser.app`, build 20, executable SHA-256 `72a9e93654a48e27fb17d8516fafe00017ff691c2a5c0bf7ca28f79c3bc300c3`; strict codesign and `workflow-control verify-mac` passed.
 - Visible UI: muted MP4 reached 00:05/00:05; the previous orange connection-failed banner was absent.
 - Focus Fence protection was disabled during local development, per direct user authorization. Other 3F TODOs remain open.
+
+
+## Fresh seek and 3D/WebGL recheck — 2026-11-08 KST
+
+- Installed build 20 displayed “Your browser supports WebGL”; two screenshots two seconds apart showed the cube at different orientations.
+- Muted flower MP4 scrubber moved from 00:03 to 00:02; playback then reached 00:05/00:05.
+- Focus Fence protection remained off for local development. The YouTube preview accounting TODO remains open.
