@@ -7,7 +7,7 @@ struct MediaSiteSnoozeStore {
     private let key: String
 
     init(defaults: UserDefaults? = BrowserSessionStore.mediaSiteSnoozeDefaults(), key: String = "threef.focusFence.mediaSiteSnoozes.v1") {
-        guard let defaults else { self.defaults = .standard; self.key = key; return }
+        guard let defaults else { self.defaults = nil; self.key = key; return }
         self.defaults = defaults
         self.key = key
     }

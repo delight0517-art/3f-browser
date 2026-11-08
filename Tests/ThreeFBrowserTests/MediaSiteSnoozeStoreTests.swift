@@ -52,6 +52,16 @@ final class MediaSiteSnoozeStoreTests: XCTestCase {
         XCTAssertNil(UserDefaults.standard.object(forKey: key))
     }
 
+    func testUnavailableQAStoreFailsClosedWithoutFallingBackToStandardDefaults() throws {
+        let key = "qa-snooze-unavailable-\(UUID().uuidString)"
+        let store = MediaSiteSnoozeStore(defaults: nil, key: key)
+        store.snooze(domain: "twitch.tv", at: Date(timeIntervalSince1970: 1_700_000_000))
+
+        XCTAssertEqual(store.activeSnoozes(at: Date(timeIntervalSince1970: 1_700_000_001)), [:])
+        XCTAssertFalse(store.suppresses(host: "twitch.tv", at: Date(timeIntervalSince1970: 1_700_000_001)))
+        XCTAssertNil(UserDefaults.standard.object(forKey: key), "a missing QA suite must never write to production defaults")
+    }
+
     private func makeDefaults() throws -> (UserDefaults, String) {
         let suiteName = "MediaSiteSnoozeStoreTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
