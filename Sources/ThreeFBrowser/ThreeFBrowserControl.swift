@@ -359,7 +359,10 @@ final class ThreeFBrowserControlController {
             return (200, ["ok": true, "url": model.currentURL?.absoluteString ?? "about:blank",
                           "title": pageReady ? (webView.title ?? "") : "", "ready": pageReady,
                           "backURL": pageReady ? (webView.backURL?.absoluteString ?? "") : "",
-                          "forwardURL": pageReady ? (webView.forwardURL?.absoluteString ?? "") : ""])
+                          "forwardURL": pageReady ? (webView.forwardURL?.absoluteString ?? "") : "",
+                          "bundleIdentifier": Bundle.main.bundleIdentifier ?? "",
+                          "executablePath": Bundle.main.executableURL?.standardizedFileURL.path ?? "",
+                          "processIdentifier": Int32(ProcessInfo.processInfo.processIdentifier)])
         case ("GET", "/v1/policy/status"):
             let enforcementEnabled = OptionalFeatureAvailability.focusFenceEnforcement
             var payload: [String: Any] = [
@@ -547,6 +550,9 @@ final class ThreeFBrowserControlServer {
         let host = "127.0.0.1"
         let port: UInt16
         let token: String
+        let bundleIdentifier: String
+        let executablePath: String
+        let processIdentifier: Int32
     }
 
     private struct ExistingDescriptor: Decodable {
@@ -635,7 +641,16 @@ final class ThreeFBrowserControlServer {
             let directory = descriptorURL.deletingLastPathComponent()
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
-            let data = try JSONEncoder().encode(Descriptor(port: port, token: token))
+            guard let bundleIdentifier = Bundle.main.bundleIdentifier,
+                  let executablePath = Bundle.main.executableURL?.standardizedFileURL.path else {
+                listener?.cancel()
+                listener = nil
+                return
+            }
+            let data = try JSONEncoder().encode(Descriptor(
+                port: port, token: token, bundleIdentifier: bundleIdentifier,
+                executablePath: executablePath,
+                processIdentifier: Int32(ProcessInfo.processInfo.processIdentifier)))
             try data.write(to: descriptorURL, options: .atomic)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: descriptorURL.path)
         } catch {

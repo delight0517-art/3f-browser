@@ -36,6 +36,15 @@ final class ThreeFBrowserControlTests: XCTestCase {
         XCTAssertEqual(aiDescriptor, aiProfile.appendingPathComponent("only-chat-control.json"))
     }
 
+    @MainActor
+    func testControlDescriptorCanUseExplicitQAPathWithoutSharingProductionDescriptor() {
+        let support = URL(fileURLWithPath: "/tmp/threef-control-descriptor-test", isDirectory: true)
+        let production = ThreeFBrowserControlServer.descriptorURL(applicationSupportDirectory: support, bundleIdentifier: "com.rogan.threef.browser")
+        let qa = URL(fileURLWithPath: "/tmp/onlychat-3f-qa-target.json")
+        XCTAssertNotEqual(qa, production)
+        XCTAssertEqual(ThreeFBrowserControlServer.descriptorURL(applicationSupportDirectory: support, bundleIdentifier: "com.rogan.threef.browser.qa.snooze20261108", override: qa), qa)
+    }
+
     func testControlPageStateTracksTheSelectedTabAndRejectsStaleWebViewURL() throws {
         let selectedPage = try XCTUnwrap(URL(string: "https://example.com/"))
         let stalePage = try XCTUnwrap(URL(string: "https://youtube.com/"))
