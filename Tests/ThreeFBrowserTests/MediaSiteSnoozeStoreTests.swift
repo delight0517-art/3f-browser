@@ -28,6 +28,30 @@ final class MediaSiteSnoozeStoreTests: XCTestCase {
         XCTAssertEqual(store.activeSnoozes(at: expiry), [:])
     }
 
+    func testQAProfileUsesIsolatedSnoozeSuiteAndStandardLaunchUsesStandardDefaults() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let profile = temporaryRoot.appendingPathComponent("profile", isDirectory: true)
+        try FileManager.default.createDirectory(at: profile, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let qaDefaults = try XCTUnwrap(BrowserSessionStore.mediaSiteSnoozeDefaults(
+            environment: ["THREEF_BROWSER_ENABLE_ISOLATED_QA_PROFILE": "1",
+                         "THREEF_BROWSER_QA_PROFILE_DIRECTORY": profile.path],
+            arguments: [], temporaryDirectory: temporaryRoot
+        ))
+        let productionDefaults = try XCTUnwrap(BrowserSessionStore.mediaSiteSnoozeDefaults(
+            environment: [:], arguments: [], temporaryDirectory: temporaryRoot
+        ))
+        XCTAssertFalse(qaDefaults === UserDefaults.standard)
+        XCTAssertTrue(productionDefaults === UserDefaults.standard)
+
+        let key = "qa-snooze-\(UUID().uuidString)"
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        MediaSiteSnoozeStore(defaults: qaDefaults, key: key).snooze(domain: "example.test", at: date)
+        XCTAssertNotNil(qaDefaults.object(forKey: key))
+        XCTAssertNil(UserDefaults.standard.object(forKey: key))
+    }
+
     private func makeDefaults() throws -> (UserDefaults, String) {
         let suiteName = "MediaSiteSnoozeStoreTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))

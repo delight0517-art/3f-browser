@@ -41,10 +41,24 @@ enum BrowserSessionStore {
     private static let maximumFileBytes = 512_000
     private static let isolatedQAProfileFlag = "THREEF_BROWSER_ENABLE_ISOLATED_QA_PROFILE"
     private static let isolatedQAProfilePath = "THREEF_BROWSER_QA_PROFILE_DIRECTORY"
+    private static let qaMediaSiteSnoozeSuite = "com.rogan.threef.browser.qa.media-site-snoozes"
+
+    static func mediaSiteSnoozeDefaults(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        arguments: [String] = CommandLine.arguments,
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+    ) -> UserDefaults? {
+        guard isolatedQASessionDirectory(environment: environment, arguments: arguments,
+                                         temporaryDirectory: temporaryDirectory) != nil else {
+            return .standard
+        }
+        return UserDefaults(suiteName: qaMediaSiteSnoozeSuite)
+    }
 
     static var defaultDirectory: URL {
         if let qaDirectory = isolatedQASessionDirectory(
             environment: ProcessInfo.processInfo.environment,
+            arguments: CommandLine.arguments,
             temporaryDirectory: FileManager.default.temporaryDirectory
         ) {
             return qaDirectory
@@ -60,16 +74,22 @@ enum BrowserSessionStore {
     static var isolatedQAProfileEnabled: Bool {
         isolatedQASessionDirectory(
             environment: ProcessInfo.processInfo.environment,
+            arguments: CommandLine.arguments,
             temporaryDirectory: FileManager.default.temporaryDirectory
         ) != nil
     }
 
     static func isolatedQASessionDirectory(
         environment: [String: String],
+        arguments: [String] = [],
         temporaryDirectory: URL
     ) -> URL? {
-        guard environment[isolatedQAProfileFlag] == "1",
-              let path = environment[isolatedQAProfilePath], !path.isEmpty else { return nil }
+        let argumentPath = arguments.first(where: { $0.hasPrefix("--threef-browser-qa-profile=") })
+            .map { String($0.dropFirst("--threef-browser-qa-profile=".count)) }
+        let enabled = environment[isolatedQAProfileFlag] == "1"
+            || arguments.contains("--spaceo-agent-session")
+        guard enabled,
+              let path = argumentPath ?? environment[isolatedQAProfilePath], !path.isEmpty else { return nil }
 
         let temporaryRoot = temporaryDirectory.standardizedFileURL.resolvingSymlinksInPath()
         let candidate = URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL.resolvingSymlinksInPath()
