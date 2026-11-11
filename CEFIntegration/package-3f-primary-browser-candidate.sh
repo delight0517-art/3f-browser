@@ -43,6 +43,10 @@ ditto "$source_app" "$staged_app"
 /usr/libexec/PlistBuddy -c 'Add :LSApplicationCategoryType string public.app-category.web-browsers' "$staged_app/Contents/Info.plist" 2>/dev/null \
   || /usr/libexec/PlistBuddy -c 'Set :LSApplicationCategoryType public.app-category.web-browsers' "$staged_app/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :LSEnvironment:THREEF_CEF_PROFILE_ROOT string $profile_root" "$staged_app/Contents/Info.plist"
+if [[ "${THREEF_CEF_STARTUP_TRACE:-0}" == "1" ]]; then
+  /usr/libexec/PlistBuddy -c 'Add :LSEnvironment:THREEF_CEF_STARTUP_TRACE string 1' "$staged_app/Contents/Info.plist"
+  /usr/libexec/PlistBuddy -c "Add :LSEnvironment:THREEF_CEF_STARTUP_LOG string $profile_root/3f-startup.log" "$staged_app/Contents/Info.plist"
+fi
 cp "$repo_root/Resources/3f-icon.icns" "$staged_app/Contents/Resources/cefclient.icns"
 
 codesign --force --deep --sign - "$staged_app"
