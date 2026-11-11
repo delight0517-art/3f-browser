@@ -1,0 +1,47 @@
+diff --git a/tests/cefclient/browser/threef_auth_browser_policy.h b/tests/cefclient/browser/threef_auth_browser_policy.h
+--- a/tests/cefclient/browser/threef_auth_browser_policy.h
++++ b/tests/cefclient/browser/threef_auth_browser_policy.h
+@@ -85,6 +85,8 @@ inline bool IsAuthOnlyMode() {
+ }
+ 
+-inline bool IsAllowedNavigation(const CefString& url, bool /*main_frame*/) {
++inline bool IsAllowedNavigation(const CefString& url,
++                               bool main_frame,
++                               bool is_redirect) {
+   if (!IsAuthOnlyMode()) {
+     return false;
+   }
+@@ -112,7 +114,12 @@ inline bool IsAllowedNavigation(const CefString& url, bool /*main_frame*/) {
+   if (IsGoogleDomain(host)) {
+     return false;
+   }
+ 
++  // The source site is allowed only as the OAuth return redirect, never as
++  // a typed URL, ordinary link, subframe navigation, or popup.
++  if (!main_frame || !is_redirect) {
++    return false;
++  }
+   CefRefPtr<CefCommandLine> command_line =
+       CefCommandLine::GetGlobalCommandLine();
+   if (!command_line || !command_line->HasSwitch("3f-site-origin")) {
+diff --git a/tests/cefclient/browser/base_client_handler.cc b/tests/cefclient/browser/base_client_handler.cc
+--- a/tests/cefclient/browser/base_client_handler.cc
++++ b/tests/cefclient/browser/base_client_handler.cc
+@@ -102,5 +102,6 @@ bool BaseClientHandler::OnBeforeBrowse(CefRefPtr<CefBrowser> browser,
+   CEF_REQUIRE_UI_THREAD();
+-  if (!threef_auth::IsAllowedNavigation(request->GetURL(), frame->IsMain())) {
++  if (!threef_auth::IsAllowedNavigation(request->GetURL(), frame->IsMain(),
++                                        is_redirect)) {
+     return true;
+   }
+   message_router_->OnBeforeBrowse(browser, frame);
+diff --git a/tests/cefclient/browser/client_handler.cc b/tests/cefclient/browser/client_handler.cc
+--- a/tests/cefclient/browser/client_handler.cc
++++ b/tests/cefclient/browser/client_handler.cc
+@@ -1005,5 +1005,5 @@ bool ClientHandler::OnBeforePopup(
+   CEF_REQUIRE_UI_THREAD();
+-  if (!threef_auth::IsAllowedNavigation(target_url, true)) {
++  if (!threef_auth::IsAllowedNavigation(target_url, true, false)) {
+     return true;
+   }
+ 

@@ -11,6 +11,10 @@ enum GoogleOAuthNavigationPolicy {
         isGoogleAuthURL(url)
     }
 
+    static func authenticationStartURL(for url: URL) -> URL? {
+        requiresSystemBrowser(for: url) ? url : nil
+    }
+
     static func safeHTTPSPageURL(_ url: URL?) -> URL? {
         guard let url,
               url.scheme?.lowercased() == "https",
@@ -27,5 +31,13 @@ enum GoogleOAuthNavigationPolicy {
         components.query = nil
         components.fragment = nil
         return components.url
+    }
+
+    static func isAllowedCallbackRedirect(_ destination: URL, from sourcePage: URL?) -> Bool {
+        guard safeHTTPSPageURL(destination) != nil,
+              let sourcePage,
+              let destinationOrigin = exactOrigin(for: destination),
+              let sourceOrigin = exactOrigin(for: sourcePage) else { return false }
+        return destinationOrigin == sourceOrigin
     }
 }

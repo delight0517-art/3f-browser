@@ -11,6 +11,7 @@ profile_patch="$repo_root/CEFIntegration/patches/0003-cefclient-profile.patch"
 profile_override_patch="$repo_root/CEFIntegration/patches/0010-cefclient-profile-override.patch"
 native_window_patch="$repo_root/CEFIntegration/patches/0015-3f-native-window-mode.patch"
 auth_policy_patch="$repo_root/CEFIntegration/patches/0005-3f-auth-only-navigation.patch"
+auth_redirect_patch="$repo_root/CEFIntegration/patches/0017-3f-auth-callback-redirect-only.patch"
 auth_mode_patch="$repo_root/CEFIntegration/patches/0009-3f-auth-only-launch-switch.patch"
 auth_policy_header="$cef_root/tests/cefclient/browser/threef_auth_browser_policy.h"
 startup_trace_patch="$repo_root/CEFIntegration/patches/0006-3f-startup-trace.patch"
@@ -86,6 +87,11 @@ PY
   else
     patch -p1 -i "$auth_mode_patch" -d "$cef_root"
   fi
+  if ! grep -Fq 'bool is_redirect' "$auth_policy_header"; then
+    patch -p1 -i "$auth_redirect_patch" -d "$cef_root"
+  fi
+  grep -Fq '}  // namespace threef_auth' "$auth_policy_header"
+  grep -Fq '}  // namespace client' "$auth_policy_header"
 else
   policy_header="$cef_root/tests/cefclient/browser/threef_auth_browser_policy.h"
   if [[ -f "$policy_header" ]] && grep -q 'IsAuthOnlyMode' "$policy_header"; then

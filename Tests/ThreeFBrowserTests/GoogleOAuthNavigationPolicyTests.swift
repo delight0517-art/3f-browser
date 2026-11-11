@@ -60,12 +60,28 @@ final class GoogleOAuthNavigationPolicyTests: XCTestCase {
         XCTAssertFalse(GoogleOAuthNavigationPolicy.isGoogleAuthURL(URL(string: "https://oauth2.googleapis.com/token")!))
     }
 
-    func testHandoffStartURLIsOriginalHTTPSPageAndOriginIsExact() {
+    func testHandoffStartsAtGoogleAuthAndKeepsExactSourceOrigin() {
         let page = URL(string: "https://Example.com:8443/path?state=private#fragment")!
+        let auth = URL(string: "https://accounts.google.com/signin/v2/identifier")!
 
         XCTAssertEqual(GoogleOAuthNavigationPolicy.safeHTTPSPageURL(page), page)
         XCTAssertEqual(GoogleOAuthNavigationPolicy.exactOrigin(for: page)?.absoluteString, "https://example.com:8443")
         XCTAssertEqual(GoogleOAuthNavigationPolicy.safeHTTPSPageURL(URL(string: "http://example.com/path")), nil)
+        XCTAssertEqual(GoogleOAuthNavigationPolicy.authenticationStartURL(for: auth), auth)
+        XCTAssertNil(GoogleOAuthNavigationPolicy.authenticationStartURL(for: page))
+    }
+
+    func testOnlyExactHTTPSOriginMayReceiveOAuthCallbackRedirect() {
+        let source = URL(string: "https://Example.com:8443/login/start")!
+
+        XCTAssertTrue(GoogleOAuthNavigationPolicy.isAllowedCallbackRedirect(
+            URL(string: "https://example.com:8443/oauth/callback?code=secret")!, from: source))
+        XCTAssertFalse(GoogleOAuthNavigationPolicy.isAllowedCallbackRedirect(
+            URL(string: "https://example.com/oauth/callback")!, from: source))
+        XCTAssertFalse(GoogleOAuthNavigationPolicy.isAllowedCallbackRedirect(
+            URL(string: "https://example.com.evil.test/oauth/callback")!, from: source))
+        XCTAssertFalse(GoogleOAuthNavigationPolicy.isAllowedCallbackRedirect(
+            URL(string: "http://example.com:8443/oauth/callback")!, from: source))
     }
 
     func testHandoffDeduplicationKeyExcludesOAuthQueryAndFragment() {

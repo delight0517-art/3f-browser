@@ -109,13 +109,17 @@ do not install this candidate or make it the default browser.
 
 ## Legacy 3F authentication-only navigation policy
 
-The legacy bundled `3F Chromium Browser.app` was launched for the originating
-3F site and Google authentication. `patches/0005-3f-auth-only-navigation.patch` applies a
+The legacy bundled `3F Chromium Browser.app` starts directly on the Google
+authentication URL. `patches/0005-3f-auth-only-navigation.patch` applies a
 CEF navigation policy at main-frame/subframe navigation, popup creation, and
-resource-request hooks. Page navigation is limited to the exact source origin
-passed by 3F plus `accounts.google.com` and `consent.google.com`; non-HTTP(S),
+resource-request hooks. Page navigation is limited to `accounts.google.com`
+and `consent.google.com`, plus a main-frame redirect back to the exact source
+origin passed by 3F. The source origin is not allowed as a typed URL or ordinary
+link. Non-HTTP(S),
 other sites, YouTube/media hosts, and Google search endpoints are rejected.
 The same policy checks address-bar navigation, redirects, links, and popups.
+Only a main-frame redirect can return to the exact originating 3F site; a URL
+typed into Chromium, a link, or a popup cannot navigate there.
 Ordinary non-YouTube page resources can still load from third-party origins;
 this is a destination restriction, not a network-wide domain allowlist.
 

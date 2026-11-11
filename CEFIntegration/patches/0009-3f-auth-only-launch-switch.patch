@@ -14,15 +14,7 @@ index 0000000..0000000 100644
 +}
 +
  inline bool IsGoogleSearchEndpoint(const CefURLParts& parts) {
-@@ -79,4 +85,7 @@
- }
-
- inline bool IsAllowedNavigation(const CefString& url, bool /*main_frame*/) {
-+  if (!IsAuthOnlyMode()) {
-+    return false;
-+  }
-   if (url == "about:blank") {
-@@ -112,2 +121,5 @@
+@@ -112,2 +118,5 @@
  inline bool IsAllowedResource(const CefString& url) {
 +  if (!IsAuthOnlyMode()) {
 +    return false;

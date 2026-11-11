@@ -10,7 +10,7 @@ enum CEFBrowserRuntime {
         originatingPage: URL?,
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
-        guard GoogleOAuthNavigationPolicy.requiresSystemBrowser(for: authenticationURL) else {
+        guard let initialURL = GoogleOAuthNavigationPolicy.authenticationStartURL(for: authenticationURL) else {
             completion(.failure(LaunchError.invalidURL))
             return
         }
@@ -26,8 +26,9 @@ enum CEFBrowserRuntime {
         let profileURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("3F Browser/CEF/cefclient", isDirectory: true)
         let safeOriginatingPage = GoogleOAuthNavigationPolicy.safeHTTPSPageURL(originatingPage)
-        let initialURL = safeOriginatingPage ?? authenticationURL
         var arguments = [
+            // Open the restricted surface on Google itself. The originating
+            // 3F site is passed only for the post-auth redirect.
             "--url=\(initialURL.absoluteString)",
             "--3f-profile-root=\(profileURL.path)",
             "--3f-auth-only"

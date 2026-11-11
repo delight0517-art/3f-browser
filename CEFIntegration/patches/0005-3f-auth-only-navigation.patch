@@ -3,7 +3,7 @@ new file mode 100644
 index 0000000..0000000
 --- /dev/null
 +++ b/tests/cefclient/browser/threef_auth_browser_policy.h
-@@ -0,0 +1,122 @@
+@@ -0,0 +1,129 @@
 +#pragma once
 +
 +#include <string>
@@ -84,7 +84,9 @@ index 0000000..0000000
 +  return host == source_host;
 +}
 +
-+inline bool IsAllowedNavigation(const CefString& url, bool /*main_frame*/) {
++inline bool IsAllowedNavigation(const CefString& url,
++                               bool main_frame,
++                               bool is_redirect) {
 +  if (url == "about:blank") {
 +    return true;
 +  }
@@ -105,6 +107,11 @@ index 0000000..0000000
 +    return false;
 +  }
 +
++  // The source site is allowed only as the OAuth return redirect, never as
++  // a typed URL, ordinary link, subframe navigation, or popup.
++  if (!main_frame || !is_redirect) {
++    return false;
++  }
 +  CefRefPtr<CefCommandLine> command_line =
 +      CefCommandLine::GetGlobalCommandLine();
 +  if (!command_line || !command_line->HasSwitch("3f-site-origin")) {
@@ -136,11 +143,12 @@ index 0000000..0000000 100644
  #include "tests/cefclient/browser/root_window_manager.h"
 +#include "tests/cefclient/browser/threef_auth_browser_policy.h"
  #include "tests/shared/common/client_switches.h"
-@@ -101,6 +102,9 @@ bool BaseClientHandler::OnBeforeBrowse(CefRefPtr<CefBrowser> browser,
+@@ -101,6 +102,10 @@ bool BaseClientHandler::OnBeforeBrowse(CefRefPtr<CefBrowser> browser,
                                         bool user_gesture,
                                         bool is_redirect) {
    CEF_REQUIRE_UI_THREAD();
-+  if (!threef_auth::IsAllowedNavigation(request->GetURL(), frame->IsMain())) {
++  if (!threef_auth::IsAllowedNavigation(request->GetURL(), frame->IsMain(),
++                                        is_redirect)) {
 +    return true;
 +  }
    message_router_->OnBeforeBrowse(browser, frame);
@@ -165,10 +173,10 @@ index 0000000..0000000 100644
 +#include "tests/cefclient/browser/threef_auth_browser_policy.h"
  #include "tests/cefclient/browser/test_runner.h"
  #include "tests/shared/browser/resource_util.h"
-@@ -1004,6 +1005,9 @@ bool ClientHandler::OnBeforePopup(
+@@ -1004,4 +1005,7 @@ bool ClientHandler::OnBeforePopup(
      bool* no_javascript_access) {
    CEF_REQUIRE_UI_THREAD();
-+  if (!threef_auth::IsAllowedNavigation(target_url, true)) {
++  if (!threef_auth::IsAllowedNavigation(target_url, true, false)) {
 +    return true;
 +  }
  
