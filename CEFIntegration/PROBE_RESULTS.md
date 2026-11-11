@@ -89,6 +89,12 @@ Date: 2026-10-29 (Mac, arm64)
   `bfc4511d0212bca142afede1d2ca0ed4353343acb98e05a0d674b19433ed1424`. This
   narrows the failure to after the root-window request but does not identify
   why the process disappears or prove CEF browser content was created.
+- The trace build script now detects an already-patched source by the trace
+  function itself. This avoids relying on `patch --dry-run -R`, which on this
+  host reported a reverse-patch prompt as success even when the trace was not
+  present. The first uninstrumented trace-named package was confirmed unused
+  (no process or open files) and retired; the correctly instrumented candidate
+  remains preserved for review.
 
 ## Build evidence
 
