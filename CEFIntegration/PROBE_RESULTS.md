@@ -50,6 +50,33 @@ Date: 2026-10-29 (Mac, arm64)
   integration, tabs/session migration, downloads, permissions, update lifecycle,
   and Only Chat runtime handoff remain outstanding.
 
+## Full-browser migration candidate mode — 2026-11-11
+
+- `build-cefclient-probe.sh` now accepts `THREEF_CEF_NAVIGATION_MODE=full-browser`
+  to remove the auth-only navigation patch before compiling the CEF Views shell.
+  The default `restricted-auth` mode retains the existing restricted-helper
+  behavior.
+- `package-3f-browser-candidate.sh` packages the full-navigation shell as a
+  separate preview app with the 3F icon and a distinct preview bundle ID. It
+  refuses to overwrite an existing preview.
+- This is only a migration candidate route. The SwiftUI app still uses
+  WKWebView, the preview does not yet receive external URL callbacks, and the
+  Only Chat/AI Mod, Focus Fence, browser-session, downloads, permissions, and
+  diagnostics features have not been integrated into CEF. No Google login or
+  policy acceptance is claimed.
+- The full-navigation CEF build and bundle packaging completed. Deep/strict
+  signature checks and `workflow-control verify-mac` passed for the preview.
+  Its main executable SHA-256 is
+  `78a0f441dcb37090e15a7faea3439c3f3617e61900af13821cc2df137c686e17`.
+- The preview did not remain running: two SpaceO launches exited before a
+  browser window, including a second bundle with helper IDs aligned to the new
+  parent ID. A physical `open --args` attempt and direct executable attempt
+  also ended without a persistent process; direct launch printed only the CEF
+  Views configuration notices and returned 0. No crash report was found. The
+  UI/runtime blocker is unresolved, so general navigation, Google sign-in, and
+  product integration remain unverified. The installed SwiftUI 3F app was not
+  changed.
+
 ## Build evidence
 
 - Bundle: `.build/cef-156-arm64/cefsimple-isolated-build/tests/cefsimple/Release/cefsimple.app`

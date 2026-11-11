@@ -2,23 +2,23 @@
 
 ## Goal and scope
 
-- User-visible result: 3F opens its bundled Chromium window for the originating site and Google sign-in. That window must prevent navigation elsewhere, including YouTube and Google Search.
-- Feature/module ID and affected files: `google-auth-restricted-cef-host`; `GoogleOAuthNavigationPolicy`, `GoogleOAuthHandoffDiagnostics`, `CEFBrowserRuntime`, CEF policy patch/build/package scripts, and this contract.
-- Callers, shared resources and dependencies: Chromium Embedded Framework (CEF) 156 arm64 `cefclient` host; 3F passes the source origin and an isolated profile. The main SwiftUI browser UI still uses WKWebView; the Chromium host is a separate bundled app window.
+- User-visible result: 3F itself is a full browser whose primary web surface and top-level browser UI are owned by CEF Views, with ordinary browser navigation. Google sign-in must use a browser structure instead of the current embedded WKWebView or restricted helper window.
+- Feature/module ID and affected files: `threef-primary-cef-browser`; CEF Views build/package integration, browser lifecycle and profile/session migration, `BrowserModel`, `BrowserView`, `ThreeFBrowserApp`, `ThreeFURLRouter`, local diagnostics, Only Chat and AI Mod integration.
+- Callers, shared resources and dependencies: Chromium Embedded Framework (CEF) 156 arm64 `cefclient` Views shell with a 3F-only profile. The current SwiftUI/WKWebView app remains installed and available during migration; the preview candidate does not change the system default or installed app.
 - Mac/Windows adaptations: Mac implementation only; no Windows source or receiver change requested.
 
 ## Change and safety
 
-- UI, design-token and font changes: None; reuse the existing default-browser setting and status.
+- UI, design-token and font changes: Replace the browser surface with the CEF Views top-level browser shell while migrating 3F controls and features. Preserve Only Chat/AI Mod, Focus Fence, tab/session behavior, downloads, permissions, URL delivery, and diagnostics.
 - State to preserve: Existing browser profiles, cookies, tabs, Only Chat AI Mod sessions, Focus Fence state and diagnostics. Never log OAuth query, fragment, code, token, account or page contents.
-- In-flight work that must finish before applying: Preserve the existing 3F window and profile; install only after the signed candidate is ready and rollback retention is reconciled.
-- Apply route: 3F launches the bundled CEF host at its originating page. CEF permits page navigation only to the exact source origin, `accounts.google.com`, and `consent.google.com`; it blocks other destinations, YouTube/media hosts, and Google Search on navigations, redirects, popups, and address-bar requests. Third-party resources can still load for the allowed pages.
-- Rollback path and known limits: Restore the retained previous signed bundle. The existing CEF probe proves rendering and isolated profiles only. CEF is not automatically Google-approved; a full browser-shaped UI or changed User-Agent alone does not prove compliance. Google's policy calls for a system browser and rejects embedded user-agents, so product architecture and Google's real sign-in result are required evidence.
+- In-flight work that must finish before applying: Preserve the existing 3F app/window/profile and both Nov 8 rollback copies until the replacement build and runtime are verified and the 14-day retention window passes.
+- Apply route: Build the CEF Views candidate in full-browser mode with general navigation and an isolated 3F profile. Integrate it as the actual 3F browser surface, migrate the existing features and URL handling, and verify visible browser behavior before considering installation.
+- Rollback path and known limits: Keep the signed current 3F app and both Nov 8 rollback bundles. CEF rendering and isolated profiles have only been verified in probes. CEF is not automatically Google-approved; only an actual sign-in result can establish acceptance. Do not claim approval from engine choice or UI structure alone.
 
 ## Proof
 
-- Focused check and expected result: Compile the Swift product and patched CEF host, verify signatures, and inspect the exact local navigation policy. Do not run tests unless requested.
+- Focused check and expected result: Build and sign a standalone full-browser CEF Views candidate with general navigation and a separate profile, then inspect its visible browser shell. Do not run tests unless requested.
 - Source revision and changed-path list: Record the exact commit and owned source paths after the scoped commit.
-- Runtime proof: Build and signature checks passed for the local candidate. Installation, address-bar behavior, real Google sign-in, installed profile isolation, and Google policy acceptance remain unverified.
+- Runtime proof: The existing separate CEF helper renders web pages, but the full-browser product candidate, integration into the 3F app, real Google sign-in, profile migration, and Google acceptance remain unverified.
 - Windows state: Not requested / not changed.
-- Remaining blocker and next action: Install/runtime verification remains pending. The CEF window is a separate bundled process, and the main 3F UI still uses WKWebView. Google acceptance remains unverified until an actual sign-in succeeds; the source-site-only navigation policy may also need adjustments if Google's auth flow requires additional top-level destinations.
+- Remaining blocker and next action: CEF Views is not yet the installed 3F product, and the existing Only Chat/AI Mod, Focus Fence, session, download, permission, URL-routing, and diagnostic behavior has not been migrated. Integrate and verify those surfaces before installation; then run a real sign-in and report Google's result without assuming acceptance.

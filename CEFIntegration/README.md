@@ -58,6 +58,38 @@ The current product still uses WKWebView; importing the upstream browser shell,
 its lifecycle, profile migration, Only Chat control channel, and extension
 install/update policy remain implementation work. No extension was installed.
 
+## Full-browser product candidate
+
+The current SwiftUI product still uses WKWebView. A packaged Chromium helper
+does not replace that architecture and is not a complete answer to the Google
+OAuth problem. `package-3f-browser-candidate.sh` prepares a separate, signed CEF
+Views browser candidate from the existing `cefclient` shell. The candidate is
+an independent top-level browser app with an address bar and general web
+navigation, using the isolated 3F profile configured by
+`0003-cefclient-profile.patch`.
+
+Build the CEF shell in full-browser mode before packaging it:
+
+```sh
+THREEF_CEF_NAVIGATION_MODE=full-browser CEFIntegration/build-cefclient-probe.sh
+CEFIntegration/package-3f-browser-candidate.sh
+```
+
+The existing auth-only helper remains available through the default
+`restricted-auth` build mode and `package-3f-cef-host.sh`. Full-browser mode
+removes the auth-only navigation patch from the generated CEF source before
+compiling; it does not alter the Swift product's navigation controls. The
+preview bundle has a separate identifier and is not installed as the current
+3F Browser or registered as the system default. It is a migration candidate,
+not proof of Google acceptance.
+
+The next integration work must make this CEF Views engine the actual 3F browser
+surface and migrate the existing tab/session behavior, downloads, permissions,
+Focus Fence controls, Only Chat/AI Mod, external URL delivery, and local
+privacy-safe diagnostics. Keep the current SwiftUI app and its user profile
+available until those features and the browser runtime have been verified in
+the replacement.
+
 ## 3F authentication-only navigation policy
 
 The bundled `3F Chromium Browser.app` is launched for the originating 3F site
@@ -70,7 +102,7 @@ The same policy checks address-bar navigation, redirects, links, and popups.
 Ordinary non-YouTube page resources can still load from third-party origins;
 this is a destination restriction, not a network-wide domain allowlist.
 
-The policy is built into the local CEF candidate. It has not been verified with
-an actual Google sign-in, so authentication compatibility and Google's policy
-acceptance remain unconfirmed. The main 3F UI still uses WKWebView; this CEF
-window is a separate bundled browser host opened by 3F for the auth handoff.
+The policy is built into the restricted helper mode only. It has not been
+verified with an actual Google sign-in, so authentication compatibility and
+Google's policy acceptance remain unconfirmed. The main 3F UI still uses
+WKWebView until the full-browser product candidate is integrated.

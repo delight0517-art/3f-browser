@@ -9,6 +9,12 @@ framework="$app_bundle/Contents/Frameworks/Chromium Embedded Framework.framework
 framework_source="$cef_root/Release/Chromium Embedded Framework.framework"
 profile_patch="$repo_root/CEFIntegration/patches/0003-cefclient-profile.patch"
 auth_policy_patch="$repo_root/CEFIntegration/patches/0005-3f-auth-only-navigation.patch"
+navigation_mode="${THREEF_CEF_NAVIGATION_MODE:-restricted-auth}"
+
+case "$navigation_mode" in
+  restricted-auth|full-browser) ;;
+  *) echo "Unsupported THREEF_CEF_NAVIGATION_MODE: $navigation_mode" >&2; exit 2 ;;
+esac
 
 if [[ ! -f "$cef_root/CMakeLists.txt" || ! -f "$build_dir/build.ninja" ]]; then
   echo "Missing configured CEF 156 isolated build: $build_dir" >&2
@@ -31,11 +37,16 @@ else
   patch -p1 -i "$profile_patch" -d "$cef_root"
 fi
 
-if grep -q 'threef_auth_browser_policy.h' \
+if [[ "$navigation_mode" == "restricted-auth" ]]; then
+  if grep -q 'threef_auth_browser_policy.h' \
+      "$cef_root/tests/cefclient/browser/base_client_handler.cc"; then
+    : # Already applied to this local unpacked CEF tree.
+  else
+    patch -p1 -i "$auth_policy_patch" -d "$cef_root"
+  fi
+elif grep -q 'threef_auth_browser_policy.h' \
     "$cef_root/tests/cefclient/browser/base_client_handler.cc"; then
-  : # Already applied to this local unpacked CEF tree.
-else
-  patch -p1 -i "$auth_policy_patch" -d "$cef_root"
+  patch -R -p1 -i "$auth_policy_patch" -d "$cef_root"
 fi
 
 cmake --build "$build_dir" --target cefclient --parallel 6
