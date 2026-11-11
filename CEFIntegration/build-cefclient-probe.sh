@@ -12,6 +12,7 @@ profile_override_patch="$repo_root/CEFIntegration/patches/0010-cefclient-profile
 native_window_patch="$repo_root/CEFIntegration/patches/0015-3f-native-window-mode.patch"
 auth_policy_patch="$repo_root/CEFIntegration/patches/0005-3f-auth-only-navigation.patch"
 auth_mode_patch="$repo_root/CEFIntegration/patches/0009-3f-auth-only-launch-switch.patch"
+auth_policy_header="$cef_root/tests/cefclient/browser/threef_auth_browser_policy.h"
 startup_trace_patch="$repo_root/CEFIntegration/patches/0006-3f-startup-trace.patch"
 startup_trace_file_patch="$repo_root/CEFIntegration/patches/0011-3f-startup-trace-file.patch"
 root_window_trace_patch="$repo_root/CEFIntegration/patches/0012-3f-root-window-startup-trace.patch"
@@ -62,7 +63,20 @@ fi
 if [[ "$navigation_mode" == "restricted-auth" ]]; then
   if grep -q 'threef_auth_browser_policy.h' \
       "$cef_root/tests/cefclient/browser/base_client_handler.cc"; then
-    : # Already applied to this local unpacked CEF tree.
+    if ! grep -Fq 'return scheme == "https";' "$auth_policy_header"; then
+      python3 - "$auth_policy_header" <<'PY'
+from pathlib import Path
+import sys
+
+header = Path(sys.argv[1])
+text = header.read_text()
+old = 'if (IsGoogleAuthHost(host)) {\n    return true;\n  }'
+new = 'if (IsGoogleAuthHost(host)) {\n    return scheme == "https";\n  }'
+if text.count(old) != 1:
+    raise SystemExit("Cannot safely update stale 3F Google auth scheme policy.")
+header.write_text(text.replace(old, new))
+PY
+    fi
   else
     patch -p1 -i "$auth_policy_patch" -d "$cef_root"
   fi

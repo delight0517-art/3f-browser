@@ -30,7 +30,6 @@ enum CEFBrowserRuntime {
         var arguments = [
             "--url=\(initialURL.absoluteString)",
             "--3f-profile-root=\(profileURL.path)",
-            "--remote-debugging-port=0",
             "--3f-auth-only"
         ]
         if let safeOriginatingPage,

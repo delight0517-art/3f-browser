@@ -23,6 +23,8 @@ case "$navigation_mode" in
     if [[ ! -f "$cef_root/tests/cefclient/browser/threef_auth_browser_policy.h" ]] || \
        ! grep -q 'IsAuthOnlyMode' \
          "$cef_root/tests/cefclient/browser/threef_auth_browser_policy.h" || \
+       ! grep -Fq 'return scheme == "https";' \
+         "$cef_root/tests/cefclient/browser/threef_auth_browser_policy.h" || \
        ! grep -q 'threef_auth::IsAllowedNavigation' \
          "$cef_root/tests/cefclient/browser/base_client_handler.cc" || \
        ! grep -q 'threef_auth::IsAllowedNavigation' \

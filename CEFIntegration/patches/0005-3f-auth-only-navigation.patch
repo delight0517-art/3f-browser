@@ -99,7 +99,7 @@ index 0000000..0000000
 +    return false;
 +  }
 +  if (IsGoogleAuthHost(host)) {
-+    return true;
++    return scheme == "https";
 +  }
 +  if (IsGoogleDomain(host)) {
 +    return false;
