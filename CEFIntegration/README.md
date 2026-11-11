@@ -96,6 +96,22 @@ privacy-safe diagnostics. Keep the current SwiftUI app and its user profile
 available until those features and the browser runtime have been verified in
 the replacement.
 
+## CEF Views browser-shell prototype
+
+`build-3f-browser-shell.sh` builds a separate CEF Views app from the previously
+rendering `cefsimple` sample, adding Back, Forward, Reload and a URL-only
+address field. `package-3f-browser-shell-candidate.sh` prepares a signed
+preview with a separate bundle ID and a separate
+`3F Browser/CEF/Browser Shell Candidate/User Data` profile. It opens to
+`about:blank`; it does not reuse or migrate the installed 3F profile.
+
+This is still a prototype, not the 3F product shell. It has no tab strip, Only
+Chat/AI Mod connection, Focus Fence integration, download and permission
+handling, external-link routing, or product diagnostics. The address field
+does not convert search phrases into Google searches, but destination
+allowlisting is not implemented. Google OAuth compatibility is unverified;
+do not install this candidate or make it the default browser.
+
 ## 3F authentication-only navigation policy
 
 The bundled `3F Chromium Browser.app` is launched for the originating 3F site

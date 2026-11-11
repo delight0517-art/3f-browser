@@ -104,3 +104,24 @@ Date: 2026-10-29 (Mac, arm64)
 - The source patch is pinned under `CEFIntegration/patches/` and sets the CEF
   root profile before initialization. The downloaded CEF distribution and
   generated build remain in the ignored `.build` tree as active probe inputs.
+
+## CEF Views browser-shell prototype — 2026-11-11
+
+- Added `build-3f-browser-shell.sh`, a pinned `cefsimple` Views patch, and an
+  isolated candidate packager. The prototype has Back/Forward/Reload and a URL
+  field, starts at `about:blank`, rejects search phrases, and uses a dedicated
+  `Browser Shell Candidate/User Data` profile.
+- The CEF C++/Objective-C++ target compiled after correcting two compiler
+  findings. The packaged candidate passed `codesign --verify --deep --strict`
+  and `workflow-control verify-mac` (`launchAllowed: true`, `local_dev`). Main
+  executable SHA-256:
+  `9aa84e02cbb370cf3c3ed9386f50fca0ad7b7ee75f1304c712c231dcf3b8438b`.
+- One physical-screen LaunchServices attempt returned without a retained
+  `cefsimple` process or visible window. A targeted recent unified-log and
+  crash-report query found no matching failure details. Do not repeat this
+  launch route without new evidence.
+- The candidate is not installed and does not replace the current SwiftUI /
+  WKWebView 3F. Tabs, Only Chat/AI Mod, Focus Fence, downloads, permissions,
+  destination allowlisting, product diagnostics, Google sign-in and Google
+  policy acceptance remain unimplemented or unverified. The installed build20
+  and the Nov 8 rollback backups remain untouched.
