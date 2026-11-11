@@ -15,6 +15,7 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
     case general = "일반"
     case privacy = "개인정보"
     case system = "시스템"
+    case diagnostics = "진단"
 
     var id: String { rawValue }
 
@@ -23,12 +24,14 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
         case .general: "slider.horizontal.3"
         case .privacy: "hand.raised"
         case .system: "gearshape.2"
+        case .diagnostics: "ladybug"
         }
     }
 }
 
 struct BrowserSettingsView: View {
     @ObservedObject var model: BrowserModel
+    @ObservedObject private var oauthDiagnostics = GoogleOAuthHandoffDiagnostics.shared
     @StateObject private var focusFence = FocusFenceConnectionService()
     @StateObject private var defaultBrowser = DefaultBrowserService()
     @State private var selectedPage: SettingsPage = .general
@@ -152,6 +155,8 @@ struct BrowserSettingsView: View {
             privacyPage
         case .system:
             systemPage
+        case .diagnostics:
+            diagnosticsPage
         }
     }
 
@@ -160,6 +165,7 @@ struct BrowserSettingsView: View {
         case .general: "검색과 자주 사용하는 사이트를 설정합니다."
         case .privacy: "브라우저 기록과 집중 차단 연결 상태를 관리합니다."
         case .system: "브라우저 엔진 및 업데이트 상태를 확인합니다."
+        case .diagnostics: "3F 브라우저 오류와 재생 불가 미디어 기록을 확인합니다. 주소와 계정 정보는 저장하지 않습니다."
         }
     }
 
@@ -384,6 +390,39 @@ struct BrowserSettingsView: View {
                 }
             }
             themeCard
+        }
+    }
+
+    private var diagnosticsPage: some View {
+        settingsCard(title: "3F 브라우저 진단 로그", subtitle: "최근 100건 · 주소, 계정, 토큰, 페이지 내용은 저장하지 않습니다") {
+            HStack {
+                Text("기록 \(oauthDiagnostics.events.count)건 · \(oauthDiagnostics.saveStatus)")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                Spacer()
+                Button("로그 폴더 열기") { oauthDiagnostics.openLogFolder() }
+                    .controlSize(.small)
+                Button("기록 지우기") { oauthDiagnostics.clear() }
+                    .controlSize(.small)
+                    .disabled(oauthDiagnostics.events.isEmpty)
+            }
+            if oauthDiagnostics.events.isEmpty {
+                emptyState("ladybug", "아직 브라우저 진단 이벤트가 없습니다.")
+            } else {
+                ForEach(oauthDiagnostics.events) { event in
+                    HStack(spacing: 10) {
+                        Text(event.date, style: .time)
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                        Text(event.outcome.rawValue)
+                            .font(.system(size: 11, weight: .medium))
+                        if let detail = event.detail {
+                            Text(detail).font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
         }
     }
 

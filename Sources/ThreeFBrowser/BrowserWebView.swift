@@ -101,6 +101,17 @@ struct BrowserWebView: NSViewRepresentable {
             configuration.websiteDataStore = .nonPersistent()
         }
         let coordinator = context.coordinator
+        configuration.userContentController.add(
+            BrowserDiagnosticsScriptMessageHandler(),
+            contentWorld: .defaultClient,
+            name: BrowserDiagnosticsScriptMessageHandler.name
+        )
+        configuration.userContentController.addUserScript(WKUserScript(
+            source: BrowserDiagnosticsScriptMessageHandler.script,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: false,
+            in: .defaultClient
+        ))
         if onOpenBackgroundTab != nil {
             let handler = ThreeFBackgroundLinkScriptMessageHandler()
             handler.delegate = coordinator
@@ -286,6 +297,7 @@ struct BrowserWebView: NSViewRepresentable {
             guard targetFrameIsAbsent,
                   let destination = ThreeFContextMenuPolicy.safeHTTPURL(url),
                   let openInNewTab else { return false }
+            GoogleOAuthHandoffDiagnostics.shared.record(.duplicateSuppressed, key: "popup")
             openInNewTab(destination)
             return true
         }
@@ -296,6 +308,9 @@ struct BrowserWebView: NSViewRepresentable {
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             onMain {
+                if webView.url?.host?.lowercased() == "accounts.google.com" {
+                    GoogleOAuthHandoffDiagnostics.shared.record(.opened, key: "google-login")
+                }
                 self.parent.onLoadingChanged?(false)
                 self.parent.onNavigation(webView.url, webView.title)
                 self.parent.onNavigationState(webView.canGoBack, webView.canGoForward)
@@ -318,6 +333,7 @@ struct BrowserWebView: NSViewRepresentable {
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
             onMain {
+                GoogleOAuthHandoffDiagnostics.shared.record(.openFailed, detail: "WebKit error \((error as NSError).code)", key: "navigation-\((error as NSError).code)")
                 self.parent.onLoadingChanged?(webView.isLoading)
                 self.parent.onNavigationFailed?(error)
                 ThreeFBrowserControlController.shared.navigationDidFail(for: webView)
@@ -326,6 +342,7 @@ struct BrowserWebView: NSViewRepresentable {
 
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
             onMain {
+                GoogleOAuthHandoffDiagnostics.shared.record(.openFailed, detail: "WebKit error \((error as NSError).code)", key: "navigation-\((error as NSError).code)")
                 self.parent.onLoadingChanged?(webView.isLoading)
                 self.parent.onNavigationFailed?(error)
                 ThreeFBrowserControlController.shared.navigationDidFail(for: webView)
