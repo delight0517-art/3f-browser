@@ -12,6 +12,7 @@ profile_override_patch="$repo_root/CEFIntegration/patches/0010-cefclient-profile
 auth_policy_patch="$repo_root/CEFIntegration/patches/0005-3f-auth-only-navigation.patch"
 auth_mode_patch="$repo_root/CEFIntegration/patches/0009-3f-auth-only-launch-switch.patch"
 startup_trace_patch="$repo_root/CEFIntegration/patches/0006-3f-startup-trace.patch"
+startup_trace_file_patch="$repo_root/CEFIntegration/patches/0011-3f-startup-trace-file.patch"
 bundle_id_patch="$repo_root/CEFIntegration/patches/0008-cef-product-bundle-id-at-build.patch"
 navigation_mode="${THREEF_CEF_NAVIGATION_MODE:-restricted-auth}"
 startup_trace="${THREEF_CEF_STARTUP_TRACE:-0}"
@@ -34,8 +35,9 @@ fi
 
 sdk_path="$(xcrun --sdk macosx --show-sdk-path)"
 
-if patch --dry-run -R -p1 -i "$profile_patch" -d "$cef_root" >/dev/null 2>&1; then
-  : # Already applied to this local unpacked CEF tree.
+if grep -q 'root_cache_path' "$cef_root/tests/cefclient/browser/main_context_impl.cc" && \
+   grep -q '3f-profile-root' "$cef_root/tests/cefclient/browser/main_context_impl.cc"; then
+  : # The base isolated-profile patch is already applied to this local CEF tree.
 else
   patch -p1 -i "$profile_patch" -d "$cef_root"
 fi
@@ -77,7 +79,15 @@ if [[ "$startup_trace" == "1" ]]; then
   else
     patch -p1 -i "$startup_trace_patch" -d "$cef_root"
   fi
+  if grep -q 'THREEF_CEF_STARTUP_LOG' "$cef_root/tests/cefclient/cefclient_mac.mm"; then
+    : # The trace is already captured in the candidate's isolated profile.
+  else
+    patch -p1 -i "$startup_trace_file_patch" -d "$cef_root"
+  fi
 elif grep -q 'StartupTrace(' "$cef_root/tests/cefclient/cefclient_mac.mm"; then
+  if grep -q 'THREEF_CEF_STARTUP_LOG' "$cef_root/tests/cefclient/cefclient_mac.mm"; then
+    patch -R -p1 -i "$startup_trace_file_patch" -d "$cef_root"
+  fi
   patch -R -p1 -i "$startup_trace_patch" -d "$cef_root"
 fi
 

@@ -1,0 +1,14 @@
+--- a/tests/cefclient/cefclient_mac.mm
++++ b/tests/cefclient/cefclient_mac.mm
+@@ -28,6 +28,13 @@ void StartupTrace(const char* milestone) {
+     std::fprintf(stderr, "[3FTRACE] %s\\n", milestone);
+     std::fflush(stderr);
++    const char* path = std::getenv("THREEF_CEF_STARTUP_LOG");
++    if (path && path[0] != '\0') {
++      if (FILE* file = std::fopen(path, "a")) {
++        std::fprintf(file, "%s\n", milestone);
++        std::fclose(file);
++      }
++    }
+   }
+ }

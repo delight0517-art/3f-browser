@@ -64,7 +64,10 @@ ditto "$source_app" "$staged_app"
 /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string $display_name" "$staged_app/Contents/Info.plist" 2>/dev/null \
   || /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName $display_name" "$staged_app/Contents/Info.plist"
 profile_root="$candidate_root/User Data"
+mkdir -p "$profile_root"
 /usr/libexec/PlistBuddy -c "Add :LSEnvironment:THREEF_CEF_PROFILE_ROOT string $profile_root" "$staged_app/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c 'Add :LSEnvironment:THREEF_CEF_STARTUP_TRACE string 1' "$staged_app/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Add :LSEnvironment:THREEF_CEF_STARTUP_LOG string $profile_root/3f-startup.log" "$staged_app/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c 'Add :LSApplicationCategoryType string public.app-category.web-browsers' "$staged_app/Contents/Info.plist" 2>/dev/null \
   || /usr/libexec/PlistBuddy -c 'Set :LSApplicationCategoryType public.app-category.web-browsers' "$staged_app/Contents/Info.plist"
 cp "$repo_root/Resources/3f-icon.icns" "$staged_app/Contents/Resources/cefclient.icns"
