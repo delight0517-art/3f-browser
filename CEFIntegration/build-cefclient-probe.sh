@@ -10,8 +10,15 @@ framework_source="$cef_root/Release/Chromium Embedded Framework.framework"
 profile_patch="$repo_root/CEFIntegration/patches/0003-cefclient-profile.patch"
 auth_policy_patch="$repo_root/CEFIntegration/patches/0005-3f-auth-only-navigation.patch"
 startup_trace_patch="$repo_root/CEFIntegration/patches/0006-3f-startup-trace.patch"
+bundle_id_patch="$repo_root/CEFIntegration/patches/0008-cef-product-bundle-id-at-build.patch"
 navigation_mode="${THREEF_CEF_NAVIGATION_MODE:-restricted-auth}"
 startup_trace="${THREEF_CEF_STARTUP_TRACE:-0}"
+bundle_id="${THREEF_CEF_BUNDLE_ID:-com.rogan.threef.browser.cefpreview}"
+
+if [[ ! "$bundle_id" =~ ^[A-Za-z0-9]+([.-][A-Za-z0-9]+)+$ ]]; then
+  echo "Invalid THREEF_CEF_BUNDLE_ID: $bundle_id" >&2
+  exit 2
+fi
 
 case "$navigation_mode" in
   restricted-auth|full-browser) ;;
@@ -23,15 +30,7 @@ if [[ ! -f "$cef_root/CMakeLists.txt" || ! -f "$build_dir/build.ninja" ]]; then
   exit 2
 fi
 
-# CEF's generated Ninja files can retain an SDK versioned path across Xcode
-# updates. Reconfigure against the currently selected SDK before compiling.
 sdk_path="$(xcrun --sdk macosx --show-sdk-path)"
-cmake -S "$cef_root" -B "$build_dir" -G Ninja \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DPROJECT_ARCH=arm64 \
-  -DCMAKE_OSX_DEPLOYMENT_TARGET=15.6 \
-  -DCMAKE_OSX_SYSROOT="$sdk_path" \
-  -DUSE_SANDBOX=OFF
 
 if patch --dry-run -R -p1 -i "$profile_patch" -d "$cef_root" >/dev/null 2>&1; then
   : # Already applied to this local unpacked CEF tree.
@@ -60,6 +59,29 @@ if [[ "$startup_trace" == "1" ]]; then
 elif grep -q 'StartupTrace(' "$cef_root/tests/cefclient/cefclient_mac.mm"; then
   patch -R -p1 -i "$startup_trace_patch" -d "$cef_root"
 fi
+
+if grep -q 'CEF_CLIENT_BUNDLE_ID' "$cef_root/tests/cefclient/mac/Info.plist.in" && \
+   grep -q 'CEF_CLIENT_BUNDLE_ID' "$cef_root/tests/cefclient/mac/helper-Info.plist.in" && \
+   grep -q 'CEF_CLIENT_BUNDLE_ID' "$cef_root/tests/cefclient/CMakeLists.txt"; then
+  : # Already applied to this local unpacked CEF tree.
+elif grep -q 'CEF_CLIENT_BUNDLE_ID' "$cef_root/tests/cefclient/mac/Info.plist.in" || \
+     grep -q 'CEF_CLIENT_BUNDLE_ID' "$cef_root/tests/cefclient/mac/helper-Info.plist.in" || \
+     grep -q 'CEF_CLIENT_BUNDLE_ID' "$cef_root/tests/cefclient/CMakeLists.txt"; then
+  echo "CEF bundle-ID patch is only partially applied." >&2
+  exit 5
+else
+  patch -p1 -i "$bundle_id_patch" -d "$cef_root"
+fi
+
+# Reconfigure after applying source patches so CMake generates matching app and
+# helper bundle identifiers from one value before code signing.
+cmake -S "$cef_root" -B "$build_dir" -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DPROJECT_ARCH=arm64 \
+  -DCMAKE_OSX_DEPLOYMENT_TARGET=15.6 \
+  -DCMAKE_OSX_SYSROOT="$sdk_path" \
+  -DUSE_SANDBOX=OFF \
+  -DCEF_CLIENT_BUNDLE_ID="$bundle_id"
 
 cmake --build "$build_dir" --target cefclient --parallel 6
 

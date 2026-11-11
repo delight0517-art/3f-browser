@@ -1,0 +1,32 @@
+--- a/tests/cefclient/mac/Info.plist.in
++++ b/tests/cefclient/mac/Info.plist.in
+@@ -9,7 +9,7 @@
+ 	<key>CFBundleIconFile</key>
+ 	<string>cefclient.icns</string>
+ 	<key>CFBundleIdentifier</key>
+-	<string>org.cef.cefclient</string>
++	<string>${CEF_CLIENT_BUNDLE_ID}</string>
+ 	<key>CFBundleInfoDictionaryVersion</key>
+ 	<string>6.0</string>
+ 	<key>CFBundleName</key>
+--- a/tests/cefclient/mac/helper-Info.plist.in
++++ b/tests/cefclient/mac/helper-Info.plist.in
+@@ -9,7 +9,7 @@
+ 	<key>CFBundleExecutable</key>
+ 	<string>${EXECUTABLE_NAME}</string>
+ 	<key>CFBundleIdentifier</key>
+-	<string>org.cef.cefclient.helper${BUNDLE_ID_SUFFIX}</string>
++	<string>${CEF_CLIENT_BUNDLE_ID}.helper${BUNDLE_ID_SUFFIX}</string>
+ 	<key>CFBundleInfoDictionaryVersion</key>
+ 	<string>6.0</string>
+ 	<key>CFBundleName</key>
+--- a/tests/cefclient/CMakeLists.txt
++++ b/tests/cefclient/CMakeLists.txt
+@@ -531,6 +531,7 @@
+     string(REPLACE "\${EXECUTABLE_NAME}" "${_helper_output_name}" _plist_contents ${_plist_contents})
+     string(REPLACE "\${PRODUCT_NAME}" "${_helper_output_name}" _plist_contents ${_plist_contents})
+     string(REPLACE "\${BUNDLE_ID_SUFFIX}" "${_plist_suffix}" _plist_contents ${_plist_contents})
++    string(REPLACE "\${CEF_CLIENT_BUNDLE_ID}" "${CEF_CLIENT_BUNDLE_ID}" _plist_contents ${_plist_contents})
+     file(WRITE ${_helper_info_plist} ${_plist_contents})
+ 
+     # Create Helper executable target.
