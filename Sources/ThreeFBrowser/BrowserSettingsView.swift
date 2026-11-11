@@ -384,6 +384,10 @@ struct BrowserSettingsView: View {
                     Text(ExtensionCompatibility.status)
                         .font(.system(size: 11)).foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 10)
+                    ForEach(BrowserPolicyPlugin.allCases) { plugin in
+                        Divider()
+                        statusRow("Focus Fence 플러그인", value: plugin.status, symbol: "puzzlepiece.extension")
+                    }
                     Text(ExtensionCompatibility.limitation + " " + ExtensionCompatibility.chromiumProfileRequirement)
                         .font(.system(size: 10)).foregroundStyle(.tertiary)
                         .frame(maxWidth: .infinity, alignment: .leading)

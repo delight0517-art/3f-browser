@@ -11,6 +11,25 @@ enum ExtensionSupportLevel: String {
     case storeVerified = "스토어 확장별 검증"
 }
 
+enum BrowserPolicyPlugin: String, CaseIterable, Identifiable {
+    case focusFence
+
+    var id: String { rawValue }
+
+    var title: String { "Focus Fence" }
+
+    var engine: BrowserEngineKind { .webKit }
+
+    var status: String {
+        switch self {
+        case .focusFence:
+            OptionalFeatureAvailability.focusFenceEnforcement
+                ? "정책 플러그인 적용 · 실시간 규칙 연결 여부는 브라우저 상태에서 확인"
+                : "정책 플러그인 비활성"
+        }
+    }
+}
+
 struct ExtensionCompatibility {
     static let currentEngine: BrowserEngineKind = .webKit
     static let supportLevel: ExtensionSupportLevel = .none
