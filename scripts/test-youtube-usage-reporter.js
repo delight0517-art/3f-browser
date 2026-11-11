@@ -10,7 +10,8 @@ assert.ok(match, 'Swift YouTubeUsageReporter script literal exists');
 async function run(host, quotaBlocked = true, {
   failFirstAck = false, videoAtStart = true, playbackRate = 1, remainingSeconds = -1,
   accountLeaseUnsupported = true, accountLeaseUnavailable = false, failFirstLeaseAck = false,
-  mismatchLeaseRequestId = false, shortsBlocked = false, youtubeSiteBlocked = false, policyUnavailable = false, pagePath = '/watch'
+  mismatchLeaseRequestId = false, shortsBlocked = false, youtubeSiteBlocked = false, policyUnavailable = false,
+  deferPolicy = false, pagePath = '/watch'
 } = {}) {
   let paused = 0;
   let now = 1;
@@ -32,12 +33,15 @@ async function run(host, quotaBlocked = true, {
   let leaseUnavailable = accountLeaseUnavailable;
   let leaseReportAttempts = 0;
   let idCounter = 0;
+  let releasePolicy;
+  const policyResult = () => ({ youtubeQuotaBlocked: currentQuotaBlocked || youtubeSiteBlocked, remainingSeconds: currentRemainingSeconds, blockShorts: shortsBlocked });
   const bridge = {
     async postMessage(message) {
       if (message.type === 'policy') {
         rulesReads += 1;
         if (policyUnavailable) throw new Error('policy unavailable');
-        return { youtubeQuotaBlocked: currentQuotaBlocked || youtubeSiteBlocked, remainingSeconds: currentRemainingSeconds, blockShorts: shortsBlocked };
+        if (deferPolicy) return new Promise(resolve => { releasePolicy = () => resolve(policyResult()); });
+        return policyResult();
       }
       if (message.type === 'report') {
         const report = message.report;
@@ -121,6 +125,7 @@ async function run(host, quotaBlocked = true, {
     },
     async advance(ms) { now += ms; await timer(); },
     setQuotaBlocked(value) { currentQuotaBlocked = value; },
+    releasePolicy() { releasePolicy?.(); },
     setPath(value) { context.location.pathname = value; context.location.href = `https://${host}${value}`; },
     setAccountLeaseUnavailable(value) { leaseUnavailable = value; },
     get serverAccountWatchSeconds() { return serverAccountWatchSeconds; },
@@ -158,6 +163,17 @@ async function run(host, quotaBlocked = true, {
   await unavailablePreview.reportProgress(6);
   assert.equal(unavailablePreview.payloads.length, 0, 'unavailable-policy preview does not accrue or report media time');
 
+  const pendingPolicy = await run('youtube.com', false, { videoAtStart: true, deferPolicy: true });
+  assert.equal(pendingPolicy.video.paused, true,
+    'document-start autoplay is stopped synchronously before the first policy response');
+  pendingPolicy.releasePolicy();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(pendingPolicy.video.paused, true,
+    'an allowed policy does not restart autoplay without an explicit user play action');
+  pendingPolicy.startPlayback();
+  assert.equal(pendingPolicy.video.paused, false,
+    'explicit playback remains available after the policy allows it');
+
   const music = await run('music.youtube.com');
   assert.equal(music.video.paused, false, 'YouTube Music is excluded from YouTube video quota');
   music.listeners.play();
@@ -194,7 +210,8 @@ async function run(host, quotaBlocked = true, {
   assert.equal(sourceChangingPreview.payloads[0].watchSeconds, 6,
     'same-element playback progress is counted when currentSrc changes between samples');
 
-  const retry = await run('youtube.com', false, { failFirstAck: true });
+  const retry = await run('youtube.com', false, { failFirstAck: true, videoAtStart: false });
+  retry.startPlayback();
   await retry.reportProgress();
   await retry.pausePlayback();
   await retry.advance(5000);
@@ -213,7 +230,8 @@ async function run(host, quotaBlocked = true, {
   assert.equal(recovers.payloads.at(-1).watchSeconds, 2,
     'playback usage is reported after policy changes from blocked to allowed');
 
-  const hostSwitch = await run('youtube.com', false);
+  const hostSwitch = await run('youtube.com', false, { videoAtStart: false });
+  hostSwitch.startPlayback();
   await hostSwitch.reportProgress(2);
   hostSwitch.setHost('music.youtube.com');
   await hostSwitch.reportProgress(5);
@@ -225,13 +243,15 @@ async function run(host, quotaBlocked = true, {
   assert.equal(hostSwitch.payloads[0].watchSeconds, 2,
     'only playback observed while the active page is on a YouTube watch host is reported');
 
-  const accelerated = await run('youtube.com', false, { playbackRate: 2 });
+  const accelerated = await run('youtube.com', false, { playbackRate: 2, videoAtStart: false });
+  accelerated.startPlayback();
   await accelerated.reportProgress(5);
   await accelerated.pausePlayback();
   assert.equal(accelerated.payloads[0].watchSeconds, 5,
     'playback speed does not multiply elapsed viewing time');
 
-  const seek = await run('youtube.com', false);
+  const seek = await run('youtube.com', false, { videoAtStart: false });
+  seek.startPlayback();
   seek.seekTo(1000);
   await seek.reportProgress(5);
   await seek.reportProgress(2);
@@ -239,14 +259,16 @@ async function run(host, quotaBlocked = true, {
   assert.equal(seek.payloads[0].watchSeconds, 2,
     'a seek jump is excluded while later normal playback is counted');
 
-  const hidden = await run('youtube.com', false);
+  const hidden = await run('youtube.com', false, { videoAtStart: false });
+  hidden.startPlayback();
   await hidden.setVisibility('hidden');
   await hidden.reportProgress(10);
   await hidden.pausePlayback();
   assert.equal(hidden.payloads.length, 1, 'verified playback continues to count in a hidden background tab');
   assert.equal(hidden.payloads[0].watchSeconds, 10, 'background playback reports measured media progress only');
 
-  const throttledHidden = await run('youtube.com', false);
+  const throttledHidden = await run('youtube.com', false, { videoAtStart: false });
+  throttledHidden.startPlayback();
   await throttledHidden.setVisibility('hidden');
   await throttledHidden.advancePlayback(20000);
   assert.equal(throttledHidden.payloads.length, 1,
@@ -254,14 +276,16 @@ async function run(host, quotaBlocked = true, {
   assert.equal(throttledHidden.payloads[0].watchSeconds, 20,
     'a throttled tick reports only measured media progress');
 
-  const suspendedHidden = await run('youtube.com', false);
+  const suspendedHidden = await run('youtube.com', false, { videoAtStart: false });
+  suspendedHidden.startPlayback();
   await suspendedHidden.setVisibility('hidden');
   await suspendedHidden.advancePlayback(180000);
   await suspendedHidden.pausePlayback();
   assert.equal(suspendedHidden.payloads.length, 0,
     'a hidden-page gap beyond the bounded measurement window is not attributed as playback');
 
-  const reachesQuota = await run('youtube.com', false);
+  const reachesQuota = await run('youtube.com', false, { videoAtStart: false });
+  reachesQuota.startPlayback();
   assert.equal(reachesQuota.video.paused, false, 'under-cap YouTube playback remains allowed');
   reachesQuota.setQuotaBlocked(true);
   await reachesQuota.advance(31000);
@@ -285,7 +309,8 @@ async function run(host, quotaBlocked = true, {
     'playback pauses at the quota boundary without waiting for the five-second batch');
   assert.equal(finalSeconds.payloads.at(-1).watchSeconds, 3);
 
-  const delayedTick = await run('youtube.com', false, { remainingSeconds: 3 });
+  const delayedTick = await run('youtube.com', false, { remainingSeconds: 3, videoAtStart: false });
+  delayedTick.startPlayback();
   await delayedTick.reportProgress(5);
   assert.equal(delayedTick.serverWatchSeconds, 3,
     'even a delayed timer tick cannot report beyond the remaining allowance');

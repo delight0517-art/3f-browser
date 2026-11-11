@@ -28,6 +28,9 @@ enum YouTubeUsageReporter {
       }]));
       samples = snapshot();
       const stop = () => { if (isYouTubeHost(location.hostname)) document.querySelectorAll('video').forEach(v => { if (!v.paused) v.pause(); }); };
+      // Stop document-start autoplay synchronously while the first policy read is pending.
+      // An allowed response still requires an explicit user play action.
+      stop();
       const enforcePolicy = () => {
         const onShorts = /^\/shorts(?:\/|$)/i.test(location.pathname || '');
         blocked = quotaBlocked || (shortsBlocked && onShorts);
