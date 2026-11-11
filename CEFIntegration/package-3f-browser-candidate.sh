@@ -72,7 +72,44 @@ mkdir -p "$profile_root"
   || /usr/libexec/PlistBuddy -c 'Set :LSApplicationCategoryType public.app-category.web-browsers' "$staged_app/Contents/Info.plist"
 cp "$repo_root/Resources/3f-icon.icns" "$staged_app/Contents/Resources/cefclient.icns"
 
-codesign --force --deep --sign - "$staged_app"
+signing_identity="${THREEF_CEF_SIGNING_IDENTITY:--}"
+if [[ "$signing_identity" == "-" ]]; then
+  codesign --force --deep --sign - "$staged_app"
+else
+  entitlements="$stage/entitlements"
+  mkdir -p "$entitlements"
+  cat > "$entitlements/empty.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict/></plist>
+PLIST
+  cat > "$entitlements/jit.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict><key>com.apple.security.cs.allow-jit</key><true/></dict></plist>
+PLIST
+
+  framework="$staged_app/Contents/Frameworks/Chromium Embedded Framework.framework"
+  libraries="$framework/Versions/Current/Libraries"
+  while IFS= read -r -d '' library; do
+    if /usr/bin/file -b "$library" | /usr/bin/grep -q 'Mach-O'; then
+      codesign --force --sign "$signing_identity" --timestamp=none "$library"
+    fi
+  done < <(find "$libraries" -type f -print0)
+  codesign --force --sign "$signing_identity" --timestamp=none "$framework"
+
+  for helper in "$staged_app"/Contents/Frameworks/cefclient\ Helper*.app; do
+    [[ -d "$helper" ]] || continue
+    case "$helper" in
+      *' (Renderer).app'|*' (GPU).app') helper_entitlements="$entitlements/jit.plist" ;;
+      *) helper_entitlements="$entitlements/empty.plist" ;;
+    esac
+    codesign --force --sign "$signing_identity" --options runtime \
+      --timestamp=none --entitlements "$helper_entitlements" "$helper"
+  done
+  codesign --force --sign "$signing_identity" --options runtime \
+    --timestamp=none --entitlements "$entitlements/empty.plist" "$staged_app"
+fi
 codesign --verify --deep --strict "$staged_app"
 mv "$staged_app" "$candidate"
 printf 'Created standalone 3F Chromium browser candidate: %s\n' "$candidate"
