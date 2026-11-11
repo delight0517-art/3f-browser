@@ -166,3 +166,17 @@ Date: 2026-10-29 (Mac, arm64)
   crash report, visible persistent window, or `CEF_LOAD_END` was captured.
   Stop repeating this sample launch route and move integration work to the
   product's actual browser engine boundary.
+
+## Restricted CEF product packaging guard — 2026-11-12
+
+- `package-3f-browser-candidate.sh` now refuses a CEF tree unless the 3F
+  navigation policy is compiled into main-frame navigation, popup creation,
+  and resource-load hooks. Unrestricted `full-browser` builds remain engine
+  probes and cannot be packaged as a 3F candidate.
+- The package guard preserves the current user requirement to keep 3F
+  navigation scoped to its configured site origin and Google authentication,
+  while rejecting YouTube and Google Search routes. Trusted site-origin
+  delivery and Focus Fence/Only Chat integration are still required.
+- `bash -n`, the required policy-marker checks, and `git diff --check` passed.
+  Packaging against restricted and unrestricted build trees was not run; no
+  candidate was launched or installed in this slice.

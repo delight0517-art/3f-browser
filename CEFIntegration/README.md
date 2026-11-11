@@ -68,12 +68,20 @@ an independent top-level browser app with an address bar and general web
 navigation, using the isolated 3F profile configured by
 `0003-cefclient-profile.patch`.
 
-Build the CEF shell in full-browser mode before packaging it:
+The 3F candidate package is restricted: its packager refuses a CEF build
+unless the navigation hooks are present for main-frame navigation, popups,
+and resource loading. Build in `restricted-auth` mode before packaging:
 
 ```sh
-THREEF_CEF_NAVIGATION_MODE=full-browser CEFIntegration/build-cefclient-probe.sh
+THREEF_CEF_NAVIGATION_MODE=restricted-auth CEFIntegration/build-cefclient-probe.sh
 CEFIntegration/package-3f-browser-candidate.sh
 ```
+
+This policy permits the configured 3F site origin and Google authentication,
+while rejecting YouTube and Google Search destinations. The CEF host still
+needs a trusted initial site-origin handoff plus Focus Fence and Only Chat
+integration before it can replace the current app. Unrestricted `full-browser`
+mode is for engine probing only and cannot be packaged as a 3F candidate.
 
 For a one-off startup trace, set `THREEF_CEF_STARTUP_TRACE=1` during build,
 then launch the candidate executable with the same variable set. It writes only
@@ -81,20 +89,14 @@ startup milestones to stderr; capture that stream locally when diagnosing a
 candidate. It does not record page URLs, page content, or credentials, and it
 is disabled by default.
 
-The existing auth-only helper remains available through the default
-`restricted-auth` build mode and `package-3f-cef-host.sh`. Full-browser mode
-removes the auth-only navigation patch from the generated CEF source before
-compiling; it does not alter the Swift product's navigation controls. The
-preview bundle has a separate identifier and is not installed as the current
-3F Browser or registered as the system default. It is a migration candidate,
-not proof of Google acceptance.
-
-The next integration work must make this CEF Views engine the actual 3F browser
-surface and migrate the existing tab/session behavior, downloads, permissions,
-Focus Fence controls, Only Chat/AI Mod, external URL delivery, and local
-privacy-safe diagnostics. Keep the current SwiftUI app and its user profile
-available until those features and the browser runtime have been verified in
-the replacement.
+The preview bundle has a separate identifier and is not installed as the
+current 3F Browser or registered as the system default. It is a migration
+candidate, not proof of Google acceptance. The next integration work must make
+this CEF Views engine the actual 3F browser surface and migrate the existing
+tab/session behavior, downloads, permissions, Focus Fence controls, Only
+Chat/AI Mod, external URL delivery, and local privacy-safe diagnostics. Keep
+the current SwiftUI app and its user profile available until those features and
+the browser runtime have been verified in the replacement.
 
 ## CEF Views browser-shell prototype
 

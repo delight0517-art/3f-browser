@@ -3,12 +3,23 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source_app="$repo_root/.build/cef-156-arm64/cefsimple-isolated-build/tests/cefclient/Release/cefclient.app"
+cef_root="$repo_root/.build/cef-156-arm64/unpacked"
 candidate_root="${1:-$repo_root/.build/3f-cef-full-browser-candidate}"
 candidate="$candidate_root/3F Browser Preview.app"
 
 if [[ ! -d "$source_app" ]]; then
   echo "Build the CEF full-browser candidate first: $source_app" >&2
   exit 2
+fi
+if [[ ! -f "$cef_root/tests/cefclient/browser/threef_auth_browser_policy.h" ]] || \
+   ! grep -q 'threef_auth::IsAllowedNavigation' \
+     "$cef_root/tests/cefclient/browser/base_client_handler.cc" || \
+   ! grep -q 'threef_auth::IsAllowedNavigation' \
+     "$cef_root/tests/cefclient/browser/client_handler.cc" || \
+   ! grep -q 'threef_auth::IsAllowedResource' \
+     "$cef_root/tests/cefclient/browser/base_client_handler.cc"; then
+  echo "Refusing to package an unrestricted CEF build. Rebuild with THREEF_CEF_NAVIGATION_MODE=restricted-auth." >&2
+  exit 4
 fi
 if [[ -e "$candidate" ]]; then
   echo "Refusing to replace an existing candidate: $candidate" >&2
