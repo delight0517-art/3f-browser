@@ -274,13 +274,7 @@ struct BrowserWebView: NSViewRepresentable {
         }
 
         private func openOAuthInSystemBrowser(_ url: URL) {
-            guard !NSWorkspace.shared.open(url) else { return }
-            let error = NSError(
-                domain: "ThreeFBrowser.GoogleOAuthNavigation",
-                code: 1,
-                userInfo: [NSLocalizedDescriptionKey: "Could not open Google authorization URL in the system browser."]
-            )
-            parent.onNavigationFailed?(error)
+            GoogleOAuthHandoffDiagnostics.shared.handoff(url, sourceURL: nil)
         }
 
         @discardableResult
