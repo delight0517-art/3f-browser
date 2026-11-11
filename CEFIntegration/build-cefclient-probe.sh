@@ -194,6 +194,44 @@ for name, target in (
     link.symlink_to(target)
 PY
 
+# The CMake bundle target can retain stale nested helper bundles after the
+# helper Info.plists are regenerated for a different CEF_CLIENT_BUNDLE_ID.
+# Sync the freshly generated, identifier-matched helper apps before signing.
+python3 - "$app_bundle" "$build_dir/tests/cefclient/Release" <<'PY'
+from pathlib import Path
+import plistlib
+import shutil
+import sys
+import tempfile
+
+app_bundle = Path(sys.argv[1])
+release_dir = Path(sys.argv[2])
+frameworks = app_bundle / "Contents/Frameworks"
+app_info = plistlib.loads((app_bundle / "Contents/Info.plist").read_bytes())
+expected_prefix = app_info["CFBundleIdentifier"] + ".helper"
+source_helpers = sorted(release_dir.glob("cefclient Helper*.app"))
+if not source_helpers:
+    raise SystemExit("CEF helper app outputs are missing.")
+
+with tempfile.TemporaryDirectory(prefix=".cef-helper-sync-", dir=frameworks) as temp:
+    staged_root = Path(temp)
+    for source in source_helpers:
+        info_path = source / "Contents/Info.plist"
+        helper_id = plistlib.loads(info_path.read_bytes()).get("CFBundleIdentifier", "")
+        if helper_id != expected_prefix and not helper_id.startswith(expected_prefix + "."):
+            raise SystemExit(f"CEF helper bundle ID mismatch: {source.name}: {helper_id}")
+        shutil.copytree(source, staged_root / source.name, symlinks=True)
+
+    for source in source_helpers:
+        destination = frameworks / source.name
+        if destination.exists() or destination.is_symlink():
+            if destination.is_dir() and not destination.is_symlink():
+                shutil.rmtree(destination)
+            else:
+                destination.unlink()
+        (staged_root / source.name).rename(destination)
+PY
+
 for helper in "$app_bundle"/Contents/Frameworks/cefclient\ Helper*.app; do
   codesign --force --deep --sign - "$helper"
 done
