@@ -165,6 +165,28 @@ struct ThreeFBrowserApp: App {
             )
                 .environmentObject(ThreeFURLRouter.shared)
         }
+        WindowGroup("3F AI Mod", id: "ai-mode") {
+            BrowserView(
+                aiMode: true,
+                authorizeNavigation: { url, completion in
+                    if AIModeNavigationPolicy.isOnlyChatLocalOrigin(url) {
+                        completion(.allowed)
+                        return
+                    }
+                    Task {
+                        guard OptionalFeatureAvailability.focusFenceEnforcement else {
+                            completion(.allowed)
+                            return
+                        }
+                        completion(ThreeFBrowserControlController.navigationAuthorizationDecision(
+                            for: url,
+                            rules: await ThreeFBrowserControlController.fetchFocusFenceRules()
+                        ))
+                    }
+                }
+            )
+            .environmentObject(ThreeFURLRouter.shared)
+        }
         WindowGroup("3F Web App", id: "web-app", for: InstalledWebApp.self) { installedApp in
             if let installedApp = installedApp.wrappedValue {
                 BrowserView(

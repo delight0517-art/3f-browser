@@ -17,18 +17,26 @@ struct BrowserView: View {
     @State private var readerFailure: String?
     @State private var isExtractingReaderArticle = false
     @SceneStorage("threef.browser.session-window-id") private var sessionWindowID = UUID().uuidString
+    @SceneStorage("threef.ai-mode.session-window-id") private var aiModeSessionWindowID = UUID().uuidString
     @State private var didRestoreSession = false
     @State private var isWindowClosing = false
     @State private var isAppTerminating = false
     private let embedded: Bool
+    private let aiMode: Bool
     private let installedWebApp: InstalledWebApp?
     private let authorizeNavigation: ((URL, @escaping (BrowserNavigationAuthorizationDecision) -> Void) -> Void)?
     private let onWebView: ((BrowserModel, WKWebView) -> Void)?
     private let onPageStateChange: ((URL?) -> Void)?
     private let onBlockedNavigation: ((URL) -> Void)?
 
+    private var sessionStorageWindowID: String { aiMode ? aiModeSessionWindowID : sessionWindowID }
+    private var sessionStorageDirectory: URL {
+        aiMode ? BrowserSessionStore.defaultDirectory.appendingPathComponent("ai-mode-sessions", isDirectory: true) : BrowserSessionStore.defaultDirectory
+    }
+
     init(
         embedded: Bool = false,
+        aiMode: Bool = false,
         installedWebApp: InstalledWebApp? = nil,
         authorizeNavigation: ((URL, @escaping (BrowserNavigationAuthorizationDecision) -> Void) -> Void)? = nil,
         onWebView: ((BrowserModel, WKWebView) -> Void)? = nil,
@@ -36,20 +44,29 @@ struct BrowserView: View {
         onBlockedNavigation: ((URL) -> Void)? = nil
     ) {
         self.embedded = embedded
+        self.aiMode = aiMode
         self.installedWebApp = installedWebApp
         self.authorizeNavigation = authorizeNavigation
         self.onWebView = onWebView
         self.onPageStateChange = onPageStateChange
         self.onBlockedNavigation = onBlockedNavigation
         _model = StateObject(wrappedValue: BrowserModel())
-        let initialTab = BrowserSessionTab(title: installedWebApp?.title ?? "새 탭", url: installedWebApp?.destination)
+        let initialTab = BrowserSessionTab(
+            title: aiMode ? "Only Chat" : (installedWebApp?.title ?? "새 탭"),
+            url: aiMode ? AIModeNavigationPolicy.onlyChatURL : installedWebApp?.destination
+        )
         _tabs = State(initialValue: [initialTab])
         _selectedTabID = State(initialValue: initialTab.id)
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            if embedded {
+            if aiMode {
+                HStack(spacing: 0) {
+                    aiModeSidebar
+                    browserContent
+                }
+            } else if embedded {
                 tabStrip
             } else if installedWebApp == nil {
                 VStack(spacing: 0) {
@@ -63,9 +80,9 @@ struct BrowserView: View {
             browserContent
             if !embedded && installedWebApp == nil { statusBar }
         }
-        .padding(.top, (embedded || installedWebApp != nil) ? 0 : 28)
-        .frame(minWidth: embedded ? 280 : (installedWebApp == nil ? 760 : 520), minHeight: embedded ? 220 : (installedWebApp == nil ? 520 : 360))
-        .navigationTitle(installedWebApp?.title ?? "3F Browser")
+        .padding(.top, (embedded || aiMode || installedWebApp != nil) ? 0 : 28)
+        .frame(minWidth: aiMode ? 1120 : (embedded ? 280 : (installedWebApp == nil ? 760 : 520)), minHeight: aiMode ? 680 : (embedded ? 220 : (installedWebApp == nil ? 520 : 360)))
+        .navigationTitle(aiMode ? "3F AI Mod" : (installedWebApp?.title ?? "3F Browser"))
         .tint(model.theme.color)
         .sheet(isPresented: $model.isShowingSettings) {
             BrowserSettingsView(model: model)
@@ -94,7 +111,7 @@ struct BrowserView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
             guard ThreeFBrowserWindowRouting.targets(notification.object as? NSWindow, window: webView?.window) else { return }
-            try? BrowserSessionStore.markWindowActive(sessionWindowID)
+            try? BrowserSessionStore.markWindowActive(sessionStorageWindowID, in: sessionStorageDirectory)
             attachWebViewIfActive()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
@@ -303,9 +320,72 @@ struct BrowserView: View {
                 openReaderMode()
             }
             chromeButton("gearshape", help: "설정") { model.isShowingSettings = true }
+            chromeButton("sparkles", help: "AI Mod 열기", prominent: true) { openWindow(id: "ai-mode") }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+    }
+
+    private var aiModeSidebar: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 9) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 30, height: 30)
+                    .background(model.theme.color, in: RoundedRectangle(cornerRadius: 9))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("3F AI Mod").font(.system(size: 13, weight: .semibold))
+                    Text("Only Chat 작업공간").font(.system(size: 10)).foregroundStyle(ThreeFPalette.muted)
+                }
+                Spacer(minLength: 0)
+            }
+            Divider()
+            HStack {
+                Text("열린 창").font(.system(size: 11, weight: .semibold)).foregroundStyle(ThreeFPalette.muted)
+                Spacer()
+                Button { addTab() } label: { Image(systemName: "plus") }
+                    .buttonStyle(.plain).help("AI Mod 탭 열기")
+            }
+            ScrollView {
+                VStack(spacing: 4) {
+                    ForEach(tabs) { tab in
+                        HStack(spacing: 6) {
+                            Button { selectTab(tab) } label: {
+                                Label(tab.title, systemImage: tab.title == "Only Chat" ? "bubble.left.and.bubble.right" : "globe")
+                                    .font(.system(size: 11, weight: selectedTabID == tab.id ? .semibold : .regular))
+                                    .lineLimit(1)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.horizontal, 9).padding(.vertical, 8)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .background(selectedTabID == tab.id ? ThreeFPalette.raised : .clear, in: RoundedRectangle(cornerRadius: 8))
+                            Button { closeTab(tab) } label: {
+                                Image(systemName: "xmark").font(.system(size: 9, weight: .semibold))
+                            }
+                            .buttonStyle(.plain).help("탭 닫기")
+                        }
+                    }
+                }
+            }
+            Divider()
+            Label("대화 목록은 Only Chat 화면에서 표시됩니다", systemImage: "list.bullet")
+                .font(.system(size: 10)).foregroundStyle(ThreeFPalette.muted)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+            Button { openWindow(id: "browser") } label: {
+                Label("일반 브라우저", systemImage: "globe")
+                    .font(.system(size: 11, weight: .medium))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(13)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(width: 218)
+        .background(ThreeFPalette.canvas)
+        .overlay(alignment: .trailing) { Rectangle().fill(ThreeFPalette.border).frame(width: 1) }
     }
 
     private var tabStrip: some View {
@@ -359,7 +439,7 @@ struct BrowserView: View {
 
     private func addTab() {
         saveCurrentTab()
-        let tab = BrowserSessionTab(title: "새 탭")
+        let tab = BrowserSessionTab(title: aiMode ? "새 AI 탭" : "새 탭")
         tabs.append(tab)
         selectedTabID = tab.id
         model.showNewTab()
@@ -528,7 +608,7 @@ struct BrowserView: View {
     private func closeCurrentWindow() {
         guard !embedded, !isWindowClosing else { return }
         isWindowClosing = true
-        if installedWebApp == nil { try? BrowserSessionStore.remove(windowID: sessionWindowID) }
+        if installedWebApp == nil { try? BrowserSessionStore.remove(windowID: sessionStorageWindowID, from: sessionStorageDirectory) }
         dismiss()
     }
 
@@ -540,7 +620,7 @@ struct BrowserView: View {
             return
         }
         isWindowClosing = true
-        try? BrowserSessionStore.remove(windowID: sessionWindowID)
+        try? BrowserSessionStore.remove(windowID: sessionStorageWindowID, from: sessionStorageDirectory)
     }
 
     private func saveCurrentTab() {
@@ -554,13 +634,21 @@ struct BrowserView: View {
     private func updateActiveTab(url: URL?, title: String?) {
         guard let selectedTabID, let index = tabs.firstIndex(where: { $0.id == selectedTabID }) else { return }
         tabs[index].url = url
-        tabs[index].title = title?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? url?.host ?? "새 탭"
+        if aiMode, let url, AIModeNavigationPolicy.isOnlyChatLocalOrigin(url) {
+            tabs[index].title = "Only Chat"
+        } else {
+            tabs[index].title = title?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? url?.host ?? "새 탭"
+        }
         saveSession()
     }
 
     private func saveSession() {
         guard !embedded, installedWebApp == nil, !isWindowClosing else { return }
-        try? BrowserSessionStore.save(BrowserSessionSnapshot(tabs: tabs, selectedTabID: selectedTabID), windowID: sessionWindowID)
+        try? BrowserSessionStore.save(
+            BrowserSessionSnapshot(tabs: tabs, selectedTabID: selectedTabID),
+            to: sessionStorageDirectory,
+            windowID: sessionStorageWindowID
+        )
     }
 
     private func initializeWindow() {
@@ -570,12 +658,15 @@ struct BrowserView: View {
             model.navigate(to: destination, authorize: authorizeNavigation)
             return
         }
-        let session = try? BrowserSessionStore.restoreWindow(sessionWindowID)
-        if let destination = ThreeFContextMenuWindowRoute.takeNext() {
+        let session = try? BrowserSessionStore.restoreWindow(sessionStorageWindowID, in: sessionStorageDirectory)
+        if !aiMode, let destination = ThreeFContextMenuWindowRoute.takeNext() {
             model.navigate(to: destination, authorize: authorizeNavigation)
             return
         }
-        guard let session else { return }
+        guard let session else {
+            if aiMode, let url = tabs.first?.url { model.navigate(to: url, authorize: authorizeNavigation) }
+            return
+        }
         tabs = session.tabs
         selectedTabID = session.selectedTabID ?? session.tabs.first?.id
         if let selectedTabID,
