@@ -75,6 +75,12 @@ THREEF_CEF_NAVIGATION_MODE=full-browser CEFIntegration/build-cefclient-probe.sh
 CEFIntegration/package-3f-browser-candidate.sh
 ```
 
+For a one-off startup trace, set `THREEF_CEF_STARTUP_TRACE=1` during build,
+then launch the candidate executable with the same variable set. It writes only
+startup milestones to stderr; capture that stream locally when diagnosing a
+candidate. It does not record page URLs, page content, or credentials, and it
+is disabled by default.
+
 The existing auth-only helper remains available through the default
 `restricted-auth` build mode and `package-3f-cef-host.sh`. Full-browser mode
 removes the auth-only navigation patch from the generated CEF source before

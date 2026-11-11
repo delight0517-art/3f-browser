@@ -1,0 +1,12 @@
+[3FTRACE] RunMain entered
+[3FTRACE] LoadInMain succeeded
+[1111/231342.257855:WARNING:/Users/rogan/appDev/apps/3f-browser-mac/.build/cef-156-arm64/unpacked/tests/cefclient/browser/main_context_impl.cc:110] Chrome runtime defaults to the Views framework.
+[1111/231342.258567:WARNING:/Users/rogan/appDev/apps/3f-browser-mac/.build/cef-156-arm64/unpacked/tests/cefclient/browser/main_context_impl.cc:131] Using Chrome style; Views-hosted window; Windowed rendering (not a warning)
+[3FTRACE] using standard message loop
+[3FTRACE] before MainContext Initialize
+[3FTRACE] MainContext Initialize succeeded
+[3FTRACE] createApplication queued
+[3FTRACE] before message loop Run
+[3FTRACE] createApplication entered
+[3FTRACE] before CreateRootWindow
+[3FTRACE] after CreateRootWindow

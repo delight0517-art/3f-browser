@@ -9,7 +9,9 @@ framework="$app_bundle/Contents/Frameworks/Chromium Embedded Framework.framework
 framework_source="$cef_root/Release/Chromium Embedded Framework.framework"
 profile_patch="$repo_root/CEFIntegration/patches/0003-cefclient-profile.patch"
 auth_policy_patch="$repo_root/CEFIntegration/patches/0005-3f-auth-only-navigation.patch"
+startup_trace_patch="$repo_root/CEFIntegration/patches/0006-3f-startup-trace.patch"
 navigation_mode="${THREEF_CEF_NAVIGATION_MODE:-restricted-auth}"
+startup_trace="${THREEF_CEF_STARTUP_TRACE:-0}"
 
 case "$navigation_mode" in
   restricted-auth|full-browser) ;;
@@ -47,6 +49,16 @@ if [[ "$navigation_mode" == "restricted-auth" ]]; then
 elif grep -q 'threef_auth_browser_policy.h' \
     "$cef_root/tests/cefclient/browser/base_client_handler.cc"; then
   patch -R -p1 -i "$auth_policy_patch" -d "$cef_root"
+fi
+
+if [[ "$startup_trace" == "1" ]]; then
+  if grep -q 'void StartupTrace' "$cef_root/tests/cefclient/cefclient_mac.mm"; then
+    : # Already applied to this local unpacked CEF tree.
+  else
+    patch -p1 -i "$startup_trace_patch" -d "$cef_root"
+  fi
+elif grep -q 'StartupTrace(' "$cef_root/tests/cefclient/cefclient_mac.mm"; then
+  patch -R -p1 -i "$startup_trace_patch" -d "$cef_root"
 fi
 
 cmake --build "$build_dir" --target cefclient --parallel 6

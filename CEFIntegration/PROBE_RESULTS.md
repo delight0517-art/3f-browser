@@ -76,6 +76,19 @@ Date: 2026-10-29 (Mac, arm64)
   UI/runtime blocker is unresolved, so general navigation, Google sign-in, and
   product integration remain unverified. The installed SwiftUI 3F app was not
   changed.
+- A follow-up candidate added opt-in `[3FTRACE]` stderr milestones around CEF
+  initialization, AppKit loop entry, `createApplication`, and
+  `CreateRootWindow`. The build and candidate signature passed, and
+  `workflow-control verify-mac` allowed local launch. A local `data:` launch
+  recorded successful CEF initialization, queued and entered
+  `createApplication`, and returned from `CreateRootWindow`; its captured trace
+  stopped before the message-loop return marker. No browser window or retained
+  process was confirmed, and a fresh 10-minute unified-log query contained no
+  cefclient termination details. The trace is preserved at
+  `work/3f-cef-startup-trace-20261111.log`; candidate executable SHA-256 is
+  `bfc4511d0212bca142afede1d2ca0ed4353343acb98e05a0d674b19433ed1424`. This
+  narrows the failure to after the root-window request but does not identify
+  why the process disappears or prove CEF browser content was created.
 
 ## Build evidence
 
