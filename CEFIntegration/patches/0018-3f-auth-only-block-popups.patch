@@ -1,0 +1,12 @@
+diff --git a/tests/cefclient/browser/client_handler.cc b/tests/cefclient/browser/client_handler.cc
+--- a/tests/cefclient/browser/client_handler.cc
++++ b/tests/cefclient/browser/client_handler.cc
+@@ -1005,4 +1005,8 @@ bool ClientHandler::OnBeforePopup(
+   CEF_REQUIRE_UI_THREAD();
++  // 3F auth-only popup migration marker.
++  if (threef_auth::IsAuthOnlyMode()) {
++    return true;
++  }
+   if (!threef_auth::IsAllowedNavigation(target_url, true, false)) {
+     return true;
+   }

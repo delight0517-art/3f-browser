@@ -12,6 +12,7 @@ profile_override_patch="$repo_root/CEFIntegration/patches/0010-cefclient-profile
 native_window_patch="$repo_root/CEFIntegration/patches/0015-3f-native-window-mode.patch"
 auth_policy_patch="$repo_root/CEFIntegration/patches/0005-3f-auth-only-navigation.patch"
 auth_redirect_patch="$repo_root/CEFIntegration/patches/0017-3f-auth-callback-redirect-only.patch"
+auth_popup_patch="$repo_root/CEFIntegration/patches/0018-3f-auth-only-block-popups.patch"
 auth_mode_patch="$repo_root/CEFIntegration/patches/0009-3f-auth-only-launch-switch.patch"
 auth_policy_header="$cef_root/tests/cefclient/browser/threef_auth_browser_policy.h"
 startup_trace_patch="$repo_root/CEFIntegration/patches/0006-3f-startup-trace.patch"
@@ -92,7 +93,17 @@ PY
   fi
   grep -Fq '}  // namespace threef_auth' "$auth_policy_header"
   grep -Fq '}  // namespace client' "$auth_policy_header"
+  if ! grep -Fq '3F auth-only popup migration marker' \
+      "$cef_root/tests/cefclient/browser/client_handler.cc" && \
+     ! grep -Fq 'if (threef_auth::IsAuthOnlyMode())' \
+      "$cef_root/tests/cefclient/browser/client_handler.cc"; then
+    patch -p1 -i "$auth_popup_patch" -d "$cef_root"
+  fi
 else
+  if grep -Fq '3F auth-only popup migration marker' \
+      "$cef_root/tests/cefclient/browser/client_handler.cc"; then
+    patch -R -p1 -i "$auth_popup_patch" -d "$cef_root"
+  fi
   policy_header="$cef_root/tests/cefclient/browser/threef_auth_browser_policy.h"
   if [[ -f "$policy_header" ]] && grep -q 'IsAuthOnlyMode' "$policy_header"; then
     patch -R -p1 -i "$auth_mode_patch" -d "$cef_root"

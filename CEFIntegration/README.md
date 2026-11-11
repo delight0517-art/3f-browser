@@ -115,7 +115,7 @@ CEF navigation policy at main-frame/subframe navigation, popup creation, and
 resource-request hooks. Page navigation is limited to `accounts.google.com`
 and `consent.google.com`, plus a main-frame redirect back to the exact source
 origin passed by 3F. The source origin is not allowed as a typed URL or ordinary
-link. Non-HTTP(S),
+link, and the login-only helper does not create popup windows. Non-HTTP(S),
 other sites, YouTube/media hosts, and Google search endpoints are rejected.
 The same policy checks address-bar navigation, redirects, links, and popups.
 Only a main-frame redirect can return to the exact originating 3F site; a URL

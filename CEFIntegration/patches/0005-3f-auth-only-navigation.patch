@@ -173,9 +173,12 @@ index 0000000..0000000 100644
 +#include "tests/cefclient/browser/threef_auth_browser_policy.h"
  #include "tests/cefclient/browser/test_runner.h"
  #include "tests/shared/browser/resource_util.h"
-@@ -1004,4 +1005,7 @@ bool ClientHandler::OnBeforePopup(
+@@ -1004,4 +1005,10 @@ bool ClientHandler::OnBeforePopup(
      bool* no_javascript_access) {
    CEF_REQUIRE_UI_THREAD();
++  if (threef_auth::IsAuthOnlyMode()) {
++    return true;
++  }
 +  if (!threef_auth::IsAllowedNavigation(target_url, true, false)) {
 +    return true;
 +  }
