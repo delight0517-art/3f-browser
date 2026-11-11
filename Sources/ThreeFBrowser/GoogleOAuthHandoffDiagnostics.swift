@@ -13,6 +13,8 @@ struct GoogleOAuthHandoffEvent: Identifiable, Equatable {
         case opened = "Google 로그인 페이지 열림 · 3F 내부"
         case cefBrowserHandoff = "Google 인증을 3F Chromium 창으로 전달"
         case cefBrowserUnavailable = "3F Chromium 창 열기 실패"
+        case popupOpened = "팝업을 3F 탭으로 열음"
+        case popupStormBlocked = "팝업 폭주 차단"
         case duplicateSuppressed = "반복 팝업 억제"
         case asideUnavailable = "로그인 화면을 3F에서 유지"
         case openFailed = "브라우저 진단 이벤트"
@@ -59,6 +61,7 @@ final class GoogleOAuthHandoffDiagnostics: ObservableObject {
     private let maxFileBytes = 1_048_576
     private var recentKeys: [String: Date] = [:]
     private var recentHandoffKeys: [String: Date] = [:]
+    private var popupRequestDates: [Date] = []
 
     private var logURL: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -99,6 +102,21 @@ final class GoogleOAuthHandoffDiagnostics: ObservableObject {
                 self?.record(.cefBrowserUnavailable, key: "google-cef-unavailable")
             }
         }
+    }
+
+    func allowPopup() -> Bool {
+        let now = Date()
+        popupRequestDates = popupRequestDates.filter { now.timeIntervalSince($0) < 10 }
+        let burstKey = "popup-storm-\(Int(now.timeIntervalSince1970 / 10))"
+        guard popupRequestDates.count < 5 else {
+            record(.popupStormBlocked, detail: "10초 내 팝업 6건째부터 차단", key: burstKey)
+            return false
+        }
+        popupRequestDates.append(now)
+        if popupRequestDates.count == 1 {
+            record(.popupOpened, key: "popup-opened")
+        }
+        return true
     }
 
     func clear() {

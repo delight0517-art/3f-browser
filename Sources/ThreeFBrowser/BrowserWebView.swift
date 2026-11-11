@@ -237,7 +237,7 @@ struct BrowserWebView: NSViewRepresentable {
                 authorizeNavigation(url) { [weak self] decision in
                     guard let self else { return }
                     if decision.isAllowed, GoogleOAuthNavigationPolicy.requiresSystemBrowser(for: url) {
-                        self.openOAuthInSystemBrowser(url)
+                        self.openOAuthInSystemBrowser(url, sourceURL: webView.url)
                         return
                     }
                     guard let intent = ThreeFContextMenuPolicy.intent(action: action, url: url, isAllowed: decision.isAllowed) else {
@@ -262,7 +262,7 @@ struct BrowserWebView: NSViewRepresentable {
                         allowsDownloads: parent.allowsDownloads
                     )
                     if decision == .allow {
-                        openOAuthInSystemBrowser(url)
+                        openOAuthInSystemBrowser(url, sourceURL: webView.url)
                     }
                     return nil
                 }
@@ -272,7 +272,7 @@ struct BrowserWebView: NSViewRepresentable {
                         self.parent.onRejectedNavigation?(url, decision)
                         return
                     }
-                    self.openOAuthInSystemBrowser(url)
+                    self.openOAuthInSystemBrowser(url, sourceURL: webView.url)
                 }
                 return nil
             }
@@ -284,8 +284,8 @@ struct BrowserWebView: NSViewRepresentable {
             return nil
         }
 
-        private func openOAuthInSystemBrowser(_ url: URL) {
-            GoogleOAuthHandoffDiagnostics.shared.handoff(url, sourceURL: nil)
+        private func openOAuthInSystemBrowser(_ url: URL, sourceURL: URL?) {
+            GoogleOAuthHandoffDiagnostics.shared.handoff(url, sourceURL: sourceURL)
         }
 
         @discardableResult
@@ -297,7 +297,7 @@ struct BrowserWebView: NSViewRepresentable {
             guard targetFrameIsAbsent,
                   let destination = ThreeFContextMenuPolicy.safeHTTPURL(url),
                   let openInNewTab else { return false }
-            GoogleOAuthHandoffDiagnostics.shared.record(.duplicateSuppressed, key: "popup")
+            guard GoogleOAuthHandoffDiagnostics.shared.allowPopup() else { return true }
             openInNewTab(destination)
             return true
         }
@@ -380,7 +380,7 @@ struct BrowserWebView: NSViewRepresentable {
                 let navigationDecision = Self.navigationDecision(isAllowed: nil, shouldDownload: navigationAction.shouldPerformDownload, allowsDownloads: parent.allowsDownloads)
                 if navigationDecision == .allow, GoogleOAuthNavigationPolicy.requiresSystemBrowser(for: url) {
                     decisionHandler(.cancel)
-                    openOAuthInSystemBrowser(url)
+                    openOAuthInSystemBrowser(url, sourceURL: webView.url)
                     return
                 }
                 decisionHandler(Self.webKitActionPolicy(navigationDecision))
@@ -391,7 +391,7 @@ struct BrowserWebView: NSViewRepresentable {
                 let navigationDecision = Self.navigationDecision(isAllowed: decision.isAllowed, shouldDownload: navigationAction.shouldPerformDownload, allowsDownloads: self?.parent.allowsDownloads ?? false)
                 if navigationDecision == .allow, GoogleOAuthNavigationPolicy.requiresSystemBrowser(for: url) {
                     decisionHandler(.cancel)
-                    self?.openOAuthInSystemBrowser(url)
+                    self?.openOAuthInSystemBrowser(url, sourceURL: webView.url)
                     return
                 }
                 decisionHandler(Self.webKitActionPolicy(navigationDecision))
