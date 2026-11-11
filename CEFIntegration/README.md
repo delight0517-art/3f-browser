@@ -58,36 +58,38 @@ The current product still uses WKWebView; importing the upstream browser shell,
 its lifecycle, profile migration, Only Chat control channel, and extension
 install/update policy remain implementation work. No extension was installed.
 
-## Restricted Google-auth sidecar
+## CEF auth-sidecar experiment (not the product architecture)
 
-The existing 3F product stays SwiftUI + WKWebView and keeps its current tabs,
-settings, downloads, uploads, Only Chat/AI Mod, and Focus Fence integration.
-CEF is a separate top-level window used only for a Google authentication
-transaction. It does not replace 3F or take ownership of normal browsing.
+The earlier `CEFBrowserRuntime` prototype kept SwiftUI + WKWebView as the 3F
+browser and launched a separate CEF app for Google authentication. That is not
+the requested end state and must not be treated as Google-compliant: CEF is an
+embeddable browser framework under the integrating app's control. Even a
+standalone top-level CEF window that renders Google Accounts is only a probe; it
+does not establish that Google accepts 3F as a full browser.
 
-`scripts/package-macos-app.sh` places the signed `3F Chromium Browser.app`
-alongside the 3F app. Preserve CEF's original `org.cef.cefclient` app/helper
-identifiers: custom product IDs failed CEF's Mach rendezvous on this Mac. The
-sidecar has a separate CEF profile; cookies are never copied to WebKit.
+The requested architecture is a complete standalone 3F browser product whose
+primary engine owns normal browsing and Google OAuth in the same browser UI.
+The browser must expose the requested/current URI and secure-connection details,
+preserve existing 3F features, and integrate the Focus Fence administrator
+policy plugin. A browser-control sidecar may coordinate Only Chat, but it must
+not replace the browser surface or move OAuth into an embedded user agent.
 
-The sidecar starts from the exact originating HTTPS page so that the site can
-create its state and complete its callback in one Chromium session. Its
-`--3f-auth-only` mode permits only that exact site origin plus Google's
-`accounts.google.com` and `consent.google.com`. Other top-level navigations,
-redirects, and popups are blocked, including YouTube and Google Search. The
-Focus Fence adapter checks the originating site before launch.
+Google's policy is explicit that a developer must not direct OAuth to an
+embedded user agent under its control. Do not spoof a browser user agent or copy
+cookies between engines. A real OAuth login/callback in the 3F-owned standalone
+browser is required before claiming compatibility. See
+[`3F_BROWSER_MIGRATION_MATRIX.md`](3F_BROWSER_MIGRATION_MATRIX.md) for the full
+feature and runtime acceptance criteria.
 
-Google policy prohibits directing OAuth requests to developer-controlled
-embedded user agents. A CEF window that displays Google's sign-in page does not
-prove that Google permits the full login. Do not spoof the user agent or claim
-policy acceptance until a real sign-in and callback succeed. Do not register
-the sidecar as the system default browser.
+The CEF auth-only code, package helper, and profile are retained as diagnostic
+history while the standalone browser migration proceeds. Do not install or
+promote that helper as the 3F browser.
 
 For a one-off startup trace, set `THREEF_CEF_STARTUP_TRACE=1` during build,
 then launch the candidate executable with the same variable set. It writes only
 startup milestones to stderr and is disabled by default.
 
-## CEF Views browser-shell prototype
+## CEF Views browser-shell prototype (embedded-framework probe)
 
 `build-3f-browser-shell.sh` builds a separate CEF Views app from the previously
 rendering `cefsimple` sample, adding Back, Forward, Reload and a URL-only
@@ -97,17 +99,18 @@ rendezvous, and a separate per-candidate profile. It is not the final 3F
 product bundle identity. It opens to
 `about:blank`; it does not reuse or migrate the installed 3F profile.
 
-This is still a prototype, not the 3F product shell. It has no tab strip, Only
-Chat/AI Mod connection, Focus Fence integration, download and permission
+This is still a prototype, not the 3F product shell or accepted OAuth runtime.
+It has no tab strip, Only Chat/AI Mod connection, Focus Fence integration,
+download and permission
 handling, external-link routing, or product diagnostics. The address field
 does not convert search phrases into Google searches, but destination
 allowlisting is not implemented. Google OAuth compatibility is unverified;
 do not install this candidate or make it the default browser.
 
-## 3F authentication-only navigation policy
+## Legacy 3F authentication-only navigation policy
 
-The bundled `3F Chromium Browser.app` is launched for the originating 3F site
-and Google authentication. `patches/0005-3f-auth-only-navigation.patch` applies a
+The legacy bundled `3F Chromium Browser.app` was launched for the originating
+3F site and Google authentication. `patches/0005-3f-auth-only-navigation.patch` applies a
 CEF navigation policy at main-frame/subframe navigation, popup creation, and
 resource-request hooks. Page navigation is limited to the exact source origin
 passed by 3F plus `accounts.google.com` and `consent.google.com`; non-HTTP(S),
@@ -117,9 +120,9 @@ Ordinary non-YouTube page resources can still load from third-party origins;
 this is a destination restriction, not a network-wide domain allowlist.
 
 The policy is built into the restricted helper mode only. It has not been
-verified with an actual Google sign-in, so authentication compatibility and
-Google's policy acceptance remain unconfirmed. The main 3F UI still uses
-WKWebView until the full-browser product candidate is integrated.
+verified with an actual Google sign-in and is not the target architecture.
+The installed 3F app still uses WKWebView; the standalone full-browser product
+candidate has not been integrated.
 
 ## 2026-11-12 CEF Views runtime diagnosis
 

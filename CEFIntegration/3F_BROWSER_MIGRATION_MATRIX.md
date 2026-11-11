@@ -1,16 +1,15 @@
-# 3F Browser auth-sidecar acceptance and future migration matrix
+# 3F Browser standalone-engine migration acceptance matrix
 
-The user's current direction keeps the existing SwiftUI + WKWebView 3F Browser as the normal browser and uses CEF only for a restricted Google-auth transaction. The sidecar does not replace or inherit 3F's normal browser functions, so it does not need full feature parity. The remaining migration rows are a gate only if a future change proposes replacing the main browser engine. “In source” is not the same as installed/runtime proof.
+The requested end state is for 3F Browser itself to be a full, standalone browser that owns ordinary navigation and Google OAuth. A separate CEF window, CEF Views shell, WKWebView, or browser engine embedded under developer control is not the final architecture. Google sign-in must run in 3F's normal browser tab, with user-visible destination and connection details. Keep the current installed browser and profile intact until the new 3F candidate passes the complete feature and runtime gates below. Source presence, a rendered sign-in page, or unit tests alone do not prove Google acceptance.
 
 ## Browser structure and Google sign-in
 
 | Requirement | Existing implementation/evidence | Replacement acceptance |
 |---|---|---|
-| Existing 3F browser stays primary | Installed product is SwiftUI + WKWebView. The CEF auth window is a separate helper and must not replace normal 3F tabs or the default handler. | Normal navigation and existing functions remain in 3F; CEF launches only for Google auth and cannot browse arbitrary sites. |
-| User can inspect destination and connection | WKWebView product has an address/search field; upstream CEF probe exposed an address field and “View site information” control while showing Google Accounts. | Show the exact current host, secure-connection status, and certificate/connection details in the 3F browser chrome; retain them during OAuth redirects. |
-| Google OAuth acceptance | Google policy rejects developer-controlled embedded user-agents. A CEF sample displaying the sign-in page is not acceptance evidence; actual policy acceptance remains unknown. | Treat CEF as an auth-only experiment until a real sign-in and callback complete. Do not spoof the user agent or copy cookies to WebKit. |
-| Auth sidecar scope and return | The CEF policy allows the exact originating HTTPS site plus Google auth/consent endpoints; CEF uses its own profile. The source is rechecked through Focus Fence before launch. | Address entry, redirects, links, and popups outside that origin and the auth endpoints are blocked. Callback cookies remain in Chromium and are not shared with WebKit. |
-| Address/search and ordinary web navigation | `BrowserModel.submit`, `SearchProvider`, URL guard, external URL router, navigation feedback. | Enter URL/search, redirects, reload, and external HTTP/HTTPS links route to the expected 3F tab and respect Focus Fence policy. |
+| 3F is the browser, not an embedded view | Installed product is SwiftUI + WKWebView; CEF experiments use the embeddable CEF framework and are separate candidates. | Ship 3F as a complete standalone browser application based on a full browser distribution/runtime. It owns its browser process, navigation UI, tabs, profile, and OAuth page; do not use CEF or WKWebView as the OAuth user agent. |
+| User can inspect destination and connection | Current 3F has an address/search field. An upstream CEF probe exposed an address field and site-information control, but is not product proof. | In 3F's normal browser chrome, show the exact requested/current URI, secure connection state, and certificate/site details through the complete OAuth redirect chain. |
+| Google OAuth acceptance | Google policy prohibits directing OAuth to a developer-controlled embedded user agent. Neither an OAuth handoff nor a CEF sign-in screenshot proves acceptance. | Test a real 3F-owned browser tab and callback without user-agent spoofing, cookie copying, or opening a separate embedded login window. Record the exact Google result; do not claim Google approval from source or UI appearance alone. |
+| Address/search and ordinary web navigation | `BrowserModel.submit`, `SearchProvider`, URL guard, external URL router, and navigation feedback. | URL entry, search, redirects, reload, popup and external-link routing all stay in the 3F browser and respect Focus Fence policy. Google OAuth is not a special sidecar route. |
 
 ## Existing user-facing feature parity
 
@@ -33,7 +32,7 @@ The user's current direction keeps the existing SwiftUI + WKWebView 3F Browser a
 
 | Requirement | Current implementation/evidence | Replacement acceptance |
 |---|---|---|
-| Focus Fence policy is applied by the browser | `ThreeFBrowserControl.swift`, `FocusFenceConnectionService.swift`, `FocusFenceSearchResultFilter.swift`; `ThreeFBrowserControlTests`, `FocusFenceSearchResultFilterTests` | Admin-managed Focus Fence policy is installed/enabled as a browser policy extension/plugin. The browser reports the policy revision and fails closed for restricted navigation when policy is unavailable. |
+| Focus Fence policy is applied by the browser | `ThreeFBrowserControl.swift`, `FocusFenceConnectionService.swift`, `FocusFenceSearchResultFilter.swift`; `ThreeFBrowserControlTests`, `FocusFenceSearchResultFilterTests` | Admin-managed Focus Fence policy is delivered as the browser's managed policy plugin/extension. The browser reports the applied policy revision and fails closed for restricted navigation when policy is unavailable. |
 | Domain, URL-part, keyword, exception, schedule rules | `ThreeFBrowserControl.focusFenceAllows` and the search-result filter | Verify allow, deny, exception, redirects, popup, subframe/resource boundaries, schedule refresh, offline failure, and policy update behavior through the real plugin. |
 | Google sign-in remains usable under policy | Current Focus Fence authorization path checks destinations; CEF restricted policy is only a probe. | Auth and consent endpoints are handled by the browser directly; admin policy does not spoof the user agent or rewrite OAuth URLs. Explicit Focus Fence denials remain visible and auditable. |
 | YouTube navigation and playback quota | `YouTubeUsageReporter.swift`, `YouTubePreviewPlaybackBlocker.swift`, `ThreeFBrowserControl.swift`, `BrowserModel.swift`; YouTube policy/summary tests | Page access, visible/hidden playback accounting, hourly/daily stop, unavailable-budget behavior, Focus Fence read-after-write, and user-visible status all pass in the replacement. |
@@ -48,21 +47,21 @@ The user's current direction keeps the existing SwiftUI + WKWebView 3F Browser a
 | Profile and secret migration | Current WKWebsiteDataStore and `BrowserSessionStore` are separate from CEF profiles. | Make a reversible, documented migration of bookmarks/history/tabs/settings only; preserve existing WebKit profile, session cookies, downloads, and rollback copy until user-visible candidate proof passes. Never copy cookies into another engine. |
 | Clean restart and recovery | Existing installed build20 and rollback copies are retained. | Candidate quits normally, reopens with the migrated data, keeps the Google/Focus Fence boundary, and can roll back without corrupting the current profile. |
 
-## Auth-sidecar release gate
+## Standalone 3F browser release gate
 
-1. Keep the installed 3F app and all existing functions on the current WebKit engine.
-2. Build/sign the CEF sidecar with matching upstream CEF app/helper IDs and require the explicit `--3f-auth-only` switch.
-3. Verify the Google auth page, exact-origin callback path, and denial of arbitrary address-bar, redirect, and popup destinations.
-4. Verify the Focus Fence decision and diagnostics at the 3F handoff boundary. Google acceptance and session continuity remain unproven until the real login journey succeeds.
-5. Never set the sidecar as default or replace the existing 3F browser as part of this auth-only change.
+1. Keep the installed 3F build, profile, and rollback copy until the standalone 3F candidate passes the full feature matrix.
+2. The primary 3F app must own a full browser engine and its normal navigation surface; a CEF or WKWebView OAuth sidecar is not an acceptable endpoint.
+3. Integrate the Focus Fence administrator plugin, Only Chat control, AI Mod side panel/conversation list, existing diagnostics, tabs/sessions, downloads/uploads, reader, bookmarks, history, and media behavior.
+4. Verify normal URL navigation and the full Google sign-in/callback journey in 3F's own browser tab, including visible URI and TLS/certificate details. Do not spoof browser identity or copy cookies between engines.
+5. Preserve a reversible profile/data migration and verify restart, Focus Fence fail-closed behavior, and rollback before installation or replacement.
 
-## Future full-engine migration gate
+## Full-engine parity gate
 
-The feature-parity rows above still apply if the user later asks to replace the main browser engine. Source presence and unit tests alone do not establish runtime parity.
+The feature-parity rows are requirements for this requested migration, not optional future work. Source presence and unit tests alone do not establish runtime parity.
 
 ## Current status — 2026-11-12
 
 - Installed 3F is still build20 using SwiftUI + WKWebView.
-- The identity-preserving upstream CEF sample displayed Google sign-in controls, but this did not prove Google policy acceptance or successful authentication.
-- CEF's custom 3F identity candidate still exits before creating a browser window. CEF/Chromium product integration, all feature rows, Focus Fence plugin execution, Only Chat/AI Mod, diagnostic durability, Google login, and install remain unverified.
-- No replacement candidate is authorized by this matrix; it is a guard against losing current 3F functionality during the user-authorized migration.
+- The upstream CEF sample displayed Google sign-in controls, but CEF is an embedded framework and that probe did not prove policy acceptance or successful authentication.
+- The auth-only CEF candidate passes local signature checks but exits before a persistent window. The latest `NSWorkspace` launch callback succeeded while the process still exited before UI; no Google login was attempted.
+- The installed 3F build20 remains SwiftUI + WKWebView and unchanged. A standalone full-browser product, Focus Fence plugin, Only Chat/AI Mod, feature parity, diagnostic durability, OAuth journey, install, and rollback proof remain outstanding.
