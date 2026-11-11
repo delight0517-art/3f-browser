@@ -32,24 +32,14 @@ trap 'rm -rf "$stage"' EXIT INT TERM
 staged_app="$stage/3F Browser Preview.app"
 ditto "$source_app" "$staged_app"
 
-/usr/libexec/PlistBuddy -c 'Set :CFBundleIdentifier com.rogan.threef.browser.cefpreview' "$staged_app/Contents/Info.plist"
+# Keep CEF's compiled app/helper identifiers together. Rewriting them after
+# linking breaks the helper Mach rendezvous service; set product IDs at build time.
 /usr/libexec/PlistBuddy -c 'Set :CFBundleName 3F Browser Preview' "$staged_app/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c 'Add :CFBundleDisplayName string 3F Browser Preview' "$staged_app/Contents/Info.plist" 2>/dev/null \
   || /usr/libexec/PlistBuddy -c 'Set :CFBundleDisplayName 3F Browser Preview' "$staged_app/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c 'Add :LSApplicationCategoryType string public.app-category.web-browsers' "$staged_app/Contents/Info.plist" 2>/dev/null \
   || /usr/libexec/PlistBuddy -c 'Set :LSApplicationCategoryType public.app-category.web-browsers' "$staged_app/Contents/Info.plist"
 cp "$repo_root/Resources/3f-icon.icns" "$staged_app/Contents/Resources/cefclient.icns"
-
-# Keep CEF's helper identifiers under the renamed browser identifier so the
-# browser process can resolve its GPU, renderer, plugin, and alert helpers.
-for helper in "$staged_app"/Contents/Frameworks/cefclient\ Helper*.app; do
-  helper_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$helper/Contents/Info.plist")"
-  case "$helper_id" in
-    org.cef.cefclient.helper*) suffix="${helper_id#org.cef.cefclient}" ;;
-    *) echo "Unexpected CEF helper identifier: $helper_id" >&2; exit 4 ;;
-  esac
-  /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.rogan.threef.browser.cefpreview${suffix}" "$helper/Contents/Info.plist"
-done
 
 codesign --force --deep --sign - "$staged_app"
 codesign --verify --deep --strict "$staged_app"
