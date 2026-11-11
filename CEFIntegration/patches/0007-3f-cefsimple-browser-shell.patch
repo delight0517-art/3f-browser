@@ -221,7 +221,26 @@
  
  #include "include/cef_application_mac.h"
  #include "include/cef_command_line.h"
-@@ -129,41 +132,60 @@
+@@ -11,6 +14,10 @@
+ #include "include/wrapper/cef_library_loader.h"
+ #include "tests/cefsimple/simple_app.h"
+ #include "tests/cefsimple/simple_handler.h"
++
++namespace {
++void StartupTrace(const char* milestone);
++}  // namespace
+ 
+ // Receives notifications from the application.
+ @interface SimpleAppDelegate : NSObject <NSApplicationDelegate>
+@@ -89,6 +96,7 @@
+ 
+ // Create the application on the UI thread.
+ - (void)createApplication:(id)object {
++  StartupTrace("createApplication entered");
+   [[NSBundle mainBundle] loadNibNamed:@"MainMenu"
+                                 owner:NSApp
+                       topLevelObjects:nil];
+@@ -129,41 +137,60 @@
  }
  @end
  
@@ -277,7 +296,7 @@
      // Keep this test host's persistent profile isolated from other CEF apps.
      NSString* profileRoot = [NSHomeDirectory()
 -        stringByAppendingPathComponent:@"Library/Application Support/3F Browser/CEF/User Data"];
-+        stringByAppendingPathComponent:@"Library/Application Support/3F Browser/CEF/Browser Shell Candidate 20261112 v4/User Data"];
++        stringByAppendingPathComponent:@"Library/Application Support/3F Browser/CEF/Browser Shell Candidate 20261112 v7/User Data"];
      NSString* profileDefault = [profileRoot stringByAppendingPathComponent:@"Default"];
      CefString(&settings.root_cache_path) = [profileRoot UTF8String];
      CefString(&settings.cache_path) = [profileDefault UTF8String];
@@ -285,7 +304,7 @@
  
      // When generating projects with CMake the CEF_USE_SANDBOX value will be
      // defined automatically. Pass -DUSE_SANDBOX=OFF to the CMake command-line
-@@ -180,25 +202,33 @@
+@@ -180,25 +207,33 @@
      // Initialize the CEF browser process. May return false if initialization
      // fails or if early exit is desired (for example, due to process singleton
      // relaunch behavior).

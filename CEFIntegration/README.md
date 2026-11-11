@@ -153,3 +153,15 @@ rendezvous lookup failures. This remains a CEF Views sample-host/runtime issue,
 not a verified 3F integration. The installed build20 and both Nov 8 rollback
 backups remain untouched. Do not install or register these candidates as the
 system browser.
+
+The diagnostic packager leaves CEF's `CFBundleName` and `CFBundleDisplayName`
+unchanged along with the app/helper identifiers. Renaming only the outer product
+name is not enough evidence of a valid product bundle; the final 3F bundle must
+keep CEF helper naming, paths and runtime identity consistent.
+
+The v6/v7 trace also failed when launched from the original CEF build bundle,
+so the earlier package-copy hypothesis does not explain the current exit. It
+reaches `createApplication` but no longer returns from loading the sample
+`MainMenu` nib. No stable window or page load has been verified. Stop using this
+`cefsimple` toolbar prototype as the product migration path until that sample
+lifecycle issue is resolved; the product itself remains on WKWebView.

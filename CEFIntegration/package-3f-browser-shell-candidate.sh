@@ -3,7 +3,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source_app="$repo_root/.build/cef-156-arm64/cefsimple-isolated-build/tests/cefsimple/Release/cefsimple.app"
-candidate_root="${1:-$repo_root/.build/3f-cefsimple-browser-shell-v2-candidate}"
+candidate_root="${1:-$repo_root/.build/3f-cefsimple-browser-shell-v6-candidate}"
 candidate="$candidate_root/3F Browser Shell Candidate.app"
 
 if [[ ! -d "$source_app" ]]; then
@@ -33,8 +33,6 @@ with tempfile.TemporaryDirectory(prefix=".3f-shell-package-", dir=root) as temp:
     shutil.copytree(source, staged, symlinks=True)
     plist = staged / "Contents/Info.plist"
     for key, value in (
-        ("CFBundleName", "3F Browser Shell Candidate"),
-        ("CFBundleDisplayName", "3F Browser Shell Candidate"),
         ("LSApplicationCategoryType", "public.app-category.web-browsers"),
     ):
         result = subprocess.run(["/usr/libexec/PlistBuddy", "-c", f"Set :{key} {value}", str(plist)], capture_output=True)

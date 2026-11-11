@@ -156,3 +156,13 @@ Date: 2026-10-29 (Mac, arm64)
   tabs/session migration, Only Chat/AI Mod, Focus Fence, downloads, permissions,
   external URL ingress, and privacy-safe event logs remain incomplete or
   unverified.
+- Later callback tracing narrowed the sample failure further. The v6 run reached
+  `createApplication entered` but did not emit `MainMenu nib loaded`; its process
+  was gone on the next read. The v7 run used the original CEF build bundle
+  rather than a copied/renamed preview and showed the same trace cutoff. Logs:
+  `work/3f-cefsimple-v6.stderr.log` and
+  `work/3f-cefsimple-source-v7.stderr.log`. This means the package-copy or
+  bundle-name change alone does not explain the current failure. No exception,
+  crash report, visible persistent window, or `CEF_LOAD_END` was captured.
+  Stop repeating this sample launch route and move integration work to the
+  product's actual browser engine boundary.
