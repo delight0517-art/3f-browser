@@ -8,16 +8,34 @@ app_bundle="$build_dir/tests/cefclient/Release/cefclient.app"
 framework="$app_bundle/Contents/Frameworks/Chromium Embedded Framework.framework"
 framework_source="$cef_root/Release/Chromium Embedded Framework.framework"
 profile_patch="$repo_root/CEFIntegration/patches/0003-cefclient-profile.patch"
+auth_policy_patch="$repo_root/CEFIntegration/patches/0005-3f-auth-only-navigation.patch"
 
 if [[ ! -f "$cef_root/CMakeLists.txt" || ! -f "$build_dir/build.ninja" ]]; then
   echo "Missing configured CEF 156 isolated build: $build_dir" >&2
   exit 2
 fi
 
+# CEF's generated Ninja files can retain an SDK versioned path across Xcode
+# updates. Reconfigure against the currently selected SDK before compiling.
+sdk_path="$(xcrun --sdk macosx --show-sdk-path)"
+cmake -S "$cef_root" -B "$build_dir" -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DPROJECT_ARCH=arm64 \
+  -DCMAKE_OSX_DEPLOYMENT_TARGET=15.6 \
+  -DCMAKE_OSX_SYSROOT="$sdk_path" \
+  -DUSE_SANDBOX=OFF
+
 if patch --dry-run -R -p1 -i "$profile_patch" -d "$cef_root" >/dev/null 2>&1; then
   : # Already applied to this local unpacked CEF tree.
 else
   patch -p1 -i "$profile_patch" -d "$cef_root"
+fi
+
+if grep -q 'threef_auth_browser_policy.h' \
+    "$cef_root/tests/cefclient/browser/base_client_handler.cc"; then
+  : # Already applied to this local unpacked CEF tree.
+else
+  patch -p1 -i "$auth_policy_patch" -d "$cef_root"
 fi
 
 cmake --build "$build_dir" --target cefclient --parallel 6

@@ -11,6 +11,8 @@ struct GoogleOAuthHandoffEvent: Identifiable, Equatable {
 
     enum Outcome: String {
         case opened = "Google 로그인 페이지 열림 · 3F 내부"
+        case cefBrowserHandoff = "Google 인증을 3F Chromium 창으로 전달"
+        case cefBrowserUnavailable = "3F Chromium 창 열기 실패"
         case duplicateSuppressed = "반복 팝업 억제"
         case asideUnavailable = "로그인 화면을 3F에서 유지"
         case openFailed = "브라우저 진단 이벤트"
@@ -56,6 +58,7 @@ final class GoogleOAuthHandoffDiagnostics: ObservableObject {
     private let capacity = 100
     private let maxFileBytes = 1_048_576
     private var recentKeys: [String: Date] = [:]
+    private var recentHandoffKeys: [String: Date] = [:]
 
     private var logURL: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -77,8 +80,25 @@ final class GoogleOAuthHandoffDiagnostics: ObservableObject {
     }
 
     func handoff(_ url: URL, sourceURL: URL?) {
-        // Compatibility entry point: sign-in remains in the current 3F tab.
-        record(.asideUnavailable, key: "google-\(url.host ?? "unknown")")
+        // Restart the sign-in from its originating page in 3F's bundled
+        // Chromium browser so the site's state and OAuth callback stay there.
+        let destination = sourceURL.flatMap(Self.safeWebURL) ?? url
+        let now = Date()
+        recentHandoffKeys = recentHandoffKeys.filter { now.timeIntervalSince($0.value) < 120 }
+        let handoffKey = Self.deduplicationKey(for: url, sourceHost: destination.host)
+        guard recentHandoffKeys[handoffKey] == nil else {
+            record(.duplicateSuppressed, key: "handoff-\(handoffKey)")
+            return
+        }
+        recentHandoffKeys[handoffKey] = now
+        CEFBrowserRuntime.open(destination) { [weak self] result in
+            switch result {
+            case .success:
+                self?.record(.cefBrowserHandoff, key: "google-cef-\(destination.host ?? "unknown")")
+            case .failure:
+                self?.record(.cefBrowserUnavailable, key: "google-cef-unavailable")
+            }
+        }
     }
 
     func clear() {
@@ -95,6 +115,12 @@ final class GoogleOAuthHandoffDiagnostics: ObservableObject {
 
     nonisolated static func deduplicationKey(for url: URL, sourceHost: String?) -> String {
         "\(sourceHost?.lowercased() ?? "unknown")|\(url.host?.lowercased() ?? "unknown")"
+    }
+
+    private static func safeWebURL(_ url: URL) -> URL? {
+        guard let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme),
+              url.host != nil, url.user == nil, url.password == nil else { return nil }
+        return url
     }
 
     private func load() {

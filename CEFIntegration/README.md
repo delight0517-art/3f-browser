@@ -57,3 +57,20 @@ It is not the 3F product bundle and must not be treated as product integration.
 The current product still uses WKWebView; importing the upstream browser shell,
 its lifecycle, profile migration, Only Chat control channel, and extension
 install/update policy remain implementation work. No extension was installed.
+
+## 3F authentication-only navigation policy
+
+The bundled `3F Chromium Browser.app` is launched for the originating 3F site
+and Google authentication. `patches/0005-3f-auth-only-navigation.patch` applies a
+CEF navigation policy at main-frame/subframe navigation, popup creation, and
+resource-request hooks. Page navigation is limited to the exact source origin
+passed by 3F plus `accounts.google.com` and `consent.google.com`; non-HTTP(S),
+other sites, YouTube/media hosts, and Google search endpoints are rejected.
+The same policy checks address-bar navigation, redirects, links, and popups.
+Ordinary non-YouTube page resources can still load from third-party origins;
+this is a destination restriction, not a network-wide domain allowlist.
+
+The policy is built into the local CEF candidate. It has not been verified with
+an actual Google sign-in, so authentication compatibility and Google's policy
+acceptance remain unconfirmed. The main 3F UI still uses WKWebView; this CEF
+window is a separate bundled browser host opened by 3F for the auth handoff.

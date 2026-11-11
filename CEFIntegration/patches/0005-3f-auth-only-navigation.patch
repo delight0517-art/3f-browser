@@ -1,0 +1,175 @@
+diff --git a/tests/cefclient/browser/threef_auth_browser_policy.h b/tests/cefclient/browser/threef_auth_browser_policy.h
+new file mode 100644
+index 0000000..0000000
+--- /dev/null
++++ b/tests/cefclient/browser/threef_auth_browser_policy.h
+@@ -0,0 +1,122 @@
++#pragma once
++
++#include <string>
++
++#include "include/cef_command_line.h"
++#include "include/cef_parser.h"
++
++namespace client {
++namespace threef_auth {
++
++inline bool IsHostOrSubdomain(const std::string& host,
++                              const std::string& domain) {
++  return host == domain ||
++         (host.size() > domain.size() &&
++          host.compare(host.size() - domain.size(), domain.size(), domain) ==
++              0 &&
++          host[host.size() - domain.size() - 1] == '.');
++}
++
++inline bool IsYouTubeHost(const std::string& host) {
++  return IsHostOrSubdomain(host, "youtube.com") ||
++         IsHostOrSubdomain(host, "youtu.be") ||
++         IsHostOrSubdomain(host, "youtube-nocookie.com") ||
++         IsHostOrSubdomain(host, "youtube.googleapis.com") ||
++         IsHostOrSubdomain(host, "youtubei.googleapis.com") ||
++         IsHostOrSubdomain(host, "googlevideo.com") ||
++         IsHostOrSubdomain(host, "ytimg.com");
++}
++
++inline bool IsGoogleDomain(const std::string& host) {
++  size_t label_start = 0;
++  while (label_start < host.size()) {
++    const size_t label_end = host.find('.', label_start);
++    const std::string label = host.substr(
++        label_start, label_end == std::string::npos ? std::string::npos
++                                                     : label_end - label_start);
++    if (label == "google") {
++      return true;
++    }
++    if (label_end == std::string::npos) {
++      break;
++    }
++    label_start = label_end + 1;
++  }
++  return false;
++}
++
++inline bool IsGoogleAuthHost(const std::string& host) {
++  return host == "accounts.google.com" || host == "consent.google.com";
++}
++
++inline bool IsGoogleSearchEndpoint(const CefURLParts& parts) {
++  if (!IsGoogleDomain(CefString(&parts.host).ToString())) {
++    return false;
++  }
++  const std::string path = CefString(&parts.path).ToString();
++  const std::string query = CefString(&parts.query).ToString();
++  return path == "/search" || path.rfind("/search/", 0) == 0 ||
++         path == "/webhp" || path == "/complete/search" ||
++         path.rfind("/complete/search/", 0) == 0 ||
++         path == "/async/search" || path == "/async/newtab" ||
++         ((path.empty() || path == "/") &&
++          (query.find("q=") != std::string::npos ||
++           query.find("query=") != std::string::npos ||
++           query.find("as_q=") != std::string::npos ||
++           query.find("udm=") != std::string::npos ||
++           query.find("tbm=") != std::string::npos));
++}
++
++inline bool IsSameSourceOrigin(const CefURLParts& target,
++                               const CefURLParts& source) {
++  if (CefString(&target.scheme).ToString() != CefString(&source.scheme).ToString() ||
++      CefString(&target.port).ToString() != CefString(&source.port).ToString()) {
++    return false;
++  }
++  const std::string host = CefString(&target.host).ToString();
++  const std::string source_host = CefString(&source.host).ToString();
++  return host == source_host;
++}
++
++inline bool IsAllowedNavigation(const CefString& url, bool /*main_frame*/) {
++  if (url == "about:blank") {
++    return true;
++  }
++  CefURLParts target;
++  if (!CefParseURL(url, target)) {
++    return false;
++  }
++  const std::string scheme = CefString(&target.scheme).ToString();
++  const std::string host = CefString(&target.host).ToString();
++  if ((scheme != "http" && scheme != "https") || host.empty() ||
++      IsYouTubeHost(host) || IsGoogleSearchEndpoint(target)) {
++    return false;
++  }
++  if (IsGoogleAuthHost(host)) {
++    return true;
++  }
++  if (IsGoogleDomain(host)) {
++    return false;
++  }
++
++  CefRefPtr<CefCommandLine> command_line =
++      CefCommandLine::GetGlobalCommandLine();
++  if (!command_line || !command_line->HasSwitch("3f-site-origin")) {
++    return false;
++  }
++  CefURLParts source;
++  return CefParseURL(command_line->GetSwitchValue("3f-site-origin"), source) &&
++         IsSameSourceOrigin(target, source);
++}
++
++inline bool IsAllowedResource(const CefString& url) {
++  CefURLParts parts;
++  if (!CefParseURL(url, parts)) {
++    return true;
++  }
++  const std::string host = CefString(&parts.host).ToString();
++  return !IsYouTubeHost(host) && !IsGoogleSearchEndpoint(parts);
++}
++
++}  // namespace threef_auth
++}  // namespace client
+diff --git a/tests/cefclient/browser/base_client_handler.cc b/tests/cefclient/browser/base_client_handler.cc
+index 0000000..0000000 100644
+--- a/tests/cefclient/browser/base_client_handler.cc
++++ b/tests/cefclient/browser/base_client_handler.cc
+@@ -7,4 +7,5 @@
+ #include "include/cef_command_line.h"
+ #include "tests/cefclient/browser/main_context.h"
+ #include "tests/cefclient/browser/root_window_manager.h"
++#include "tests/cefclient/browser/threef_auth_browser_policy.h"
+ #include "tests/shared/common/client_switches.h"
+@@ -101,6 +102,9 @@ bool BaseClientHandler::OnBeforeBrowse(CefRefPtr<CefBrowser> browser,
+                                        bool user_gesture,
+                                        bool is_redirect) {
+   CEF_REQUIRE_UI_THREAD();
++  if (!threef_auth::IsAllowedNavigation(request->GetURL(), frame->IsMain())) {
++    return true;
++  }
+   message_router_->OnBeforeBrowse(browser, frame);
+   return false;
+ }
+@@ -138,5 +142,8 @@ cef_return_value_t BaseClientHandler::OnBeforeResourceLoad(
+     CefRefPtr<CefCallback> callback) {
+   CEF_REQUIRE_IO_THREAD();
++  if (!threef_auth::IsAllowedResource(request->GetURL())) {
++    return RV_CANCEL;
++  }
+ 
+   return resource_manager_->OnBeforeResourceLoad(browser, frame, request,
+                                                  callback);
+diff --git a/tests/cefclient/browser/client_handler.cc b/tests/cefclient/browser/client_handler.cc
+index 0000000..0000000 100644
+--- a/tests/cefclient/browser/client_handler.cc
++++ b/tests/cefclient/browser/client_handler.cc
+@@ -22,4 +22,5 @@
+ #include "tests/cefclient/browser/main_context.h"
+ #include "tests/cefclient/browser/root_window_manager.h"
++#include "tests/cefclient/browser/threef_auth_browser_policy.h"
+ #include "tests/cefclient/browser/test_runner.h"
+ #include "tests/shared/browser/resource_util.h"
+@@ -1004,6 +1005,9 @@ bool ClientHandler::OnBeforePopup(
+     bool* no_javascript_access) {
+   CEF_REQUIRE_UI_THREAD();
++  if (!threef_auth::IsAllowedNavigation(target_url, true)) {
++    return true;
++  }
+ 
+   if (target_disposition == CEF_WOD_NEW_PICTURE_IN_PICTURE) {
