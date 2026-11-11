@@ -101,8 +101,9 @@ the replacement.
 `build-3f-browser-shell.sh` builds a separate CEF Views app from the previously
 rendering `cefsimple` sample, adding Back, Forward, Reload and a URL-only
 address field. `package-3f-browser-shell-candidate.sh` prepares a signed
-preview with a separate bundle ID and a separate
-`3F Browser/CEF/Browser Shell Candidate/User Data` profile. It opens to
+local preview that retains CEF sample app/helper identifiers for cross-process
+rendezvous, and a separate per-candidate profile. It is not the final 3F
+product bundle identity. It opens to
 `about:blank`; it does not reuse or migrate the installed 3F profile.
 
 This is still a prototype, not the 3F product shell. It has no tab strip, Only
@@ -128,3 +129,27 @@ The policy is built into the restricted helper mode only. It has not been
 verified with an actual Google sign-in, so authentication compatibility and
 Google's policy acceptance remain unconfirmed. The main 3F UI still uses
 WKWebView until the full-browser product candidate is integrated.
+
+## 2026-11-12 CEF Views runtime diagnosis
+
+The shell candidate package now retains CEF's original `org.cef.cefsimple`
+application/helper identifiers. A prior package that rewrote those identifiers
+failed CEF's Mach rendezvous lookup, so identifier rewriting is not used by this
+probe. This sample identifier is only for local diagnosis; it is not the final
+3F product identity or an installable product bundle.
+
+The candidate toolbar now gives the toolbar, address field and buttons bounded
+preferred sizes, places the browser view below the toolbar, and uses a fresh
+profile for each diagnostic candidate. The CEF target compiles and the v4
+preview passes deep/strict signature verification and `workflow-control
+verify-mac`. Environment-gated startup trace messages are written to stderr
+only when `THREEF_CEF_STARTUP_TRACE` is set.
+
+The v4 trace reaches `OnContextInitialized`, `CreateTopLevelWindow`,
+`OnWindowCreated`, toolbar layout and `window->Show()`. The process was gone
+within three seconds; no persistent visible window or `CEF_LOAD_END` page-load
+callback was confirmed. Earlier direct-launch output reported CEF helper Mach
+rendezvous lookup failures. This remains a CEF Views sample-host/runtime issue,
+not a verified 3F integration. The installed build20 and both Nov 8 rollback
+backups remain untouched. Do not install or register these candidates as the
+system browser.

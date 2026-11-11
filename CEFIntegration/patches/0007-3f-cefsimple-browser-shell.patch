@@ -1,10 +1,14 @@
 --- a/tests/cefsimple/simple_app.cc
 +++ b/tests/cefsimple/simple_app.cc
-@@ -7,8 +7,16 @@
+@@ -4,20 +4,39 @@
+ 
+ #include "tests/cefsimple/simple_app.h"
+ 
++#include <cstdio>
++#include <cstdlib>
  #include <string>
  
  #include "include/cef_browser.h"
-+#define VK_RETURN 0x0D
  #include "include/cef_command_line.h"
  #include "include/views/cef_browser_view.h"
 +#include "include/views/cef_box_layout.h"
@@ -12,13 +16,22 @@
 +#include "include/views/cef_button_delegate.h"
 +#include "include/views/cef_label_button.h"
 +#include "include/views/cef_panel.h"
++#include "include/views/cef_panel_delegate.h"
 +#include "include/views/cef_textfield.h"
 +#include "include/views/cef_textfield_delegate.h"
  #include "include/views/cef_window.h"
  #include "include/wrapper/cef_helpers.h"
  #include "tests/cefsimple/simple_handler.h"
-@@ -17,7 +25,9 @@
  
+ namespace {
+ 
++void StartupTrace(const char* milestone) {
++  if (std::getenv("THREEF_CEF_STARTUP_TRACE")) {
++    std::fprintf(stderr, "[3FTRACE] %s\n", milestone);
++    std::fflush(stderr);
++  }
++}
++
  // When using the Views framework this object provides the delegate
  // implementation for the CefWindow that hosts the Views-based browser.
 -class SimpleWindowDelegate : public CefWindowDelegate {
@@ -28,35 +41,42 @@
   public:
    SimpleWindowDelegate(CefRefPtr<CefBrowserView> browser_view,
                         cef_runtime_style_t runtime_style,
-@@ -30,12 +40,70 @@
+@@ -30,12 +49,74 @@
    SimpleWindowDelegate& operator=(const SimpleWindowDelegate&) = delete;
  
    void OnWindowCreated(CefRefPtr<CefWindow> window) override {
 -    // Add the browser view and show the window.
++    StartupTrace("OnWindowCreated entered");
 +    CefBoxLayoutSettings settings;
 +    settings.horizontal = false;
 +    CefRefPtr<CefBoxLayout> layout = window->SetToBoxLayout(settings);
-+    CefRefPtr<CefPanel> toolbar = CefPanel::CreatePanel(nullptr);
-+    CefBoxLayoutSettings toolbar_settings;
-+    toolbar_settings.horizontal = true;
-+    toolbar_settings.between_child_spacing = 6;
-+    CefRefPtr<CefBoxLayout> toolbar_layout =
-+        toolbar->SetToBoxLayout(toolbar_settings);
-+    AddButton(toolbar, "Back", 1);
-+    AddButton(toolbar, "Forward", 2);
-+    AddButton(toolbar, "Reload", 3);
-+    address_field_ = CefTextfield::CreateTextfield(this);
-+    address_field_->SetID(4);
-+    toolbar->AddChildView(address_field_);
-+    toolbar_layout->SetFlexForView(address_field_, 1);
-+    AddButton(toolbar, "Go", 5);
-+    window->AddChildView(toolbar);
      window->AddChildView(browser_view_);
 +    layout->SetFlexForView(browser_view_, 1);
++
++    toolbar_ = CefPanel::CreatePanel(this);
++    toolbar_->SetID(6);
++    CefBoxLayoutSettings toolbar_settings;
++    toolbar_settings.horizontal = true;
++    toolbar_settings.between_child_spacing = 4;
++    CefRefPtr<CefBoxLayout> toolbar_layout =
++        toolbar_->SetToBoxLayout(toolbar_settings);
++    AddButton(toolbar_, "Back", 1);
++    AddButton(toolbar_, "Forward", 2);
++    AddButton(toolbar_, "Reload", 3);
++    address_field_ = CefTextfield::CreateTextfield(this);
++    address_field_->SetID(4);
++    toolbar_->AddChildView(address_field_);
++    toolbar_layout->SetFlexForView(address_field_, 1);
++    AddButton(toolbar_, "Go", 5);
++    window->AddChildViewAt(toolbar_, 0);
++    window->Layout();
++    StartupTrace("toolbar layout complete");
  
      if (initial_show_state_ != CEF_SHOW_STATE_HIDDEN) {
        window->Show();
-     }
+-    }
++      StartupTrace("window Show called");
++    }
 +  }
 +
 +  using CefWindowDelegate::OnKeyEvent;
@@ -74,7 +94,7 @@
 +
 +  bool OnKeyEvent(CefRefPtr<CefTextfield> field, const CefKeyEvent& event) override {
 +    if (field->GetID() == 4 && event.type == KEYEVENT_RAWKEYDOWN &&
-+        event.windows_key_code == VK_RETURN) {
++        event.windows_key_code == 0x0D) {
 +      NavigateAddress();
 +      return true;
 +    }
@@ -84,6 +104,7 @@
 +  void AddButton(CefRefPtr<CefPanel> toolbar, const std::string& label, int id) {
 +    CefRefPtr<CefLabelButton> button = CefLabelButton::CreateLabelButton(this, label);
 +    button->SetID(id);
++    button->SetMinimumSize(CefSize(58, 32));
 +    toolbar->AddChildView(button);
 +  }
 +
@@ -91,24 +112,41 @@
 +    CefRefPtr<CefBrowser> browser = browser_view_->GetBrowser();
 +    if (!browser || !address_field_) return;
 +    std::string input = address_field_->GetText().ToString();
-+    if (input.empty()) return;
-+    if (input.find("://") == std::string::npos) {
-+      if (input.find_first_of(" \t\r\n") != std::string::npos) return;
-+      input = "https://" + input;
-+    }
++    if (input.empty() || input.find_first_of(" \t\r\n") != std::string::npos) return;
++    if (input.find("://") == std::string::npos) input = "https://" + input;
 +    browser->GetMainFrame()->LoadURL(input);
    }
  
    void OnWindowDestroyed(CefRefPtr<CefWindow> window) override {
-@@ -65,6 +133,7 @@
+@@ -52,6 +133,10 @@
+   }
+ 
+   CefSize GetPreferredSize(CefRefPtr<CefView> view) override {
++    const int id = view->GetID();
++    if (id == 6) return CefSize(800, 40);
++    if (id == 4) return CefSize(420, 32);
++    if (id >= 1 && id <= 5) return CefSize(58, 32);
+     return CefSize(800, 600);
+   }
+ 
+@@ -65,6 +150,8 @@
  
   private:
    CefRefPtr<CefBrowserView> browser_view_;
++  CefRefPtr<CefPanel> toolbar_;
 +  CefRefPtr<CefTextfield> address_field_;
    const cef_runtime_style_t runtime_style_;
    const cef_show_state_t initial_show_state_;
  
-@@ -131,7 +200,7 @@
+@@ -107,6 +194,7 @@
+ SimpleApp::SimpleApp() = default;
+ 
+ void SimpleApp::OnContextInitialized() {
++  StartupTrace("OnContextInitialized entered");
+   CEF_REQUIRE_UI_THREAD();
+ 
+   CefRefPtr<CefCommandLine> command_line =
+@@ -131,7 +219,7 @@
    // that instead of the default URL.
    url = command_line->GetSwitchValue("url");
    if (url.empty()) {
@@ -117,6 +155,17 @@
    }
  
    // Views is enabled by default (add `--use-native` to disable).
+@@ -162,8 +250,10 @@
+ #endif
+ 
+     // Create the Window. It will show itself after creation.
++    StartupTrace("before CreateTopLevelWindow");
+     CefWindow::CreateTopLevelWindow(new SimpleWindowDelegate(
+         browser_view, runtime_style, initial_show_state));
++    StartupTrace("after CreateTopLevelWindow");
+   } else {
+     // Information used when creating the native window.
+     CefWindowInfo window_info;
 --- a/tests/cefsimple/simple_handler.h
 +++ b/tests/cefsimple/simple_handler.h
 @@ -28,6 +28,9 @@
@@ -162,12 +211,111 @@
  
 --- a/tests/cefsimple/cefsimple_mac.mm
 +++ b/tests/cefsimple/cefsimple_mac.mm
-@@ -160,7 +160,7 @@
+@@ -4,6 +4,9 @@
+ // found in the LICENSE file.
+ 
+ #import <Cocoa/Cocoa.h>
++
++#include <cstdio>
++#include <cstdlib>
+ 
+ #include "include/cef_application_mac.h"
+ #include "include/cef_command_line.h"
+@@ -129,41 +132,60 @@
+ }
+ @end
+ 
++namespace {
++void StartupTrace(const char* milestone) {
++  if (std::getenv("THREEF_CEF_STARTUP_TRACE")) {
++    std::fprintf(stderr, "[3FTRACE] %s\n", milestone);
++    std::fflush(stderr);
++  }
++}
++}  // namespace
++
+ // Entry point function for the browser process.
+ int main(int argc, char* argv[]) {
++  StartupTrace("main entered");
+   // Load the CEF framework library at runtime instead of linking directly
+   // as required by the macOS sandbox implementation.
++  StartupTrace("before LoadInMain");
+   CefScopedLibraryLoader library_loader;
+   if (!library_loader.LoadInMain()) {
++    StartupTrace("LoadInMain failed");
+     return 1;
+   }
++  StartupTrace("LoadInMain succeeded");
+ 
+   // Provide CEF with command-line arguments.
+   CefMainArgs main_args(argc, argv);
+ 
+   @autoreleasepool {
+     // Initialize the SimpleApplication instance.
+-    [SimpleApplication sharedApplication];
++    StartupTrace("before SimpleApplication sharedApplication");
++  [SimpleApplication sharedApplication];
++  StartupTrace("after SimpleApplication sharedApplication");
+ 
+     // If there was an invocation to NSApp prior to this method, then the NSApp
+     // will not be a SimpleApplication, but will instead be an NSApplication.
+     // This is undesirable and we must enforce that this doesn't happen.
+-    CHECK([NSApp isKindOfClass:[SimpleApplication class]]);
++    StartupTrace("before SimpleApplication type check");
++  CHECK([NSApp isKindOfClass:[SimpleApplication class]]);
++  StartupTrace("SimpleApplication type check passed");
+ 
+     // Parse command-line arguments for use in this method.
+     CefRefPtr<CefCommandLine> command_line =
+         CefCommandLine::CreateCommandLine();
+     command_line->InitFromArgv(argc, argv);
++    StartupTrace("command line parsed");
+ 
+     // Specify CEF global settings here.
+     CefSettings settings;
  
      // Keep this test host's persistent profile isolated from other CEF apps.
      NSString* profileRoot = [NSHomeDirectory()
 -        stringByAppendingPathComponent:@"Library/Application Support/3F Browser/CEF/User Data"];
-+        stringByAppendingPathComponent:@"Library/Application Support/3F Browser/CEF/Browser Shell Candidate/User Data"];
++        stringByAppendingPathComponent:@"Library/Application Support/3F Browser/CEF/Browser Shell Candidate 20261112 v4/User Data"];
      NSString* profileDefault = [profileRoot stringByAppendingPathComponent:@"Default"];
      CefString(&settings.root_cache_path) = [profileRoot UTF8String];
      CefString(&settings.cache_path) = [profileDefault UTF8String];
++    StartupTrace("isolated profile configured");
+ 
+     // When generating projects with CMake the CEF_USE_SANDBOX value will be
+     // defined automatically. Pass -DUSE_SANDBOX=OFF to the CMake command-line
+@@ -180,25 +202,33 @@
+     // Initialize the CEF browser process. May return false if initialization
+     // fails or if early exit is desired (for example, due to process singleton
+     // relaunch behavior).
++    StartupTrace("before CefInitialize");
+     if (!CefInitialize(main_args, settings, app.get(), nullptr)) {
++      StartupTrace("CefInitialize returned false");
+       return CefGetExitCode();
+     }
++    StartupTrace("CefInitialize succeeded");
+ 
+     // Create the application delegate.
+     SimpleAppDelegate* delegate = [[SimpleAppDelegate alloc] init];
+     // Set as the delegate for application events.
+     NSApp.delegate = delegate;
+ 
++    StartupTrace("queue createApplication");
+     [delegate performSelectorOnMainThread:@selector(createApplication:)
+                                withObject:nil
+                             waitUntilDone:NO];
+ 
+     // Run the CEF message loop. This will block until CefQuitMessageLoop() is
+     // called.
++    StartupTrace("before CefRunMessageLoop");
+     CefRunMessageLoop();
++    StartupTrace("CefRunMessageLoop returned");
+ 
+     // Shut down CEF.
++    StartupTrace("before CefShutdown");
+     CefShutdown();
++    StartupTrace("CefShutdown completed");
+ 
+     // Release the delegate.
+ #if !__has_feature(objc_arc)

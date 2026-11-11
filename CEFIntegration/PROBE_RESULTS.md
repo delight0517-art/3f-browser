@@ -125,3 +125,34 @@ Date: 2026-10-29 (Mac, arm64)
   destination allowlisting, product diagnostics, Google sign-in and Google
   policy acceptance remain unimplemented or unverified. The installed build20
   and the Nov 8 rollback backups remain untouched.
+
+## CEF Views toolbar and startup diagnosis — 2026-11-12
+
+- The packaged candidate preserves CEF's original `org.cef.cefsimple` app and
+  helper identifiers. Rewriting them in an earlier package produced
+  `MachPortRendezvousServer` lookup failures; the current package script no
+  longer rewrites app/helper identifiers. The sample identifier is temporary
+  diagnostic scaffolding and is not the final 3F app identity.
+- Corrected the Views layout after inspecting the prior candidate: the window
+  delegate had returned 800×600 as the preferred size for every child, which
+  made the toolbar request the full window. The revised shell uses a 40-point
+  toolbar, a flexible address field, bounded buttons, and places the browser
+  view beneath the toolbar.
+- The CEF Views target compiled and the packaged v4 preview passed
+  `codesign --verify --deep --strict` and `workflow-control verify-mac`
+  (`launchAllowed: true`, `local_dev`). The v4 startup trace is preserved at
+  `work/3f-cefsimple-v4.stderr.log`.
+- The v4 trace reached `OnContextInitialized`, `CreateTopLevelWindow`,
+  `OnWindowCreated`, `toolbar layout complete`, and `window Show called`. The
+  process was absent by the three-second readback. No persistent window,
+  `CEF_LOAD_END`, or successful page render was confirmed. Earlier v3 direct
+  launch evidence at `work/3f-cefsimple-v3-direct-trace.stderr.log` shows CEF
+  initialization and message-loop entry followed by helper Mach rendezvous
+  lookup failures. This does not establish why the sample process exits.
+- The v4 app is diagnostic only, uses the fresh isolated profile
+  `~/Library/Application Support/3F Browser/CEF/Browser Shell Candidate
+  20261112 v4/User Data`, and was not installed. Installed 3F build20 and the
+  Nov 8 backups remain unchanged. The SwiftUI/WKWebView product, Google login,
+  tabs/session migration, Only Chat/AI Mod, Focus Fence, downloads, permissions,
+  external URL ingress, and privacy-safe event logs remain incomplete or
+  unverified.

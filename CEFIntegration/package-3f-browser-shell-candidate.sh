@@ -3,7 +3,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source_app="$repo_root/.build/cef-156-arm64/cefsimple-isolated-build/tests/cefsimple/Release/cefsimple.app"
-candidate_root="${1:-$repo_root/.build/3f-cefsimple-browser-shell-candidate}"
+candidate_root="${1:-$repo_root/.build/3f-cefsimple-browser-shell-v2-candidate}"
 candidate="$candidate_root/3F Browser Shell Candidate.app"
 
 if [[ ! -d "$source_app" ]]; then
@@ -33,7 +33,6 @@ with tempfile.TemporaryDirectory(prefix=".3f-shell-package-", dir=root) as temp:
     shutil.copytree(source, staged, symlinks=True)
     plist = staged / "Contents/Info.plist"
     for key, value in (
-        ("CFBundleIdentifier", "com.rogan.threef.browser.cefsimplepreview"),
         ("CFBundleName", "3F Browser Shell Candidate"),
         ("CFBundleDisplayName", "3F Browser Shell Candidate"),
         ("LSApplicationCategoryType", "public.app-category.web-browsers"),
@@ -43,13 +42,6 @@ with tempfile.TemporaryDirectory(prefix=".3f-shell-package-", dir=root) as temp:
             subprocess.run(["/usr/libexec/PlistBuddy", "-c", f"Add :{key} string {value}", str(plist)], check=True, stdout=subprocess.DEVNULL)
     shutil.copy2(icon, staged / "Contents/Resources/cefsimple.icns")
     for helper in (staged / "Contents/Frameworks").glob("cefsimple Helper*.app"):
-        helper_plist = helper / "Contents/Info.plist"
-        original = subprocess.check_output(["/usr/libexec/PlistBuddy", "-c", "Print :CFBundleIdentifier", str(helper_plist)], text=True).strip()
-        prefix = "org.cef.cefsimple"
-        if not original.startswith(prefix):
-            raise SystemExit(f"Unexpected CEF helper identifier: {original}")
-        suffix = original[len(prefix):]
-        subprocess.run(["/usr/libexec/PlistBuddy", "-c", f"Set :CFBundleIdentifier com.rogan.threef.browser.cefsimplepreview{suffix}", str(helper_plist)], check=True, stdout=subprocess.DEVNULL)
         subprocess.run(["codesign", "--force", "--deep", "--sign", "-", str(helper)], check=True)
     subprocess.run(["codesign", "--force", "--sign", "-", str(staged)], check=True)
     subprocess.run(["codesign", "--verify", "--deep", "--strict", str(staged)], check=True)
