@@ -198,3 +198,10 @@ Date: 2026-10-29 (Mac, arm64)
 - The build-time custom-ID candidate still failed. With THREEF_CEF_STARTUP_TRACE=1 in the runtime environment, the main process reached CreateRootWindow and returned; helpers then failed the same custom-ID Mach rendezvous lookup. Evidence: work/3f-cef-preview-product-id-traced-env-20261112.stderr.log. The process produced no persistent window. A focused unified-log and crash-report query returned no additional records.
 - This separates the working original-ID CEF sample from the custom product-ID startup failure. Do not treat matching Info.plist IDs or a valid ad-hoc signature as runtime acceptance. The CEF product identity/helper handshake remains unresolved. No installed 3F app, profile, or rollback backup changed.
 - No Google sign-in or address-bar navigation-denial result was obtained. YouTube/Google Search blocking, local diagnostics durability, product integration, and Only Chat/AI Mod remain unverified.
+
+## Standalone CEF Google sign-in surface probe — 2026-11-12
+
+- The signed, identity-preserving upstream `org.cef.cefclient` candidate was launched on the Mac's physical screen with a fresh isolated profile and `https://accounts.google.com` as its initial page. Accessibility readback showed the window title `Sign in - Google Accounts` and browser controls for Back, Forward, Reload, View site information, and an Address and search bar. No credentials were entered.
+- This is a positive control that the upstream CEF browser shell can display Google's sign-in entry page without an immediate `disallowed_useragent` response. It does not prove authentication, Google's policy acceptance of a 3F product build, or that a custom 3F bundle identity works.
+- The CEF process was normally quit; process and profile-open-file checks were clear, and the isolated profile was removed. The installed 3F build20 and both rollback copies were not changed.
+- The test remains a separate CEF sample process. Main-window ownership, 3F bundle/helper identity, navigation policy, Focus Fence, existing 3F feature parity, diagnostics, and Only Chat/AI Mod integration are still required before any replacement.
