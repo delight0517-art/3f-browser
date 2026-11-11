@@ -46,16 +46,21 @@ if [[ "$navigation_mode" == "restricted-auth" ]]; then
   else
     patch -p1 -i "$auth_policy_patch" -d "$cef_root"
   fi
-elif grep -q 'threef_auth_browser_policy.h' \
-    "$cef_root/tests/cefclient/browser/base_client_handler.cc"; then
-  patch -R -p1 -i "$auth_policy_patch" -d "$cef_root"
-fi
-
-if grep -q 'IsAuthOnlyMode' \
-    "$cef_root/tests/cefclient/browser/threef_auth_browser_policy.h"; then
-  : # The restricted policy requires 3F's explicit auth-only launch switch.
+  if grep -q 'IsAuthOnlyMode' \
+      "$cef_root/tests/cefclient/browser/threef_auth_browser_policy.h"; then
+    : # The restricted policy requires 3F's explicit auth-only launch switch.
+  else
+    patch -p1 -i "$auth_mode_patch" -d "$cef_root"
+  fi
 else
-  patch -p1 -i "$auth_mode_patch" -d "$cef_root"
+  if grep -q 'IsAuthOnlyMode' \
+      "$cef_root/tests/cefclient/browser/threef_auth_browser_policy.h"; then
+    patch -R -p1 -i "$auth_mode_patch" -d "$cef_root"
+  fi
+  if grep -q 'threef_auth_browser_policy.h' \
+      "$cef_root/tests/cefclient/browser/base_client_handler.cc"; then
+    patch -R -p1 -i "$auth_policy_patch" -d "$cef_root"
+  fi
 fi
 
 if [[ "$startup_trace" == "1" ]]; then
@@ -135,6 +140,8 @@ for helper in "$app_bundle"/Contents/Frameworks/cefclient\ Helper*.app; do
   codesign --force --deep --sign - "$helper"
 done
 codesign --force --sign - "$framework"
+printf '%s\n' "$navigation_mode" > \
+  "$app_bundle/Contents/Resources/3f-navigation-mode"
 codesign --force --sign - "$app_bundle"
 codesign --verify --deep --strict "$app_bundle"
 printf 'Isolated Chromium browser candidate ready: %s\n' "$app_bundle"
