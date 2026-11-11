@@ -1,0 +1,94 @@
+--- a/tests/cefclient/browser/root_window_mac.mm
++++ b/tests/cefclient/browser/root_window_mac.mm
+@@ -5,6 +5,9 @@
+ #include "tests/cefclient/browser/root_window_mac.h"
+ 
+ #include <Cocoa/Cocoa.h>
++
++#include <cstdio>
++#include <cstdlib>
+ 
+ #include "include/base/cef_callback.h"
+ #include "include/cef_app.h"
+@@ -48,6 +51,21 @@
+ namespace client {
+ 
+ namespace {
++
++void RootWindowStartupTrace(const char* milestone) {
++  if (!std::getenv("THREEF_CEF_STARTUP_TRACE")) {
++    return;
++  }
++  std::fprintf(stderr, "[3FROOT] %s\n", milestone);
++  std::fflush(stderr);
++  const char* path = std::getenv("THREEF_CEF_STARTUP_LOG");
++  if (path && path[0] != '\0') {
++    if (FILE* file = std::fopen(path, "a")) {
++      std::fprintf(file, "ROOT %s\n", milestone);
++      std::fclose(file);
++    }
++  }
++}
+ 
+ // Sizes for URL bar layout.
+ #define BUTTON_HEIGHT 22
+@@ -260,6 +278,7 @@
+ void RootWindowMacImpl::Init(RootWindow::Delegate* delegate,
+                              std::unique_ptr<RootWindowConfig> config,
+                              const CefBrowserSettings& settings) {
++  RootWindowStartupTrace("RootWindowMacImpl Init entered");
+   DCHECK(!root_window_.initialized_);
+ 
+   with_controls_ = config->with_controls;
+@@ -280,10 +299,12 @@
+   }
+ 
+   CreateBrowserWindow(config->url);
++  RootWindowStartupTrace("CreateBrowserWindow returned");
+ 
+   root_window_.initialized_ = true;
+ 
+   CreateRootWindow(settings, config->initially_hidden);
++  RootWindowStartupTrace("CreateRootWindow returned");
+ }
+ 
+ void RootWindowMacImpl::InitAsPopup(RootWindow::Delegate* delegate,
+@@ -481,6 +502,7 @@
+ 
+ void RootWindowMacImpl::CreateRootWindow(const CefBrowserSettings& settings,
+                                          bool initially_hidden) {
++  RootWindowStartupTrace("CreateRootWindow entered");
+   REQUIRE_MAIN_THREAD();
+   DCHECK(!window_);
+ 
+@@ -518,6 +540,7 @@
+                                         styleMask:style_mask
+                                           backing:NSBackingStoreBuffered
+                                             defer:NO];
++  RootWindowStartupTrace(window_ ? "NSWindow created" : "NSWindow creation returned nil");
+   [window_ setTitle:@"cefclient"];
+   // No dark mode, please
+   window_.appearance = [NSAppearance appearanceNamed:NSAppearanceNameAqua];
+@@ -634,10 +657,12 @@
+ 
+   if (!is_popup_) {
+     // Create the browser window.
++    RootWindowStartupTrace("before BrowserWindow CreateBrowser");
+     browser_window_->CreateBrowser(
+         CAST_NSVIEW_TO_CEF_WINDOW_HANDLE(contentView),
+         CefRect(0, 0, contentBounds.size.width, contentBounds.size.height),
+         settings, nullptr, root_window_.delegate_->GetRequestContext());
++    RootWindowStartupTrace("after BrowserWindow CreateBrowser");
+   } else {
+     // With popups we already have a browser window. Parent the browser window
+     // to the root window and show it in the correct location.
+@@ -655,7 +680,9 @@
+     }
+ 
+     // Show the window.
++    RootWindowStartupTrace("before Show");
+     Show(mode);
++    RootWindowStartupTrace("after Show");
+   }
+ 
+   root_window_.window_created_ = true;
