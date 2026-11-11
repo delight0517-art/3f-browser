@@ -6,7 +6,7 @@ source_app="$repo_root/.build/cef-156-arm64/cefsimple-isolated-build/tests/cefcl
 cef_root="$repo_root/.build/cef-156-arm64/unpacked"
 candidate_root="${1:-$repo_root/.build/3f-cef-full-browser-candidate}"
 candidate_root="$(python3 -c 'import os,sys; print(os.path.abspath(sys.argv[1]))' "$candidate_root")"
-candidate="$candidate_root/3F Browser Preview.app"
+candidate="$candidate_root/cefclient.app"
 mode_file="$source_app/Contents/Resources/3f-navigation-mode"
 
 if [[ ! -d "$source_app" ]]; then
@@ -55,17 +55,17 @@ fi
 mkdir -p "$candidate_root"
 stage="$(mktemp -d "$candidate_root/.package-XXXXXX")"
 trap 'rm -rf "$stage"' EXIT INT TERM
-staged_app="$stage/3F Browser Preview.app"
+staged_app="$stage/cefclient.app"
 ditto "$source_app" "$staged_app"
 
-# Keep CEF's compiled app/helper identifiers together; changing only the app
-# bundle ID breaks helper rendezvous.
-/usr/libexec/PlistBuddy -c "Set :CFBundleName $display_name" "$staged_app/Contents/Info.plist"
+# Keep CEF's compiled bundle name and app/helper identifiers aligned for
+# LaunchServices helper registration. Change only the user-visible display name.
 /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string $display_name" "$staged_app/Contents/Info.plist" 2>/dev/null \
   || /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName $display_name" "$staged_app/Contents/Info.plist"
 profile_root="$candidate_root/User Data"
 mkdir -p "$profile_root"
 /usr/libexec/PlistBuddy -c "Add :LSEnvironment:THREEF_CEF_PROFILE_ROOT string $profile_root" "$staged_app/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c 'Add :LSEnvironment:THREEF_CEF_NATIVE_WINDOW string 1' "$staged_app/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c 'Add :LSEnvironment:THREEF_CEF_STARTUP_TRACE string 1' "$staged_app/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :LSEnvironment:THREEF_CEF_STARTUP_LOG string $profile_root/3f-startup.log" "$staged_app/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c 'Add :LSApplicationCategoryType string public.app-category.web-browsers' "$staged_app/Contents/Info.plist" 2>/dev/null \

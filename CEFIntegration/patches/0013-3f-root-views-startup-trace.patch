@@ -1,0 +1,81 @@
+--- a/tests/cefclient/browser/root_window_views.cc
++++ b/tests/cefclient/browser/root_window_views.cc
+@@ -5,6 +5,8 @@
+ #include "tests/cefclient/browser/root_window_views.h"
+ 
+ #include <memory>
++#include <cstdio>
++#include <cstdlib>
+ 
+ #include "include/base/cef_build.h"
+ #include "include/base/cef_callback.h"
+@@ -17,6 +19,21 @@
+ 
+ namespace {
+ 
++void RootViewsStartupTrace(const char* milestone) {
++  if (!std::getenv("THREEF_CEF_STARTUP_TRACE")) {
++    return;
++  }
++  std::fprintf(stderr, "[3FVIEW] %s\n", milestone);
++  std::fflush(stderr);
++  const char* path = std::getenv("THREEF_CEF_STARTUP_LOG");
++  if (path && path[0] != '\0') {
++    if (FILE* file = std::fopen(path, "a")) {
++      std::fprintf(file, "VIEWS %s\n", milestone);
++      std::fclose(file);
++    }
++  }
++}
++
+ // Images that are loaded early and cached.
+ static const char* kDefaultImageCache[] = {"menu_icon", "window_icon"};
+ 
+@@ -38,6 +55,7 @@
+ void RootWindowViews::Init(RootWindow::Delegate* delegate,
+                            std::unique_ptr<RootWindowConfig> config,
+                            const CefBrowserSettings& settings) {
++  RootViewsStartupTrace("Init entered");
+   DCHECK(delegate);
+   DCHECK(config->command_line);
+   DCHECK(!config->with_osr);  // Windowless rendering is not supported.
+@@ -54,6 +72,7 @@
+          const CefBrowserSettings& settings,
+          CefRefPtr<CefRequestContext> request_context) {
+         // Continue initialization on the UI thread.
++        RootViewsStartupTrace("request context callback entered");
+         self->InitOnUIThread(settings, request_context);
+       },
+       scoped_refptr<RootWindowViews>(this), settings));
+@@ -243,6 +262,7 @@
+ }
+ 
+ void RootWindowViews::OnViewsWindowCreated(CefRefPtr<ViewsWindow> window) {
++  RootViewsStartupTrace("OnViewsWindowCreated entered");
+   CEF_REQUIRE_UI_THREAD();
+   DCHECK(!window_);
+   window_ = window;
+@@ -335,6 +355,7 @@
+ }
+ 
+ void RootWindowViews::OnBrowserCreated(CefRefPtr<CefBrowser> browser) {
++  RootViewsStartupTrace("OnBrowserCreated entered");
+   REQUIRE_MAIN_THREAD();
+   DCHECK(!browser_);
+   browser_ = browser;
+@@ -512,6 +533,7 @@
+ void RootWindowViews::InitOnUIThread(
+     const CefBrowserSettings& settings,
+     CefRefPtr<CefRequestContext> request_context) {
++  RootViewsStartupTrace("InitOnUIThread entered");
+   if (!CefCurrentlyOn(TID_UI)) {
+     // Execute this method on the UI thread.
+     CefPostTask(TID_UI, base::BindOnce(&RootWindowViews::InitOnUIThread, this,
+@@ -554,6 +576,7 @@
+     const CefBrowserSettings& settings,
+     CefRefPtr<CefRequestContext> request_context,
+     const ImageCache::ImageSet& images) {
++  RootViewsStartupTrace("CreateViewsWindow entered");
+   CEF_REQUIRE_UI_THREAD();
+   DCHECK(!window_);
+ 

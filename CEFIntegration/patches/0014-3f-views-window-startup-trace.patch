@@ -1,0 +1,82 @@
+--- a/tests/cefclient/browser/views_window.cc
++++ b/tests/cefclient/browser/views_window.cc
+@@ -5,6 +5,8 @@
+ #include "tests/cefclient/browser/views_window.h"
+ 
+ #include <algorithm>
++#include <cstdio>
++#include <cstdlib>
+ 
+ #include "include/base/cef_build.h"
+ #include "include/base/cef_callback.h"
+@@ -29,6 +31,21 @@
+ namespace client {
+ 
+ namespace {
++
++void ViewsWindowStartupTrace(const char* milestone) {
++  if (!std::getenv("THREEF_CEF_STARTUP_TRACE")) {
++    return;
++  }
++  std::fprintf(stderr, "[3FWIN] %s\n", milestone);
++  std::fflush(stderr);
++  const char* path = std::getenv("THREEF_CEF_STARTUP_LOG");
++  if (path && path[0] != '\0') {
++    if (FILE* file = std::fopen(path, "a")) {
++      std::fprintf(file, "WINDOW %s\n", milestone);
++      std::fclose(file);
++    }
++  }
++}
+ 
+ // Default window size.
+ constexpr int kDefaultWidth = 800;
+@@ -180,6 +197,7 @@
+ }
+ 
+ void ViewsWindow::Show() {
++  ViewsWindowStartupTrace("Show entered");
+   CEF_REQUIRE_UI_THREAD();
+   if (window_) {
+     if (type_ == WindowType::DIALOG) {
+@@ -204,6 +222,7 @@
+     }
+   }
+   MaybeRequestBrowserFocus();
++  ViewsWindowStartupTrace("Show returned");
+ }
+ 
+ void ViewsWindow::Hide() {
+@@ -732,12 +751,14 @@
+ #endif
+ 
+ void ViewsWindow::OnWindowCreated(CefRefPtr<CefWindow> window) {
++  ViewsWindowStartupTrace("OnWindowCreated entered");
+   CEF_REQUIRE_UI_THREAD();
+   DCHECK(browser_view_);
+   DCHECK(!window_);
+   DCHECK(window);
+ 
+   window_ = window;
++  ViewsWindowStartupTrace("CefWindow attached");
+   window_->SetID(ID_WINDOW);
+ 
+   // Apply color overrides to the current native/OS theme. This is only
+@@ -770,6 +791,7 @@
+     // Add the BrowserView to the Window. Other controls will be added after the
+     // BrowserView is added.
+     AddBrowserView();
++    ViewsWindowStartupTrace("BrowserView added");
+ 
+     // Add keyboard accelerators to the Window.
+     AddAccelerators();
+@@ -788,7 +810,9 @@
+ 
+   if (!delegate_->InitiallyHidden()) {
+     // Show the Window.
++    ViewsWindowStartupTrace("before top-level Show");
+     Show();
++    ViewsWindowStartupTrace("after top-level Show");
+   }
+ }
+ 

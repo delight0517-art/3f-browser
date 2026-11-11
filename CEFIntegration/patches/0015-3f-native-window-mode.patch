@@ -1,0 +1,15 @@
+--- a/tests/cefclient/browser/main_context_impl.cc
++++ b/tests/cefclient/browser/main_context_impl.cc
+@@ -94,8 +94,11 @@
+   }
+ 
+   // Whether to use a native parent window.
++  const char* native_window_mode = std::getenv("THREEF_CEF_NATIVE_WINDOW");
+   const bool use_chrome_native_parent =
+-      command_line->HasSwitch(switches::kUseNative);
++      command_line->HasSwitch(switches::kUseNative) ||
++      (native_window_mode && native_window_mode[0] == '1' &&
++       native_window_mode[1] == '\0');
+ 
+ #if defined(OS_MAC)
+   if (use_chrome_native_parent && !use_alloy_style_) {
