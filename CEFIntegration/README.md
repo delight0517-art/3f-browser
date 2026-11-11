@@ -89,10 +89,15 @@ startup milestones to stderr; capture that stream locally when diagnosing a
 candidate. It does not record page URLs, page content, or credentials, and it
 is disabled by default.
 
-The preview bundle has a separate identifier and is not installed as the
-current 3F Browser or registered as the system default. It is a migration
-candidate, not proof of Google acceptance. The next integration work must make
-this CEF Views engine the actual 3F browser surface and migrate the existing
+The packager preserves the app and helper identifiers created by the CEF
+build; changing them after linking breaks CEF's Mach rendezvous. Set
+THREEF_CEF_BUNDLE_ID during the build to generate a candidate identifier before
+signing. A custom preview identifier compiled into both app and helpers passed
+signature checks, but the runtime still failed its Mach rendezvous lookup, so
+this setting is diagnostic scaffolding and not a working product identity.
+The candidate is not installed or registered as the system default, and it
+does not prove Google acceptance. The next integration work must make this CEF
+Views engine the actual 3F browser surface and migrate the existing
 tab/session behavior, downloads, permissions, Focus Fence controls, Only
 Chat/AI Mod, external URL delivery, and local privacy-safe diagnostics. Keep
 the current SwiftUI app and its user profile available until those features and
