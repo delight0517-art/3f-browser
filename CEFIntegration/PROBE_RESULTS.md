@@ -180,3 +180,11 @@ Date: 2026-10-29 (Mac, arm64)
 - `bash -n`, the required policy-marker checks, and `git diff --check` passed.
   Packaging against restricted and unrestricted build trees was not run; no
   candidate was launched or installed in this slice.
+
+
+## Restricted CEF Views runtime readback — 2026-11-12
+
+- Launched the original CEF `cefclient.app` executable directly with the restricted-auth policy and an isolated `.build/3f-cef-restricted-profile-20261112` profile. The process stayed alive with CEF helper processes and created a visible Views browser window (window 842, 800×632) showing `https://example.com`. Screenshot: `work/3f-cefclient-restricted-source-20261112.png`; startup/runtime log: `work/3f-cefclient-restricted-source-20261112.stderr.log`. This is evidence for the upstream CEF Views sample only, not the installed 3F product.
+- An attempted address-bar YouTube navigation was not proven: the captured window still showed `example.com`, but no policy-denial event or reliable input acknowledgement was captured. Do not count this as a verified navigation block.
+- The separate renamed/repackaged preview did not remain running after its LaunchServices attempt. Cause is not established. The original sample's direct launch proves a visible CEF shell can run on this Mac, but product bundle identity/helper integration, 3F origin handoff, tabs/session, Focus Fence, downloads/permissions, Only Chat/AI Mod, diagnostics, Google sign-in and Google policy acceptance remain incomplete or unverified.
+- The task-owned sample process was terminated with SIGTERM after Apple-event and ⌘Q quit requests did not close it. Its isolated profile had no open files and was removed. Installed build20 and the Nov 8 rollback backups remain untouched.
