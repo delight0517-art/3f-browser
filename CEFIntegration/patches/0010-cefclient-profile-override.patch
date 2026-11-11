@@ -1,0 +1,17 @@
+diff --git a/tests/cefclient/browser/main_context_impl.cc b/tests/cefclient/browser/main_context_impl.cc
+index 0000000..0000000 100644
+--- a/tests/cefclient/browser/main_context_impl.cc
++++ b/tests/cefclient/browser/main_context_impl.cc
+@@ -196,6 +196,12 @@ void MainContextImpl::PopulateSettings(CefSettings* settings) {
+   std::string profile_root =
+       command_line_->GetSwitchValue("3f-profile-root");
++  if (profile_root.empty()) {
++    const char* profile_override = std::getenv("THREEF_CEF_PROFILE_ROOT");
++    if (profile_override && profile_override[0] != '\0') {
++      profile_root = profile_override;
++    }
++  }
+   if (profile_root.empty()) {
+     const char* home = std::getenv("HOME");
+     profile_root = std::string(home ? home : ".") +
+                    "/Library/Application Support/3F Browser/CEF/cefclient";

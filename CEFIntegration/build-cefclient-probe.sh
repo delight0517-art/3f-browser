@@ -8,6 +8,7 @@ app_bundle="$build_dir/tests/cefclient/Release/cefclient.app"
 framework="$app_bundle/Contents/Frameworks/Chromium Embedded Framework.framework"
 framework_source="$cef_root/Release/Chromium Embedded Framework.framework"
 profile_patch="$repo_root/CEFIntegration/patches/0003-cefclient-profile.patch"
+profile_override_patch="$repo_root/CEFIntegration/patches/0010-cefclient-profile-override.patch"
 auth_policy_patch="$repo_root/CEFIntegration/patches/0005-3f-auth-only-navigation.patch"
 auth_mode_patch="$repo_root/CEFIntegration/patches/0009-3f-auth-only-launch-switch.patch"
 startup_trace_patch="$repo_root/CEFIntegration/patches/0006-3f-startup-trace.patch"
@@ -39,6 +40,13 @@ else
   patch -p1 -i "$profile_patch" -d "$cef_root"
 fi
 
+if grep -q 'THREEF_CEF_PROFILE_ROOT' \
+    "$cef_root/tests/cefclient/browser/main_context_impl.cc"; then
+  : # The profile override is already applied to this local unpacked CEF tree.
+else
+  patch -p1 -i "$profile_override_patch" -d "$cef_root"
+fi
+
 if [[ "$navigation_mode" == "restricted-auth" ]]; then
   if grep -q 'threef_auth_browser_policy.h' \
       "$cef_root/tests/cefclient/browser/base_client_handler.cc"; then
@@ -53,8 +61,8 @@ if [[ "$navigation_mode" == "restricted-auth" ]]; then
     patch -p1 -i "$auth_mode_patch" -d "$cef_root"
   fi
 else
-  if grep -q 'IsAuthOnlyMode' \
-      "$cef_root/tests/cefclient/browser/threef_auth_browser_policy.h"; then
+  policy_header="$cef_root/tests/cefclient/browser/threef_auth_browser_policy.h"
+  if [[ -f "$policy_header" ]] && grep -q 'IsAuthOnlyMode' "$policy_header"; then
     patch -R -p1 -i "$auth_mode_patch" -d "$cef_root"
   fi
   if grep -q 'threef_auth_browser_policy.h' \

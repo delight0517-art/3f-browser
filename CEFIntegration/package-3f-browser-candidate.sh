@@ -5,6 +5,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source_app="$repo_root/.build/cef-156-arm64/cefsimple-isolated-build/tests/cefclient/Release/cefclient.app"
 cef_root="$repo_root/.build/cef-156-arm64/unpacked"
 candidate_root="${1:-$repo_root/.build/3f-cef-full-browser-candidate}"
+candidate_root="$(python3 -c 'import os,sys; print(os.path.abspath(sys.argv[1]))' "$candidate_root")"
 candidate="$candidate_root/3F Browser Preview.app"
 mode_file="$source_app/Contents/Resources/3f-navigation-mode"
 
@@ -62,6 +63,8 @@ ditto "$source_app" "$staged_app"
 /usr/libexec/PlistBuddy -c "Set :CFBundleName $display_name" "$staged_app/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string $display_name" "$staged_app/Contents/Info.plist" 2>/dev/null \
   || /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName $display_name" "$staged_app/Contents/Info.plist"
+profile_root="$candidate_root/User Data"
+/usr/libexec/PlistBuddy -c "Add :LSEnvironment:THREEF_CEF_PROFILE_ROOT string $profile_root" "$staged_app/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c 'Add :LSApplicationCategoryType string public.app-category.web-browsers' "$staged_app/Contents/Info.plist" 2>/dev/null \
   || /usr/libexec/PlistBuddy -c 'Set :LSApplicationCategoryType public.app-category.web-browsers' "$staged_app/Contents/Info.plist"
 cp "$repo_root/Resources/3f-icon.icns" "$staged_app/Contents/Resources/cefclient.icns"
