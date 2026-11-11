@@ -58,50 +58,34 @@ The current product still uses WKWebView; importing the upstream browser shell,
 its lifecycle, profile migration, Only Chat control channel, and extension
 install/update policy remain implementation work. No extension was installed.
 
-## Full-browser product candidate
+## Restricted Google-auth sidecar
 
-The current SwiftUI product still uses WKWebView. A packaged Chromium helper
-does not replace that architecture and is not a complete answer to the Google
-OAuth problem. `package-3f-browser-candidate.sh` prepares a separate, signed CEF
-Views browser candidate from the existing `cefclient` shell. The candidate is
-an independent top-level browser app with an address bar and general web
-navigation, using the isolated 3F profile configured by
-`0003-cefclient-profile.patch`.
+The existing 3F product stays SwiftUI + WKWebView and keeps its current tabs,
+settings, downloads, uploads, Only Chat/AI Mod, and Focus Fence integration.
+CEF is a separate top-level window used only for a Google authentication
+transaction. It does not replace 3F or take ownership of normal browsing.
 
-The 3F candidate package is restricted: its packager refuses a CEF build
-unless the navigation hooks are present for main-frame navigation, popups,
-and resource loading. Build in `restricted-auth` mode before packaging:
+`scripts/package-macos-app.sh` places the signed `3F Chromium Browser.app`
+alongside the 3F app. Preserve CEF's original `org.cef.cefclient` app/helper
+identifiers: custom product IDs failed CEF's Mach rendezvous on this Mac. The
+sidecar has a separate CEF profile; cookies are never copied to WebKit.
 
-```sh
-THREEF_CEF_NAVIGATION_MODE=restricted-auth CEFIntegration/build-cefclient-probe.sh
-CEFIntegration/package-3f-browser-candidate.sh
-```
+The sidecar starts from the exact originating HTTPS page so that the site can
+create its state and complete its callback in one Chromium session. Its
+`--3f-auth-only` mode permits only that exact site origin plus Google's
+`accounts.google.com` and `consent.google.com`. Other top-level navigations,
+redirects, and popups are blocked, including YouTube and Google Search. The
+Focus Fence adapter checks the originating site before launch.
 
-This policy permits the configured 3F site origin and Google authentication,
-while rejecting YouTube and Google Search destinations. The CEF host still
-needs a trusted initial site-origin handoff plus Focus Fence and Only Chat
-integration before it can replace the current app. Unrestricted `full-browser`
-mode is for engine probing only and cannot be packaged as a 3F candidate.
+Google policy prohibits directing OAuth requests to developer-controlled
+embedded user agents. A CEF window that displays Google's sign-in page does not
+prove that Google permits the full login. Do not spoof the user agent or claim
+policy acceptance until a real sign-in and callback succeed. Do not register
+the sidecar as the system default browser.
 
 For a one-off startup trace, set `THREEF_CEF_STARTUP_TRACE=1` during build,
 then launch the candidate executable with the same variable set. It writes only
-startup milestones to stderr; capture that stream locally when diagnosing a
-candidate. It does not record page URLs, page content, or credentials, and it
-is disabled by default.
-
-The packager preserves the app and helper identifiers created by the CEF
-build; changing them after linking breaks CEF's Mach rendezvous. Set
-THREEF_CEF_BUNDLE_ID during the build to generate a candidate identifier before
-signing. A custom preview identifier compiled into both app and helpers passed
-signature checks, but the runtime still failed its Mach rendezvous lookup, so
-this setting is diagnostic scaffolding and not a working product identity.
-The candidate is not installed or registered as the system default, and it
-does not prove Google acceptance. The next integration work must make this CEF
-Views engine the actual 3F browser surface and migrate the existing
-tab/session behavior, downloads, permissions, Focus Fence controls, Only
-Chat/AI Mod, external URL delivery, and local privacy-safe diagnostics. Keep
-the current SwiftUI app and its user profile available until those features and
-the browser runtime have been verified in the replacement.
+startup milestones to stderr and is disabled by default.
 
 ## CEF Views browser-shell prototype
 

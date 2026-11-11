@@ -9,11 +9,12 @@ framework="$app_bundle/Contents/Frameworks/Chromium Embedded Framework.framework
 framework_source="$cef_root/Release/Chromium Embedded Framework.framework"
 profile_patch="$repo_root/CEFIntegration/patches/0003-cefclient-profile.patch"
 auth_policy_patch="$repo_root/CEFIntegration/patches/0005-3f-auth-only-navigation.patch"
+auth_mode_patch="$repo_root/CEFIntegration/patches/0009-3f-auth-only-launch-switch.patch"
 startup_trace_patch="$repo_root/CEFIntegration/patches/0006-3f-startup-trace.patch"
 bundle_id_patch="$repo_root/CEFIntegration/patches/0008-cef-product-bundle-id-at-build.patch"
 navigation_mode="${THREEF_CEF_NAVIGATION_MODE:-restricted-auth}"
 startup_trace="${THREEF_CEF_STARTUP_TRACE:-0}"
-bundle_id="${THREEF_CEF_BUNDLE_ID:-com.rogan.threef.browser.cefpreview}"
+bundle_id="${THREEF_CEF_BUNDLE_ID:-org.cef.cefclient}"
 
 if [[ ! "$bundle_id" =~ ^[A-Za-z0-9]+([.-][A-Za-z0-9]+)+$ ]]; then
   echo "Invalid THREEF_CEF_BUNDLE_ID: $bundle_id" >&2
@@ -48,6 +49,13 @@ if [[ "$navigation_mode" == "restricted-auth" ]]; then
 elif grep -q 'threef_auth_browser_policy.h' \
     "$cef_root/tests/cefclient/browser/base_client_handler.cc"; then
   patch -R -p1 -i "$auth_policy_patch" -d "$cef_root"
+fi
+
+if grep -q 'IsAuthOnlyMode' \
+    "$cef_root/tests/cefclient/browser/threef_auth_browser_policy.h"; then
+  : # The restricted policy requires 3F's explicit auth-only launch switch.
+else
+  patch -p1 -i "$auth_mode_patch" -d "$cef_root"
 fi
 
 if [[ "$startup_trace" == "1" ]]; then

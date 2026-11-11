@@ -5,9 +5,12 @@ import Foundation
 enum CEFBrowserRuntime {
     static let hostBundleName = "3F Chromium Browser.app"
 
-    static func open(_ url: URL, completion: @escaping (Result<Void, Error>) -> Void) {
-        guard let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme),
-              url.host != nil, url.user == nil, url.password == nil else {
+    static func open(
+        _ authenticationURL: URL,
+        originatingPage: URL?,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        guard GoogleOAuthNavigationPolicy.requiresSystemBrowser(for: authenticationURL) else {
             completion(.failure(LaunchError.invalidURL))
             return
         }
@@ -22,15 +25,17 @@ enum CEFBrowserRuntime {
 
         let profileURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("3F Browser/CEF/cefclient", isDirectory: true)
+        let safeOriginatingPage = GoogleOAuthNavigationPolicy.safeHTTPSPageURL(originatingPage)
+        let initialURL = safeOriginatingPage ?? authenticationURL
         var arguments = [
-            "--url=\(url.absoluteString)",
+            "--url=\(initialURL.absoluteString)",
             "--3f-profile-root=\(profileURL.path)",
-            "--remote-debugging-port=0"
+            "--remote-debugging-port=0",
+            "--3f-auth-only"
         ]
-        if let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-           let scheme = components.scheme, let host = components.host {
-            let port = components.port.map { ":\($0)" } ?? ""
-            arguments.append("--3f-site-origin=\(scheme.lowercased())://\(host.lowercased())\(port)")
+        if let safeOriginatingPage,
+           let origin = GoogleOAuthNavigationPolicy.exactOrigin(for: safeOriginatingPage) {
+            arguments.append("--3f-site-origin=\(origin.absoluteString)")
         }
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.arguments = arguments
@@ -54,7 +59,7 @@ enum CEFBrowserRuntime {
 
         var errorDescription: String? {
             switch self {
-            case .invalidURL: return "Google 인증 주소가 올바르지 않습니다."
+            case .invalidURL: return "HTTPS Google 인증 주소가 올바르지 않습니다."
             case .hostNotBundled: return "3F Chromium 브라우저 구성 요소를 찾지 못했습니다."
             case .launchFailed: return "3F Chromium 브라우저를 열지 못했습니다."
             }

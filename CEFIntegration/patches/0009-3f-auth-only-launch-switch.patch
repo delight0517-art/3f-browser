@@ -1,0 +1,30 @@
+diff --git a/tests/cefclient/browser/threef_auth_browser_policy.h b/tests/cefclient/browser/threef_auth_browser_policy.h
+index 0000000..0000000 100644
+--- a/tests/cefclient/browser/threef_auth_browser_policy.h
++++ b/tests/cefclient/browser/threef_auth_browser_policy.h
+@@ -48,5 +48,11 @@
+ inline bool IsGoogleAuthHost(const std::string& host) {
+   return host == "accounts.google.com" || host == "consent.google.com";
+ }
+
++inline bool IsAuthOnlyMode() {
++  CefRefPtr<CefCommandLine> command_line =
++      CefCommandLine::GetGlobalCommandLine();
++  return command_line && command_line->HasSwitch("3f-auth-only");
++}
++
+ inline bool IsGoogleSearchEndpoint(const CefURLParts& parts) {
+@@ -79,4 +85,7 @@
+ }
+
+ inline bool IsAllowedNavigation(const CefString& url, bool /*main_frame*/) {
++  if (!IsAuthOnlyMode()) {
++    return false;
++  }
+   if (url == "about:blank") {
+@@ -112,2 +121,5 @@
+ inline bool IsAllowedResource(const CefString& url) {
++  if (!IsAuthOnlyMode()) {
++    return false;
++  }
+   CefURLParts parts;

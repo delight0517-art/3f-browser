@@ -1,15 +1,15 @@
-# 3F Browser full-engine migration acceptance matrix
+# 3F Browser auth-sidecar acceptance and future migration matrix
 
-This matrix defines the existing 3F behavior that must survive a browser-engine migration. “In source” is not the same as installed/runtime proof. The installed SwiftUI + WKWebView build remains the fallback until every required row passes on a signed replacement with a migrated profile.
+The user's current direction keeps the existing SwiftUI + WKWebView 3F Browser as the normal browser and uses CEF only for a restricted Google-auth transaction. The sidecar does not replace or inherit 3F's normal browser functions, so it does not need full feature parity. The remaining migration rows are a gate only if a future change proposes replacing the main browser engine. “In source” is not the same as installed/runtime proof.
 
 ## Browser structure and Google sign-in
 
 | Requirement | Existing implementation/evidence | Replacement acceptance |
 |---|---|---|
-| 3F itself owns the browser window and process | Installed product is SwiftUI + WKWebView. CEF candidates are separate apps and the custom 3F bundle ID has failed its helper rendezvous. | The launched and default-handler app is the 3F browser product; its main process owns the browser UI and all helper identities use a product-controlled, stable identifier. No sidecar login browser. |
+| Existing 3F browser stays primary | Installed product is SwiftUI + WKWebView. The CEF auth window is a separate helper and must not replace normal 3F tabs or the default handler. | Normal navigation and existing functions remain in 3F; CEF launches only for Google auth and cannot browse arbitrary sites. |
 | User can inspect destination and connection | WKWebView product has an address/search field; upstream CEF probe exposed an address field and “View site information” control while showing Google Accounts. | Show the exact current host, secure-connection status, and certificate/connection details in the 3F browser chrome; retain them during OAuth redirects. |
-| No embedded-user-agent OAuth handling | Google says not to direct OAuth to a developer-controlled embedded user-agent; its desktop-app flow uses the system browser and a local redirect. A CEF sample displaying the sign-in page is not acceptance evidence. | The replacement is a standalone browser, navigates to Google directly without user-agent spoofing, request rewriting, cookie transfer, injected scripts, or an OAuth handoff to a second app. Verify the actual login flow and callback/session continuity. |
-| Google navigation is not accidentally blocked or rerouted | Current WebKit source hands Google authorization to `CEFBrowserRuntime`, which launches a separate app; the product-ID CEF candidate did not keep a window alive. | Direct navigation, popup, redirect, consent, and callback paths stay in the same 3F browser session. Google acceptance remains unclaimed until real sign-in succeeds. |
+| Google OAuth acceptance | Google policy rejects developer-controlled embedded user-agents. A CEF sample displaying the sign-in page is not acceptance evidence; actual policy acceptance remains unknown. | Treat CEF as an auth-only experiment until a real sign-in and callback complete. Do not spoof the user agent or copy cookies to WebKit. |
+| Auth sidecar scope and return | The CEF policy allows the exact originating HTTPS site plus Google auth/consent endpoints; CEF uses its own profile. The source is rechecked through Focus Fence before launch. | Address entry, redirects, links, and popups outside that origin and the auth endpoints are blocked. Callback cookies remain in Chromium and are not shared with WebKit. |
 | Address/search and ordinary web navigation | `BrowserModel.submit`, `SearchProvider`, URL guard, external URL router, navigation feedback. | Enter URL/search, redirects, reload, and external HTTP/HTTPS links route to the expected 3F tab and respect Focus Fence policy. |
 
 ## Existing user-facing feature parity
@@ -48,13 +48,17 @@ This matrix defines the existing 3F behavior that must survive a browser-engine 
 | Profile and secret migration | Current WKWebsiteDataStore and `BrowserSessionStore` are separate from CEF profiles. | Make a reversible, documented migration of bookmarks/history/tabs/settings only; preserve existing WebKit profile, session cookies, downloads, and rollback copy until user-visible candidate proof passes. Never copy cookies into another engine. |
 | Clean restart and recovery | Existing installed build20 and rollback copies are retained. | Candidate quits normally, reopens with the migrated data, keeps the Google/Focus Fence boundary, and can roll back without corrupting the current profile. |
 
-## Release gate
+## Auth-sidecar release gate
 
-1. Build/sign one candidate under the real 3F identity; verify all CEF/Chromium helpers and product identifiers at runtime.
-2. Complete every feature row above on the candidate. Source presence and unit tests alone do not satisfy runtime rows.
-3. Verify Google sign-in and in-browser session continuity without entering credentials in an untrusted test harness; use the user's approved authentication flow when a real account action is necessary.
-4. Verify Focus Fence plugin policy, Only Chat/AI Mod control, local diagnostics durability, and data/profile migration.
-5. Only then install as the 3F browser/default handler. Keep the currently installed app and its rollback until the candidate passes the full journey.
+1. Keep the installed 3F app and all existing functions on the current WebKit engine.
+2. Build/sign the CEF sidecar with matching upstream CEF app/helper IDs and require the explicit `--3f-auth-only` switch.
+3. Verify the Google auth page, exact-origin callback path, and denial of arbitrary address-bar, redirect, and popup destinations.
+4. Verify the Focus Fence decision and diagnostics at the 3F handoff boundary. Google acceptance and session continuity remain unproven until the real login journey succeeds.
+5. Never set the sidecar as default or replace the existing 3F browser as part of this auth-only change.
+
+## Future full-engine migration gate
+
+The feature-parity rows above still apply if the user later asks to replace the main browser engine. Source presence and unit tests alone do not establish runtime parity.
 
 ## Current status — 2026-11-12
 

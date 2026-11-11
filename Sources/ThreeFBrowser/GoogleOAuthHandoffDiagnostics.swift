@@ -17,6 +17,7 @@ struct GoogleOAuthHandoffEvent: Identifiable, Equatable {
         case popupStormBlocked = "팝업 폭주 차단"
         case duplicateSuppressed = "반복 팝업 억제"
         case asideUnavailable = "로그인 화면을 3F에서 유지"
+        case focusFenceBlocked = "Focus Fence 정책이 인증 사이트를 차단"
         case openFailed = "브라우저 진단 이벤트"
         case unsupportedMedia = "지원되지 않는 미디어 형식"
     }
@@ -83,23 +84,42 @@ final class GoogleOAuthHandoffDiagnostics: ObservableObject {
     }
 
     func handoff(_ url: URL, sourceURL: URL?) {
-        // Restart the sign-in from its originating page in 3F's bundled
-        // Chromium browser so the site's state and OAuth callback stay there.
-        let destination = sourceURL.flatMap(Self.safeWebURL) ?? url
+        // Restart the sign-in from its HTTPS origin in the restricted Chromium
+        // sidecar so the site's state and callback stay in that isolated session.
+        guard GoogleOAuthNavigationPolicy.requiresSystemBrowser(for: url) else {
+            record(.openFailed, detail: "인증 주소 검증 실패", key: "google-auth-url-invalid")
+            return
+        }
+        let originatingPage = GoogleOAuthNavigationPolicy.safeHTTPSPageURL(sourceURL)
         let now = Date()
         recentHandoffKeys = recentHandoffKeys.filter { now.timeIntervalSince($0.value) < 120 }
-        let handoffKey = Self.deduplicationKey(for: url, sourceHost: destination.host)
+        let handoffKey = Self.deduplicationKey(for: url, sourceHost: originatingPage?.host)
         guard recentHandoffKeys[handoffKey] == nil else {
             record(.duplicateSuppressed, key: "handoff-\(handoffKey)")
             return
         }
         recentHandoffKeys[handoffKey] = now
-        CEFBrowserRuntime.open(destination) { [weak self] result in
-            switch result {
-            case .success:
-                self?.record(.cefBrowserHandoff, key: "google-cef-\(destination.host ?? "unknown")")
-            case .failure:
-                self?.record(.cefBrowserUnavailable, key: "google-cef-unavailable")
+
+        Task { @MainActor [weak self] in
+            guard OptionalFeatureAvailability.focusFenceEnforcement else {
+                self?.record(.focusFenceBlocked, detail: "정책 어댑터 비활성", key: "google-cef-focus-fence-blocked")
+                return
+            }
+            guard let rules = await ThreeFBrowserControlController.fetchFocusFenceRules(),
+                  ThreeFBrowserControlController.usableFocusFenceRules(rules),
+                  ThreeFBrowserControlController.focusFenceAllows(url, rules: rules) == true,
+                  originatingPage.map({ ThreeFBrowserControlController.focusFenceAllows($0, rules: rules) == true }) ?? true else {
+                self?.record(.focusFenceBlocked, detail: "정책을 확인할 수 없거나 허용되지 않음", key: "google-cef-focus-fence-blocked")
+                return
+            }
+            guard self != nil else { return }
+            CEFBrowserRuntime.open(url, originatingPage: originatingPage) { [weak self] result in
+                switch result {
+                case .success:
+                    self?.record(.cefBrowserHandoff, key: "google-cef-\(originatingPage?.host ?? "auth-only")")
+                case .failure:
+                    self?.record(.cefBrowserUnavailable, key: "google-cef-unavailable")
+                }
             }
         }
     }
@@ -133,12 +153,6 @@ final class GoogleOAuthHandoffDiagnostics: ObservableObject {
 
     nonisolated static func deduplicationKey(for url: URL, sourceHost: String?) -> String {
         "\(sourceHost?.lowercased() ?? "unknown")|\(url.host?.lowercased() ?? "unknown")"
-    }
-
-    private static func safeWebURL(_ url: URL) -> URL? {
-        guard let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme),
-              url.host != nil, url.user == nil, url.password == nil else { return nil }
-        return url
     }
 
     private func load() {
