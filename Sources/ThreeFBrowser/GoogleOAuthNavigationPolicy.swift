@@ -7,10 +7,9 @@ enum GoogleOAuthNavigationPolicy {
             return false
         }
 
-        let path = url.path
-        return path == "/o/oauth2"
-            || path.hasPrefix("/o/oauth2/")
-            || path == "/signin/oauth"
-            || path.hasPrefix("/signin/oauth/")
+        // Google Identity Services uses several sign-in paths beyond the
+        // OAuth endpoints (for example /gsi/select and /signin/v2/*).
+        // Keep the entire Google Accounts host out of the embedded WebView.
+        return true
     }
 }
