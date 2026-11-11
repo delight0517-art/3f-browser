@@ -205,3 +205,9 @@ Date: 2026-10-29 (Mac, arm64)
 - This is a positive control that the upstream CEF browser shell can display Google's sign-in entry page without an immediate `disallowed_useragent` response. It does not prove authentication, Google's policy acceptance of a 3F product build, or that a custom 3F bundle identity works.
 - The CEF process was normally quit; process and profile-open-file checks were clear, and the isolated profile was removed. The installed 3F build20 and both rollback copies were not changed.
 - The test remains a separate CEF sample process. Main-window ownership, 3F bundle/helper identity, navigation policy, Focus Fence, existing 3F feature parity, diagnostics, and Only Chat/AI Mod integration are still required before any replacement.
+
+## Physical-screen custom product identity confirmation — 2026-11-12
+
+- After SpaceO could not control the CEF candidate's private DevTools endpoint, one LaunchServices launch was attempted on the authorized Mac screen for the already signed custom-ID candidate, targeting only the Google Accounts entry URL and a fresh isolated profile. `workflow-control verify-mac` and deep/strict signature verification passed before launch.
+- The app did not retain a process or browser window. Unified log shows the browser process reported `No windows open yet`; its helpers then received launchd rendezvous lookup failures for `com.rogan.threef.browser.cefpreview.MachPortRendezvousServer.58811` with `No such process`. The isolated profile was removed after the process exited. This confirms the previously observed custom-ID startup blocker through a different launch route; do not repeat this candidate launch without new implementation evidence.
+- The original `org.cef.cefclient` identity can show Google's sign-in entry page, while the custom 3F identity cannot currently keep its CEF window alive. CEF remains an unintegrated candidate, not the installed 3F browser.
