@@ -41,7 +41,7 @@ extension WKWebView: ThreeFBrowserControlSurface {
     }
 }
 
-private enum ThreeFBrowserTerminationProbe {
+enum ThreeFBrowserTerminationProbe {
     fileprivate static var traceFileDescriptor: Int32 = -1
 
     static func installIfRequested() {
@@ -621,7 +621,6 @@ final class ThreeFBrowserControlServer {
 
     func start() {
         guard listener == nil else { return }
-        ThreeFBrowserTerminationProbe.installIfRequested()
         do {
             let parameters = NWParameters.tcp
             parameters.requiredLocalEndpoint = .hostPort(host: NWEndpoint.Host("127.0.0.1"), port: .any)

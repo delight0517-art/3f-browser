@@ -142,6 +142,10 @@ private extension NSWindow {
 
 @main
 struct ThreeFBrowserApp: App {
+    init() {
+        ThreeFBrowserTerminationProbe.installIfRequested()
+    }
+
     @NSApplicationDelegateAdaptor(ThreeFBrowserAppDelegate.self) private var appDelegate
 
     var body: some Scene {
