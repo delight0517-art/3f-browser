@@ -303,7 +303,14 @@ struct BrowserWebView: NSViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
-            onMain { self.parent.onNavigationCommitted?(webView.url) }
+            onMain {
+                self.parent.onNavigationCommitted?(webView.url)
+                // Google search pages can keep WebKit in a loading state while
+                // late resources finish. Release the prepaint policy gate as
+                // soon as the document is committed; the injected observer
+                // continues filtering results as Google fills in the page.
+                self.filterSearchResultsIfNeeded(in: webView)
+            }
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -315,7 +322,6 @@ struct BrowserWebView: NSViewRepresentable {
                 self.parent.onNavigation(webView.url, webView.title)
                 self.parent.onNavigationState(webView.canGoBack, webView.canGoForward)
                 ThreeFBrowserControlController.shared.navigationDidFinish(for: webView)
-                self.filterSearchResultsIfNeeded(in: webView)
             }
         }
 
@@ -323,10 +329,30 @@ struct BrowserWebView: NSViewRepresentable {
             guard OptionalFeatureAvailability.focusFenceEnforcement,
                   let url = webView.url, FocusFenceSearchResultFilter.isSearchResultsURL(url) else { return }
             Task { @MainActor [weak webView] in
-                guard let webView, webView.url == url,
-                      let rules = await ThreeFBrowserControlController.fetchFocusFenceRules(),
+                guard let webView, webView.url == url else { return }
+                guard let rules = await ThreeFBrowserControlController.fetchFocusFenceRules(),
                       webView.url == url,
-                      let script = FocusFenceSearchResultFilter.script(for: url, rules: rules) else { return }
+                      let script = FocusFenceSearchResultFilter.script(for: url, rules: rules) else {
+                    let failure = #"""
+                    (() => {
+                      const root = document.documentElement;
+                      if (!root) return;
+                      root.dataset.threefSearchGate = 'blocked';
+                      let notice = document.getElementById('threef-search-policy-notice');
+                      if (!notice && document.body) {
+                        notice = document.createElement('div');
+                        notice.id = 'threef-search-policy-notice';
+                        notice.setAttribute('role', 'alert');
+                        notice.setAttribute('aria-live', 'assertive');
+                        notice.style.cssText = 'position:fixed;inset:0;z-index:2147483647;display:grid;place-items:center;padding:24px;background:#fff;color:#263244;font:16px system-ui,sans-serif;text-align:center';
+                        document.body.appendChild(notice);
+                      }
+                      if (notice) notice.textContent = 'Focus Fence 정책을 확인할 수 없어 검색 결과를 숨겼습니다.';
+                    })();
+                    """#
+                    _ = try? await webView.evaluateJavaScript(failure)
+                    return
+                }
                 _ = try? await webView.evaluateJavaScript(script)
             }
         }
