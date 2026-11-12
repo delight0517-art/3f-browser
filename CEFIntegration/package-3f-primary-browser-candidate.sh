@@ -35,9 +35,8 @@ trap 'rm -rf "$stage"' EXIT INT TERM
 staged_app="$stage/3F Browser.app"
 ditto "$source_app" "$staged_app"
 
-# Keep the tested CEF identity and helper IDs; customize only the browser's
-# product-facing name, icon, profile path, and macOS browser category.
-/usr/libexec/PlistBuddy -c 'Set :CFBundleName 3F Browser' "$staged_app/Contents/Info.plist"
+# Keep the tested CEF identity, helper IDs, and internal bundle name; customize
+# only the browser's display name, icon, profile path, and macOS browser category.
 /usr/libexec/PlistBuddy -c 'Add :CFBundleDisplayName string 3F Browser' "$staged_app/Contents/Info.plist" 2>/dev/null \
   || /usr/libexec/PlistBuddy -c 'Set :CFBundleDisplayName 3F Browser' "$staged_app/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c 'Add :LSApplicationCategoryType string public.app-category.web-browsers' "$staged_app/Contents/Info.plist" 2>/dev/null \
