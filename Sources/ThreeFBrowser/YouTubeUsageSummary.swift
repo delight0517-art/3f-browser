@@ -31,18 +31,24 @@ enum FocusFenceQARouting {
 
     static func currentQARequestBaseURL() -> URL? {
         let environment = ProcessInfo.processInfo.environment
+        let arguments = ProcessInfo.processInfo.arguments
+        let fixture = arguments.first(where: { $0.hasPrefix("--threef-browser-qa-fixture=") })
+            .map { String($0.dropFirst("--threef-browser-qa-fixture=".count)) }
+            ?? environment["THREEF_BROWSER_FOCUS_FENCE_QA_URL"]
         return baseURL(
             qaRequested: isQARequested(),
             profileValid: BrowserSessionStore.isolatedQAProfileEnabled,
-            fixture: environment["THREEF_BROWSER_FOCUS_FENCE_QA_URL"]
+            fixture: fixture
         )
     }
 
     static func isQARequested() -> Bool {
         let environment = ProcessInfo.processInfo.environment
+        let arguments = ProcessInfo.processInfo.arguments
         return environment["THREEF_BROWSER_ENABLE_ISOLATED_QA_PROFILE"] == "1"
-            || ProcessInfo.processInfo.arguments.contains("--spaceo-agent-session")
-            || ProcessInfo.processInfo.arguments.contains(where: { $0.hasPrefix("--threef-browser-qa-profile=") })
+            || arguments.contains("--spaceo-agent-session")
+            || arguments.contains(where: { $0.hasPrefix("--threef-browser-qa-profile=") })
+            || arguments.contains(where: { $0.hasPrefix("--threef-browser-qa-fixture=") })
     }
 }
 
