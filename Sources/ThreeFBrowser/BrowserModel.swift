@@ -141,7 +141,7 @@ struct BrowserHistoryEntry: Codable, Equatable, Identifiable {
 final class BrowserModel: ObservableObject {
     @Published var searchProvider: SearchProvider {
         didSet {
-            UserDefaults.standard.set(searchProvider.rawValue, forKey: SearchProvider.preferenceKey)
+            preferenceStore.set(searchProvider.rawValue, forKey: SearchProvider.preferenceKey)
         }
     }
     @Published var addressText = ""
@@ -168,6 +168,7 @@ final class BrowserModel: ObservableObject {
     private let bookmarksKey = "browser.v1.bookmarks"
     private let installedWebAppsKey = "browser.v1.installedWebApps"
     private let historyKey = "browser.v1.history"
+    private let preferenceStore: BrowserPreferenceStore
 
     var isYouTubePage: Bool {
         guard let host = currentURL?.host?.lowercased() else { return false }
@@ -201,12 +202,13 @@ final class BrowserModel: ObservableObject {
         youtubeUsageSummary?.statusLine ?? youtubeUsageStatusLabel
     }
 
-    init() {
-        let savedProvider = UserDefaults.standard.string(forKey: SearchProvider.preferenceKey)
+    init(preferences: BrowserPreferenceStore = BrowserPreferenceStore()) {
+        preferenceStore = preferences
+        let savedProvider = preferences.string(forKey: SearchProvider.preferenceKey)
         searchProvider = SearchProvider(rawValue: savedProvider ?? "") ?? .google
-        bookmarks = Self.load([BrowserQuickLink].self, forKey: bookmarksKey) ?? BrowserTheme.standard.quickLinks
-        installedWebApps = (Self.load([InstalledWebApp].self, forKey: installedWebAppsKey) ?? []).filter(\.isValid)
-        history = Self.load([BrowserHistoryEntry].self, forKey: historyKey) ?? []
+        bookmarks = Self.load([BrowserQuickLink].self, forKey: bookmarksKey, preferences: preferences) ?? BrowserTheme.standard.quickLinks
+        installedWebApps = (Self.load([InstalledWebApp].self, forKey: installedWebAppsKey, preferences: preferences) ?? []).filter(\.isValid)
+        history = Self.load([BrowserHistoryEntry].self, forKey: historyKey, preferences: preferences) ?? []
         reloadThemeModule()
     }
 
@@ -444,20 +446,20 @@ final class BrowserModel: ObservableObject {
     }
 
     private func rememberMediaSiteDecision(_ domain: String) {
-        var resolved = Self.resolvedMediaSiteDomains()
+        var resolved = resolvedMediaSiteDomains()
         resolved.insert(domain)
-        UserDefaults.standard.set(resolved.sorted(), forKey: Self.mediaSiteDecisionsKey)
+        preferenceStore.set(resolved.sorted(), forKey: Self.mediaSiteDecisionsKey)
     }
 
     private static let mediaSiteDecisionsKey = "threef.focusFence.mediaSiteDecisions.v1"
 
-    private static func resolvedMediaSiteDomains() -> Set<String> {
-        Set(UserDefaults.standard.stringArray(forKey: mediaSiteDecisionsKey) ?? [])
+    private func resolvedMediaSiteDomains() -> Set<String> {
+        Set(preferenceStore.stringArray(forKey: Self.mediaSiteDecisionsKey) ?? [])
     }
 
     private func isMediaSitePromptSuppressed(_ rawHost: String) -> Bool {
         let host = rawHost.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
-        let alreadyResolved = Self.resolvedMediaSiteDomains().contains {
+        let alreadyResolved = resolvedMediaSiteDomains().contains {
             host == $0 || host.hasSuffix("." + $0)
         }
         return alreadyResolved || mediaSiteSnoozeStore.suppresses(host: host)
@@ -520,7 +522,7 @@ final class BrowserModel: ObservableObject {
         guard value.isValid, !bookmarks.contains(where: { $0.url == value.url }) else { return }
         bookmarks.insert(value, at: 0)
         if bookmarks.count > 100 { bookmarks = Array(bookmarks.prefix(100)) }
-        Self.save(bookmarks, forKey: bookmarksKey)
+        Self.save(bookmarks, forKey: bookmarksKey, preferences: preferenceStore)
     }
 
     @discardableResult
@@ -537,19 +539,19 @@ final class BrowserModel: ObservableObject {
         if !installedWebApps.contains(where: { $0.id == app.id }) {
             installedWebApps.insert(app, at: 0)
             if installedWebApps.count > 50 { installedWebApps = Array(installedWebApps.prefix(50)) }
-            Self.save(installedWebApps, forKey: installedWebAppsKey)
+            Self.save(installedWebApps, forKey: installedWebAppsKey, preferences: preferenceStore)
         }
         return installedWebApps.first(where: { $0.id == app.id })
     }
 
     func removeInstalledWebApp(_ app: InstalledWebApp) {
         installedWebApps.removeAll { $0.id == app.id }
-        Self.save(installedWebApps, forKey: installedWebAppsKey)
+        Self.save(installedWebApps, forKey: installedWebAppsKey, preferences: preferenceStore)
     }
 
     func removeBookmark(_ bookmark: BrowserQuickLink) {
         bookmarks.removeAll { $0.id == bookmark.id }
-        Self.save(bookmarks, forKey: bookmarksKey)
+        Self.save(bookmarks, forKey: bookmarksKey, preferences: preferenceStore)
     }
 
     @discardableResult
@@ -558,13 +560,13 @@ final class BrowserModel: ObservableObject {
         let additions = imported.filter { $0.isValid && seen.insert($0.url).inserted }
             .prefix(max(0, BookmarkHTML.maximumBookmarks - bookmarks.count))
         bookmarks = Array(additions) + bookmarks
-        Self.save(bookmarks, forKey: bookmarksKey)
+        Self.save(bookmarks, forKey: bookmarksKey, preferences: preferenceStore)
         return additions.count
     }
 
     func clearHistory() {
         history = []
-        Self.save(history, forKey: historyKey)
+        Self.save(history, forKey: historyKey, preferences: preferenceStore)
     }
 
     private func recordVisit(to url: URL, title: String) {
@@ -574,17 +576,21 @@ final class BrowserModel: ObservableObject {
         history.removeAll { $0.url == entry.url }
         history.insert(entry, at: 0)
         if history.count > 100 { history = Array(history.prefix(100)) }
-        Self.save(history, forKey: historyKey)
+        Self.save(history, forKey: historyKey, preferences: preferenceStore)
     }
 
-    private static func load<Value: Decodable>(_ type: Value.Type, forKey key: String) -> Value? {
-        guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
+    private static func load<Value: Decodable>(
+        _ type: Value.Type, forKey key: String, preferences: BrowserPreferenceStore
+    ) -> Value? {
+        guard let data = preferences.data(forKey: key) else { return nil }
         return try? JSONDecoder().decode(type, from: data)
     }
 
-    private static func save<Value: Encodable>(_ value: Value, forKey key: String) {
+    private static func save<Value: Encodable>(
+        _ value: Value, forKey key: String, preferences: BrowserPreferenceStore
+    ) {
         guard let data = try? JSONEncoder().encode(value) else { return }
-        UserDefaults.standard.set(data, forKey: key)
+        preferences.set(data, forKey: key)
     }
 
 }

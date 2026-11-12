@@ -270,6 +270,33 @@ enum BrowserSessionStore {
         try write(normalized(snapshot), to: sessionsDirectory.appendingPathComponent("\(identifier).json"))
     }
 
+    static func loadPreferences(from directory: URL) -> [String: Data] {
+        let file = directory.appendingPathComponent("browser-preferences.plist")
+        guard let values = try? file.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]),
+              values.isRegularFile == true, values.isSymbolicLink != true,
+              let size = values.fileSize, size <= 512_000,
+              let permissions = try? FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? NSNumber,
+              permissions.intValue & 0o077 == 0,
+              let data = try? Data(contentsOf: file),
+              let preferences = try? PropertyListDecoder().decode([String: Data].self, from: data) else { return [:] }
+        return preferences
+    }
+
+    static func savePreferences(_ preferences: [String: Data], to directory: URL) {
+        let file = directory.appendingPathComponent("browser-preferences.plist")
+        guard let data = try? PropertyListEncoder().encode(preferences), data.count <= 512_000 else { return }
+        do {
+            let manager = FileManager.default
+            try manager.createDirectory(at: directory, withIntermediateDirectories: true,
+                                        attributes: [.posixPermissions: 0o700])
+            try manager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+            try data.write(to: file, options: .atomic)
+            try manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+        } catch {
+            // QA preferences are disposable; a failed write must not fall back to the user's defaults.
+        }
+    }
+
     private static func write<Value: Encodable>(_ value: Value, to file: URL) throws {
         let manager = FileManager.default
         let directory = file.deletingLastPathComponent()
@@ -309,5 +336,66 @@ enum BrowserSessionStore {
             byteCount += scalarBytes
         }
         return String(scalars)
+    }
+}
+
+struct BrowserPreferenceStore {
+    private let qaDirectory: URL?
+    private let defaults: UserDefaults?
+
+    init(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        arguments: [String] = CommandLine.arguments,
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
+        defaults: UserDefaults = .standard
+    ) {
+        let qaRequested = environment["THREEF_BROWSER_ENABLE_ISOLATED_QA_PROFILE"] == "1"
+            || arguments.contains("--spaceo-agent-session")
+        let validatedDirectory = BrowserSessionStore.isolatedQASessionDirectory(
+            environment: environment, arguments: arguments, temporaryDirectory: temporaryDirectory
+        )
+        qaDirectory = validatedDirectory
+        self.defaults = qaRequested && validatedDirectory == nil ? nil : defaults
+    }
+
+    var isIsolated: Bool { qaDirectory != nil }
+
+    func string(forKey key: String) -> String? {
+        guard let qaDirectory else { return defaults?.string(forKey: key) }
+        guard let data = BrowserSessionStore.loadPreferences(from: qaDirectory)[key] else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    func stringArray(forKey key: String) -> [String]? {
+        guard let qaDirectory else { return defaults?.stringArray(forKey: key) }
+        guard let data = BrowserSessionStore.loadPreferences(from: qaDirectory)[key] else { return nil }
+        return try? PropertyListDecoder().decode([String].self, from: data)
+    }
+
+    func data(forKey key: String) -> Data? {
+        guard let qaDirectory else { return defaults?.data(forKey: key) }
+        return BrowserSessionStore.loadPreferences(from: qaDirectory)[key]
+    }
+
+    func set(_ value: String, forKey key: String) {
+        guard let qaDirectory else { defaults?.set(value, forKey: key); return }
+        updateQAValue(Data(value.utf8), forKey: key, in: qaDirectory)
+    }
+
+    func set(_ value: [String], forKey key: String) {
+        guard let qaDirectory else { defaults?.set(value, forKey: key); return }
+        updateQAValue(try? PropertyListEncoder().encode(value), forKey: key, in: qaDirectory)
+    }
+
+    func set(_ value: Data, forKey key: String) {
+        guard let qaDirectory else { defaults?.set(value, forKey: key); return }
+        updateQAValue(value, forKey: key, in: qaDirectory)
+    }
+
+    private func updateQAValue(_ data: Data?, forKey key: String, in directory: URL) {
+        guard let data else { return }
+        var preferences = BrowserSessionStore.loadPreferences(from: directory)
+        preferences[key] = data
+        BrowserSessionStore.savePreferences(preferences, to: directory)
     }
 }
