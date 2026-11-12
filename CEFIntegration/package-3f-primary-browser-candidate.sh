@@ -24,6 +24,12 @@ if [[ "$source_bundle_id" != "org.cef.cefclient" ]]; then
   echo "Refusing CEF bundle ID $source_bundle_id; the verified helper rendezvous uses org.cef.cefclient." >&2
   exit 4
 fi
+if grep -Eq 'threef_auth_browser_policy.h|threef_auth::' \
+  "$repo_root/.build/cef-156-arm64/unpacked/tests/cefclient/browser/base_client_handler.cc" \
+  "$repo_root/.build/cef-156-arm64/unpacked/tests/cefclient/browser/client_handler.cc"; then
+  echo "Refusing to package a full-browser build with auth-only navigation hooks." >&2
+  exit 4
+fi
 if [[ -e "$candidate" ]]; then
   echo "Refusing to replace an existing candidate: $candidate" >&2
   exit 5
@@ -42,6 +48,7 @@ ditto "$source_app" "$staged_app"
 /usr/libexec/PlistBuddy -c 'Add :LSApplicationCategoryType string public.app-category.web-browsers' "$staged_app/Contents/Info.plist" 2>/dev/null \
   || /usr/libexec/PlistBuddy -c 'Set :LSApplicationCategoryType public.app-category.web-browsers' "$staged_app/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :LSEnvironment:THREEF_CEF_PROFILE_ROOT string $profile_root" "$staged_app/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c 'Add :LSEnvironment:THREEF_CEF_NATIVE_WINDOW string 1' "$staged_app/Contents/Info.plist"
 if [[ "${THREEF_CEF_STARTUP_TRACE:-0}" == "1" ]]; then
   /usr/libexec/PlistBuddy -c 'Add :LSEnvironment:THREEF_CEF_STARTUP_TRACE string 1' "$staged_app/Contents/Info.plist"
   /usr/libexec/PlistBuddy -c "Add :LSEnvironment:THREEF_CEF_STARTUP_LOG string $profile_root/3f-startup.log" "$staged_app/Contents/Info.plist"
