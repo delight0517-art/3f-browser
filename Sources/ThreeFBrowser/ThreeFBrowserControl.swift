@@ -560,6 +560,7 @@ final class ThreeFBrowserControlServer {
         let bundleIdentifier: String
         let executablePath: String
         let processIdentifier: Int32
+        let qaProfilePath: String?
     }
 
     private struct ExistingDescriptor: Decodable {
@@ -657,7 +658,8 @@ final class ThreeFBrowserControlServer {
             let data = try JSONEncoder().encode(Descriptor(
                 port: port, token: token, bundleIdentifier: bundleIdentifier,
                 executablePath: executablePath,
-                processIdentifier: Int32(ProcessInfo.processInfo.processIdentifier)))
+                processIdentifier: Int32(ProcessInfo.processInfo.processIdentifier),
+                qaProfilePath: BrowserSessionStore.isolatedQAProfileEnabled ? BrowserSessionStore.defaultDirectory.standardizedFileURL.path : nil))
             try data.write(to: descriptorURL, options: .atomic)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: descriptorURL.path)
         } catch {
