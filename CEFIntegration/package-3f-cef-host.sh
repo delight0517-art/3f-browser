@@ -19,7 +19,8 @@ fi
 mkdir -p "$(dirname "$destination")"
 rm -rf "$destination"
 ditto "$cefclient" "$destination"
-/usr/libexec/PlistBuddy -c 'Set :CFBundleName 3F Chromium Browser' "$destination/Contents/Info.plist"
+# Keep the compiled CEF bundle name and helper rendezvous identity intact.
+# Only the visible name changes; CEF resolves its helper apps from this bundle.
 /usr/libexec/PlistBuddy -c 'Add :CFBundleDisplayName string 3F Chromium Browser' "$destination/Contents/Info.plist" 2>/dev/null \
   || /usr/libexec/PlistBuddy -c 'Set :CFBundleDisplayName 3F Chromium Browser' "$destination/Contents/Info.plist"
 cp "$app_bundle/Contents/Resources/3f-icon.icns" "$destination/Contents/Resources/cefclient.icns"

@@ -4,6 +4,7 @@ import Foundation
 @MainActor
 enum CEFBrowserRuntime {
     static let hostBundleName = "3F Chromium Browser.app"
+    private static var activeProcesses: [Int32: Process] = [:]
 
     static func open(
         _ authenticationURL: URL,
@@ -18,7 +19,8 @@ enum CEFBrowserRuntime {
         let hostURL = Bundle.main.bundleURL
             .deletingLastPathComponent()
             .appendingPathComponent(hostBundleName, isDirectory: true)
-        guard FileManager.default.fileExists(atPath: hostURL.path) else {
+        let executableURL = hostURL.appendingPathComponent("Contents/MacOS/cefclient")
+        guard FileManager.default.isExecutableFile(atPath: executableURL.path) else {
             completion(.failure(LaunchError.hostNotBundled))
             return
         }
@@ -37,18 +39,28 @@ enum CEFBrowserRuntime {
            let origin = GoogleOAuthNavigationPolicy.exactOrigin(for: safeOriginatingPage) {
             arguments.append("--3f-site-origin=\(origin.absoluteString)")
         }
-        let configuration = NSWorkspace.OpenConfiguration()
-        configuration.arguments = arguments
-        NSWorkspace.shared.openApplication(at: hostURL, configuration: configuration) { app, error in
-            DispatchQueue.main.async {
-                if let error {
-                    completion(.failure(error))
-                } else if app != nil {
-                    completion(.success(()))
-                } else {
-                    completion(.failure(LaunchError.launchFailed))
+        let process = Process()
+        process.executableURL = executableURL
+        process.currentDirectoryURL = hostURL
+        process.arguments = arguments
+        do {
+            try process.run()
+            let processID = process.processIdentifier
+            activeProcesses[processID] = process
+            process.terminationHandler = { _ in
+                DispatchQueue.main.async {
+                    activeProcesses.removeValue(forKey: processID)
                 }
             }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                guard process.isRunning else {
+                    completion(.failure(LaunchError.launchFailed))
+                    return
+                }
+                completion(.success(()))
+            }
+        } catch {
+            completion(.failure(error))
         }
     }
 
