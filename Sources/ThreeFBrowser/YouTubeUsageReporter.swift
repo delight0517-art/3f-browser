@@ -274,7 +274,6 @@ enum YouTubeUsageBridgePayload {
 @MainActor
 final class YouTubeUsageScriptMessageHandler: NSObject, WKScriptMessageHandlerWithReply {
     static let name = "threefYouTubeUsage"
-    private let endpoint = URL(string: "http://127.0.0.1:17361")!
 
     func userContentController(
         _ userContentController: WKUserContentController,
@@ -322,12 +321,17 @@ final class YouTubeUsageScriptMessageHandler: NSObject, WKScriptMessageHandlerWi
     }
 
     private func fetchPolicy() async -> [String: Any] {
-        var components = URLComponents(url: endpoint.appendingPathComponent("rules"), resolvingAgainstBaseURL: false)!
+        let qaRequested = FocusFenceQARouting.isQARequested()
+        let baseURL = qaRequested ? FocusFenceQARouting.currentQARequestBaseURL() : URL(string: "http://127.0.0.1:17361")
+        guard let baseURL else { return ["youtubeQuotaBlocked": true] }
+        var components = URLComponents(url: baseURL.appendingPathComponent("rules"), resolvingAgainstBaseURL: false)!
         components.queryItems = [URLQueryItem(name: "browser", value: "3f")]
-        var request = URLRequest(url: components.url!)
+        guard let url = components.url else { return ["youtubeQuotaBlocked": true] }
+        var request = URLRequest(url: url)
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.timeoutInterval = 5
-        guard let (data, response) = try? await URLSession.shared.data(for: request),
+        let session = qaRequested ? FocusFenceQARouting.makeSession() : URLSession.shared
+        guard let (data, response) = try? await session.data(for: request),
               let response = response as? HTTPURLResponse,
               response.statusCode == 200,
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -354,21 +358,28 @@ final class YouTubeUsageScriptMessageHandler: NSObject, WKScriptMessageHandlerWi
     }
 
     private func sendReport(_ payload: [String: Any]) async -> Bool {
-        var request = URLRequest(url: endpoint.appendingPathComponent("ingest"))
+        let qaRequested = FocusFenceQARouting.isQARequested()
+        let baseURL = qaRequested ? FocusFenceQARouting.currentQARequestBaseURL() : URL(string: "http://127.0.0.1:17361")
+        guard let baseURL else { return false }
+        var request = URLRequest(url: baseURL.appendingPathComponent("ingest"))
         request.httpMethod = "POST"
         request.timeoutInterval = 5
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return false }
         request.httpBody = data
-        guard let (_, response) = try? await URLSession.shared.data(for: request),
+        guard let (_, response) = try? await (qaRequested ? FocusFenceQARouting.makeSession() : .shared).data(for: request),
               let response = response as? HTTPURLResponse else { return false }
         return response.statusCode == 200
     }
 
     private func requestLease(_ payload: [String: Any]) async -> [String: Any] {
-        var components = URLComponents(url: endpoint.appendingPathComponent("youtube/budget/grant"), resolvingAgainstBaseURL: false)!
+        let qaRequested = FocusFenceQARouting.isQARequested()
+        let baseURL = qaRequested ? FocusFenceQARouting.currentQARequestBaseURL() : URL(string: "http://127.0.0.1:17361")
+        guard let baseURL else { return ["ok": false, "error": "unavailable"] }
+        var components = URLComponents(url: baseURL.appendingPathComponent("youtube/budget/grant"), resolvingAgainstBaseURL: false)!
         components.queryItems = [URLQueryItem(name: "browser", value: "3f")]
-        var request = URLRequest(url: components.url!)
+        guard let url = components.url else { return ["ok": false, "error": "unavailable"] }
+        var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.timeoutInterval = 8
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -376,7 +387,7 @@ final class YouTubeUsageScriptMessageHandler: NSObject, WKScriptMessageHandlerWi
             return ["ok": false, "error": "invalid_request"]
         }
         request.httpBody = data
-        guard let (responseData, response) = try? await URLSession.shared.data(for: request),
+        guard let (responseData, response) = try? await (qaRequested ? FocusFenceQARouting.makeSession() : .shared).data(for: request),
               let response = response as? HTTPURLResponse,
               let body = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any] else {
             return ["ok": false, "error": "unavailable"]
@@ -388,15 +399,19 @@ final class YouTubeUsageScriptMessageHandler: NSObject, WKScriptMessageHandlerWi
     }
 
     private func sendLeaseReport(_ payload: [String: Any]) async -> [String: Any] {
-        var components = URLComponents(url: endpoint.appendingPathComponent("youtube/budget/report"), resolvingAgainstBaseURL: false)!
+        let qaRequested = FocusFenceQARouting.isQARequested()
+        let baseURL = qaRequested ? FocusFenceQARouting.currentQARequestBaseURL() : URL(string: "http://127.0.0.1:17361")
+        guard let baseURL else { return ["queued": false] }
+        var components = URLComponents(url: baseURL.appendingPathComponent("youtube/budget/report"), resolvingAgainstBaseURL: false)!
         components.queryItems = [URLQueryItem(name: "browser", value: "3f")]
-        var request = URLRequest(url: components.url!)
+        guard let url = components.url else { return ["queued": false] }
+        var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.timeoutInterval = 8
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return ["queued": false] }
         request.httpBody = data
-        guard let (responseData, response) = try? await URLSession.shared.data(for: request),
+        guard let (responseData, response) = try? await (qaRequested ? FocusFenceQARouting.makeSession() : .shared).data(for: request),
               let response = response as? HTTPURLResponse,
               response.statusCode == 200,
               let body = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],

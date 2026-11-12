@@ -1,5 +1,51 @@
 import Foundation
 
+private final class FocusFenceQARedirectRejector: NSObject, URLSessionTaskDelegate {
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(nil)
+    }
+}
+
+enum FocusFenceQARouting {
+    static func baseURL(qaRequested: Bool, profileValid: Bool, fixture: String?) -> URL? {
+        guard qaRequested else { return URL(string: "http://127.0.0.1:17361") }
+        guard profileValid, let fixture, let components = URLComponents(string: fixture),
+              components.scheme == "http",
+              components.host == "127.0.0.1",
+              let port = components.port, (1...65535).contains(port), port != 17361,
+              components.user == nil, components.password == nil,
+              components.query == nil, components.fragment == nil,
+              components.path.isEmpty || components.path == "/" else { return nil }
+        return components.url
+    }
+
+    static func makeSession() -> URLSession {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.httpCookieStorage = nil
+        configuration.httpShouldSetCookies = false
+        configuration.urlCache = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        configuration.connectionProxyDictionary = [:]
+        return URLSession(configuration: configuration, delegate: FocusFenceQARedirectRejector(), delegateQueue: nil)
+    }
+
+    static func currentQARequestBaseURL() -> URL? {
+        let environment = ProcessInfo.processInfo.environment
+        return baseURL(
+            qaRequested: isQARequested(),
+            profileValid: BrowserSessionStore.isolatedQAProfileEnabled,
+            fixture: environment["THREEF_BROWSER_FOCUS_FENCE_QA_URL"]
+        )
+    }
+
+    static func isQARequested() -> Bool {
+        let environment = ProcessInfo.processInfo.environment
+        return environment["THREEF_BROWSER_ENABLE_ISOLATED_QA_PROFILE"] == "1"
+            || ProcessInfo.processInfo.arguments.contains("--spaceo-agent-session")
+            || ProcessInfo.processInfo.arguments.contains(where: { $0.hasPrefix("--threef-browser-qa-profile=") })
+    }
+}
+
 struct FocusFenceYouTubePlaybackPolicy: Decodable, Equatable, Sendable {
     let youtubeQuotaBlocked: Bool
     let youtubeBlockedByActiveSchedule: Bool?
@@ -158,9 +204,15 @@ enum FocusFenceYouTubeUsageClient {
     }
 
     static func fetch(session: URLSession = .shared) async -> FocusFenceYouTubeUsageSummary? {
-        async let policy = fetchPolicy(session: session)
-        let request = makeRequest()
-        guard let (data, response) = try? await session.data(for: request),
+        let qaRequested = FocusFenceQARouting.isQARequested()
+        guard let baseURL = FocusFenceQARouting.currentQARequestBaseURL() else { return nil }
+        let requestSession = qaRequested ? FocusFenceQARouting.makeSession() : session
+        async let policy = fetchPolicy(session: requestSession)
+        var request = URLRequest(url: baseURL.appendingPathComponent("usage/youtube"))
+        request.httpMethod = "GET"
+        request.timeoutInterval = requestTimeoutInterval
+        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        guard let (data, response) = try? await requestSession.data(for: request),
               let response = response as? HTTPURLResponse,
               response.statusCode == 200 else { return nil }
         guard let summary = FocusFenceYouTubeUsageSummary.decode(data) else { return nil }
@@ -168,10 +220,15 @@ enum FocusFenceYouTubeUsageClient {
     }
 
     static func fetchPolicy(session: URLSession = .shared) async -> FocusFenceYouTubePlaybackPolicy? {
-        var request = URLRequest(url: URL(string: "http://127.0.0.1:17361/rules?browser=3f")!)
+        let qaRequested = FocusFenceQARouting.isQARequested()
+        guard let baseURL = FocusFenceQARouting.currentQARequestBaseURL() else { return nil }
+        let requestSession = qaRequested ? FocusFenceQARouting.makeSession() : session
+        var components = URLComponents(url: baseURL.appendingPathComponent("rules"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "browser", value: "3f")]
+        var request = URLRequest(url: components.url!)
         request.timeoutInterval = policyRequestTimeoutInterval
         request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
-        guard let (data, response) = try? await session.data(for: request),
+        guard let (data, response) = try? await requestSession.data(for: request),
               (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
         return FocusFenceYouTubePlaybackPolicy.decode(data)
     }

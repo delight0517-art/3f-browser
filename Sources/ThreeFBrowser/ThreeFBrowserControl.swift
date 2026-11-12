@@ -191,13 +191,19 @@ final class ThreeFBrowserControlController {
     }
 
     nonisolated static func fetchFocusFenceRules() async -> Data? {
-        var components = URLComponents(string: "http://127.0.0.1:17361/rules")!
+        let baseURL = FocusFenceQARouting.isQARequested()
+            ? FocusFenceQARouting.currentQARequestBaseURL()
+            : URL(string: "http://127.0.0.1:17361")
+        guard let baseURL else { return nil }
+        let session = FocusFenceQARouting.isQARequested() ? FocusFenceQARouting.makeSession() : URLSession.shared
+        var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
+        components.path = "/rules"
         components.queryItems = [URLQueryItem(name: "browser", value: "3f")]
         var request = URLRequest(url: components.url!)
         request.httpMethod = "GET"
         request.timeoutInterval = 2
         request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
-        guard let (data, response) = try? await URLSession.shared.data(for: request),
+        guard let (data, response) = try? await session.data(for: request),
               let status = response as? HTTPURLResponse, status.statusCode == 200 else { return nil }
         return data
     }

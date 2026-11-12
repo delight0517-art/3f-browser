@@ -8,7 +8,6 @@ final class FocusFenceConnectionService: ObservableObject {
     @Published private(set) var filterStatus = "확인 전"
     @Published private(set) var detail = "3F Browser는 Focus Fence의 브라우저 자동 검색 대상으로 등록되어 있습니다."
 
-    private let baseURL = URL(string: "http://127.0.0.1:17361")!
     private let expectedFilterBundleID = "com.rogan.VeliMac.NetworkFilter"
 
     struct QuickAddOutcome {
@@ -42,13 +41,17 @@ final class FocusFenceConnectionService: ObservableObject {
             throw URLError(.badURL)
         }
 
+        guard let baseURL = FocusFenceQARouting.currentQARequestBaseURL() else {
+            throw URLError(.badURL)
+        }
         let endpoint = baseURL.appendingPathComponent("quick-add")
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.timeoutInterval = 4
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: ["input": host])
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let session = FocusFenceQARouting.isQARequested() ? FocusFenceQARouting.makeSession() : URLSession.shared
+        let (data, response) = try await session.data(for: request)
         guard let response = response as? HTTPURLResponse,
               let payload = try? JSONDecoder().decode(QuickAddResponse.self, from: data) else {
             throw URLError(.badServerResponse)
@@ -90,6 +93,9 @@ final class FocusFenceConnectionService: ObservableObject {
     }
 
     private func postSchedule(_ message: String, confirm: Bool) async throws -> ScheduleOutcome {
+        guard let baseURL = FocusFenceQARouting.currentQARequestBaseURL() else {
+            throw URLError(.badURL)
+        }
         let endpoint = baseURL.appendingPathComponent("chat/schedule")
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
@@ -98,7 +104,8 @@ final class FocusFenceConnectionService: ObservableObject {
         var body: [String: Any] = ["message": message]
         if confirm { body["confirm"] = true }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let session = FocusFenceQARouting.isQARequested() ? FocusFenceQARouting.makeSession() : URLSession.shared
+        let (data, response) = try await session.data(for: request)
         guard let response = response as? HTTPURLResponse,
               let payload = try? JSONDecoder().decode(ChatScheduleResponse.self, from: data),
               (200...403).contains(response.statusCode) else {
@@ -179,12 +186,16 @@ final class FocusFenceConnectionService: ObservableObject {
     }
 
     private func fetch<Value: Decodable>(_ type: Value.Type, path: String) async throws -> Value {
+        guard let baseURL = FocusFenceQARouting.currentQARequestBaseURL() else {
+            throw URLError(.badURL)
+        }
         let endpoint = baseURL.appendingPathComponent(path.trimmingCharacters(in: CharacterSet(charactersIn: "/")))
         var request = URLRequest(url: endpoint)
         request.httpMethod = "GET"
         request.timeoutInterval = 1.5
         request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let session = FocusFenceQARouting.isQARequested() ? FocusFenceQARouting.makeSession() : URLSession.shared
+        let (data, response) = try await session.data(for: request)
         guard let response = response as? HTTPURLResponse, response.statusCode == 200 else {
             throw URLError(.badServerResponse)
         }
@@ -192,13 +203,17 @@ final class FocusFenceConnectionService: ObservableObject {
     }
 
     private func fetchFocusFenceRules() async throws -> Data {
+        guard let baseURL = FocusFenceQARouting.currentQARequestBaseURL() else {
+            throw URLError(.badURL)
+        }
         var components = URLComponents(url: baseURL.appendingPathComponent("rules"), resolvingAgainstBaseURL: false)!
         components.queryItems = [URLQueryItem(name: "browser", value: "3f")]
         var request = URLRequest(url: components.url!)
         request.httpMethod = "GET"
         request.timeoutInterval = 2
         request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let session = FocusFenceQARouting.isQARequested() ? FocusFenceQARouting.makeSession() : URLSession.shared
+        let (data, response) = try await session.data(for: request)
         guard let response = response as? HTTPURLResponse, response.statusCode == 200 else {
             throw URLError(.badServerResponse)
         }
