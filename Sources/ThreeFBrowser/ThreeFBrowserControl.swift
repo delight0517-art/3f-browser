@@ -42,13 +42,32 @@ extension WKWebView: ThreeFBrowserControlSurface {
 }
 
 private enum ThreeFBrowserTerminationProbe {
+    fileprivate static var traceFileDescriptor: Int32 = -1
+
     static func installIfRequested() {
-        guard ProcessInfo.processInfo.environment["THREEF_BROWSER_TRACE_SIGTERM"] == "1" else { return }
+        let environmentTrace = ProcessInfo.processInfo.environment["THREEF_BROWSER_TRACE_SIGTERM"] == "1"
+        let arguments = ProcessInfo.processInfo.arguments
+        let isolatedQATrace = arguments.contains("--threef-browser-qa-trace-sigterm")
+            && BrowserSessionStore.isolatedQAProfileEnabled
+        guard environmentTrace || isolatedQATrace else { return }
+
+        if isolatedQATrace {
+            let traceURL = BrowserSessionStore.defaultDirectory.appendingPathComponent("sigterm.bin")
+            traceFileDescriptor = traceURL.path.withCString { path in
+                Darwin.open(path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600)
+            }
+        }
+
         var action = sigaction()
         action.sa_flags = SA_SIGINFO
         action.__sigaction_u.__sa_sigaction = threefBrowserSigtermHandler
         sigemptyset(&action.sa_mask)
-        _ = sigaction(SIGTERM, &action, nil)
+        if sigaction(SIGTERM, &action, nil) != 0 {
+            if traceFileDescriptor >= 0 {
+                _ = Darwin.close(traceFileDescriptor)
+                traceFileDescriptor = -1
+            }
+        }
     }
 }
 
@@ -62,7 +81,8 @@ private let threefBrowserSigtermHandler: @convention(c) (Int32, UnsafeMutablePoi
         Int32(bitPattern: info?.pointee.si_uid ?? UInt32.max)
     )
     withUnsafeBytes(of: &record) { bytes in
-        _ = Darwin.write(STDERR_FILENO, bytes.baseAddress, bytes.count)
+        let destination = ThreeFBrowserTerminationProbe.traceFileDescriptor
+        _ = Darwin.write(destination >= 0 ? destination : STDERR_FILENO, bytes.baseAddress, bytes.count)
     }
     _ = Darwin.signal(signalNumber, SIG_DFL)
     _ = Darwin.kill(Darwin.getpid(), signalNumber)
