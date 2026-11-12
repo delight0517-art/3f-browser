@@ -105,6 +105,9 @@ else
     patch -R -p1 -i "$auth_popup_patch" -d "$cef_root"
   fi
   policy_header="$cef_root/tests/cefclient/browser/threef_auth_browser_policy.h"
+  if [[ -f "$policy_header" ]] && grep -Fq 'bool is_redirect' "$policy_header"; then
+    patch -R -p1 -i "$auth_redirect_patch" -d "$cef_root"
+  fi
   if [[ -f "$policy_header" ]] && grep -q 'IsAuthOnlyMode' "$policy_header"; then
     patch -R -p1 -i "$auth_mode_patch" -d "$cef_root"
   fi
@@ -112,6 +115,30 @@ else
       "$cef_root/tests/cefclient/browser/base_client_handler.cc"; then
     patch -R -p1 -i "$auth_policy_patch" -d "$cef_root"
   fi
+  # A prior failed patch unwind may have removed the shared policy header and
+  # BaseClientHandler hooks while leaving the popup hook in ClientHandler. Strip
+  # only that exact auth-policy block and refuse any other residual auth code.
+  python3 - "$cef_root/tests/cefclient/browser/client_handler.cc" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text()
+guard = re.compile(
+    r'  if \(!threef_auth::IsAllowedNavigation\(target_url, true(?:, false)?\)\) \{\n'
+    r'    return true;\n'
+    r'  \}\n'
+)
+text, removed = guard.subn('', text)
+if removed > 1:
+    raise SystemExit('Refusing to remove multiple unexpected 3F popup guards.')
+text = text.replace(
+    '#include "tests/cefclient/browser/threef_auth_browser_policy.h"\n', '')
+if 'threef_auth' in text:
+    raise SystemExit('Full-browser mode retains an unrecognized 3F auth hook.')
+path.write_text(text)
+PY
 fi
 
 if [[ "$startup_trace" == "1" ]]; then
