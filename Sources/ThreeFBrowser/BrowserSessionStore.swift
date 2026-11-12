@@ -84,10 +84,14 @@ enum BrowserSessionStore {
         arguments: [String] = [],
         temporaryDirectory: URL
     ) -> URL? {
-        let argumentPath = arguments.first(where: { $0.hasPrefix("--threef-browser-qa-profile=") })
-            .map { String($0.dropFirst("--threef-browser-qa-profile=".count)) }
+        let argumentPrefix = "--threef-browser-qa-profile="
+        let argumentPath = arguments.first(where: { $0.hasPrefix(argumentPrefix) })
+            .map { String($0.dropFirst(argumentPrefix.count)) }
+        // An environment-only path must never opt into an isolated profile.
+        let explicitQAValue = argumentPath
         let enabled = environment[isolatedQAProfileFlag] == "1"
             || arguments.contains("--spaceo-agent-session")
+            || (Bundle.main.bundleIdentifier == "com.rogan.threef.browser.qa.preview" && explicitQAValue != nil)
         guard enabled,
               let path = argumentPath ?? environment[isolatedQAProfilePath], !path.isEmpty else { return nil }
 
@@ -349,8 +353,10 @@ struct BrowserPreferenceStore {
         temporaryDirectory: URL = FileManager.default.temporaryDirectory,
         defaults: UserDefaults = .standard
     ) {
+        let hasExplicitProfileArgument = arguments.contains { $0.hasPrefix("--threef-browser-qa-profile=") }
         let qaRequested = environment["THREEF_BROWSER_ENABLE_ISOLATED_QA_PROFILE"] == "1"
             || arguments.contains("--spaceo-agent-session")
+            || hasExplicitProfileArgument
         let validatedDirectory = BrowserSessionStore.isolatedQASessionDirectory(
             environment: environment, arguments: arguments, temporaryDirectory: temporaryDirectory
         )
