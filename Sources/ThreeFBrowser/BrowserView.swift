@@ -816,7 +816,6 @@ struct BrowserView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 ForEach(model.theme.quickLinks) { link in
-                    HStack(spacing: 4) {
                     Button { navigateToQuickLink(link) } label: {
                         HStack(spacing: 6) {
                             Image(systemName: "globe")
