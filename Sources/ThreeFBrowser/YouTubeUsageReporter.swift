@@ -36,6 +36,13 @@ enum YouTubeUsageReporter {
         blocked = quotaBlocked || (shortsBlocked && onShorts);
         if (blocked) stop();
       };
+      document.addEventListener('keydown', event => {
+        if (!blocked || !['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+        const target = event.target;
+        if (target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }, true);
       const refreshQuota = async (force = false) => {
         const now = performance.now();
         if (!force && now - lastPolicyAt < 30000) return;
