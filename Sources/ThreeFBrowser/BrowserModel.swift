@@ -193,9 +193,9 @@ final class BrowserModel: ObservableObject {
     }
 
     var youtubeUsageStatusLabel: String {
-        guard shouldShowYouTubeUsage else { return "" }
-        if let youtubeUsageSummary { return youtubeUsageSummary.compactStatusLine }
-        return youtubeUsageUnavailable ? "Focus Fence 사용량 확인 불가" : "Focus Fence 사용량 확인 중"
+        // Usage amounts and limits belong in the graphical dashboard; keep only
+        // the status-bar icon and its accessible detail text.
+        ""
     }
 
     var youtubeUsageDetail: String {

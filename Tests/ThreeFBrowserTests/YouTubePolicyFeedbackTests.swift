@@ -55,6 +55,7 @@ final class YouTubePolicyFeedbackTests: XCTestCase {
         model.submit(url.absoluteString) { _, completion in completion(.youtubeBlocked) }
         XCTAssertFalse(model.isLoading)
         XCTAssertTrue(model.shouldShowYouTubeUsage)
+        XCTAssertTrue(model.youtubeUsageStatusLabel.isEmpty, "Usage amounts should be shown by the graphical dashboard, not repeated as status text.")
         XCTAssertTrue(model.isYouTubeShortsContext)
         XCTAssertEqual(model.youtubeUsagePollKey, url.absoluteString)
         XCTAssertEqual(model.rejectedNavigationURL, url)
