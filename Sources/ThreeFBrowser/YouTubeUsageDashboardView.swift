@@ -29,7 +29,7 @@ struct YouTubeUsageDashboardView: View {
                     .foregroundStyle(isRestricted ? Color.orange : YouTubeUsagePalette.muted)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
-                    .background((isRestricted ? Color.orange : ThreeFPalette.muted).opacity(0.12), in: Capsule())
+                    .background((isRestricted ? Color.orange : YouTubeUsagePalette.muted).opacity(0.12), in: Capsule())
             }
 
             if let summary {
@@ -122,7 +122,7 @@ struct YouTubeUsageDashboardView: View {
                     .foregroundStyle(YouTubeUsagePalette.muted)
                 Text(capLabel)
                     .font(.system(size: 9))
-                    .foregroundStyle(ThreeFPalette.muted)
+                    .foregroundStyle(YouTubeUsagePalette.muted)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
