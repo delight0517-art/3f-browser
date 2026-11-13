@@ -6,6 +6,46 @@ const vm = require('node:vm');
 const source = fs.readFileSync(path.join(__dirname, '../Sources/ThreeFBrowser/YouTubeUsageReporter.swift'), 'utf8');
 const match = source.match(/static let script = #"""([\s\S]*?)"""#/);
 assert.ok(match, 'Swift YouTubeUsageReporter script literal exists');
+const iframeMatch = source.match(/static let iframeKeyboardBlockerScript = #"""([\s\S]*?)"""#/);
+assert.ok(iframeMatch, 'Swift YouTube iframe keyboard blocker script literal exists');
+
+async function runIframeKeyboardBlocker(host, quotaBlocked = true, { topFrame = false, policyUnavailable = false } = {}) {
+  const listeners = {};
+  const messages = [];
+  const window = {
+    webkit: { messageHandlers: { threefYouTubeUsage: { async postMessage(message) {
+      messages.push(message);
+      if (policyUnavailable) throw new Error('policy unavailable');
+      return { youtubeQuotaBlocked: quotaBlocked, remainingSeconds: quotaBlocked ? 0 : 120 };
+    } } } },
+    addEventListener(name, handler) { listeners[`window:${name}`] = handler; }
+  };
+  window.top = topFrame ? window : {};
+  const document = { addEventListener(name, handler, capture) { listeners[name] = { handler, capture }; } };
+  const context = {
+    window,
+    location: { hostname: host },
+    document,
+    HTMLElement: class HTMLElement {},
+    performance: { now: () => 1000 },
+    setInterval(callback) { listeners.interval = callback; }
+  };
+  vm.runInNewContext(iframeMatch[1], context);
+  await new Promise(resolve => setImmediate(resolve));
+  return {
+    listeners,
+    messages,
+    dispatchKey(key, tagName = 'VIDEO', editable = false) {
+      const target = new context.HTMLElement();
+      target.tagName = tagName;
+      target.isContentEditable = editable;
+      let prevented = false;
+      let stopped = false;
+      listeners.keydown?.handler({ key, target, preventDefault() { prevented = true; }, stopImmediatePropagation() { stopped = true; } });
+      return { prevented, stopped };
+    }
+  };
+}
 
 async function run(host, quotaBlocked = true, {
   failFirstAck = false, videoAtStart = true, playbackRate = 1, remainingSeconds = -1,
@@ -150,6 +190,34 @@ async function run(host, quotaBlocked = true, {
 }
 
 (async () => {
+  const iframeBlocked = await runIframeKeyboardBlocker('www.youtube.com');
+  assert.deepEqual(iframeBlocked.dispatchKey('ArrowLeft'), { prevented: true, stopped: true },
+    'a quota-blocked YouTube iframe prevents backward seeking');
+  assert.deepEqual(iframeBlocked.dispatchKey('ArrowRight'), { prevented: true, stopped: true },
+    'a quota-blocked YouTube iframe prevents forward seeking');
+  assert.equal(iframeBlocked.listeners.keydown.capture, true,
+    'the iframe key handler runs in capture phase before YouTube player handlers');
+  assert.deepEqual(iframeBlocked.messages.map(message => message.type), ['policy'],
+    'the iframe reads playback policy only and does not report or execute usage actions');
+  assert.deepEqual(iframeBlocked.dispatchKey('ArrowRight', 'INPUT'), { prevented: false, stopped: false },
+    'arrow keys remain available in iframe input fields');
+
+  const iframeAllowed = await runIframeKeyboardBlocker('youtube.com', false);
+  assert.deepEqual(iframeAllowed.dispatchKey('ArrowRight'), { prevented: false, stopped: false },
+    'YouTube iframe seeking remains available while quota allows playback');
+
+  const iframePolicyUnavailable = await runIframeKeyboardBlocker('youtube.com', false, { policyUnavailable: true });
+  assert.deepEqual(iframePolicyUnavailable.dispatchKey('ArrowLeft'), { prevented: true, stopped: true },
+    'the iframe blocks seeking when authoritative policy cannot be read');
+
+  const nonYouTubeIframe = await runIframeKeyboardBlocker('example.com');
+  assert.equal(nonYouTubeIframe.listeners.keydown, undefined,
+    'the iframe blocker does not attach to unrelated hosts');
+
+  const topFrame = await runIframeKeyboardBlocker('youtube.com', true, { topFrame: true });
+  assert.equal(topFrame.listeners.keydown, undefined,
+    'the iframe blocker leaves the top frame to the main usage reporter');
+
   const unrelated = await run('video.example.com');
   assert.equal(unrelated.video.paused, false, 'quota block must not pause unrelated video');
   unrelated.listeners.play();
@@ -437,5 +505,5 @@ async function run(host, quotaBlocked = true, {
   blockedShorts.startPlayback();
   assert.equal(blockedShorts.video.paused, true, 'returning to Shorts re-applies the shared policy immediately');
 
-  console.log('YouTube usage reporter Shorts policy/transitions, account-lease playback, outage fallback, interval, retry, privacy, and quota checks passed');
+  console.log('YouTube usage reporter main-frame and iframe arrow blocking, Shorts policy/transitions, account-lease playback, outage fallback, interval, retry, privacy, and quota checks passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });
