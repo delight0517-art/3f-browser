@@ -38,12 +38,19 @@ struct MediaSiteCandidate: Identifiable, Equatable {
 
     static func detect(
         host rawHost: String,
+        path rawPath: String = "/",
         blockedDomains: [String],
+        blockedUrlParts: [String] = [],
         youtubeQuotaBlocked: Bool
     ) -> MediaSiteCandidate? {
         let host = normalize(rawHost)
-        guard let candidate = platforms.first(where: { isWithin(host, $0.domain) }),
-              !blockedDomains.contains(where: { hostIsBlocked(host, by: normalize($0)) }) else {
+        let path = rawPath.lowercased()
+        let address = host + path
+        guard let candidate = platforms.first(where: {
+                  isWithin(host, $0.domain) && routeMatches(path, allowed: $0.webtoonPaths)
+              }),
+              !blockedDomains.contains(where: { hostIsBlocked(host, by: normalize($0)) }),
+              !blockedUrlParts.contains(where: { !normalize($0).isEmpty && address.contains(normalize($0)) }) else {
             return nil
         }
 
@@ -53,8 +60,16 @@ struct MediaSiteCandidate: Identifiable, Equatable {
                 $0.category == candidate.category && isWithin(rule, $0.domain)
             }
         }
+        let relatedWebtoonRouteIsBlocked = blockedUrlParts.contains { rawRule in
+            let rule = normalize(rawRule)
+            return platforms.contains { platform in
+                platform.category == .webtoon && platform.webtoonPaths.contains { route in
+                    rule.contains(platform.domain + route)
+                }
+            }
+        }
         let relatedYoutubeIsBlocked = candidate.category == .liveVideo && youtubeQuotaBlocked
-        guard relatedDomainIsBlocked || relatedYoutubeIsBlocked else { return nil }
+        guard relatedDomainIsBlocked || relatedWebtoonRouteIsBlocked || relatedYoutubeIsBlocked else { return nil }
         return MediaSiteCandidate(
             domain: candidate.domain,
             category: candidate.category,
@@ -62,19 +77,24 @@ struct MediaSiteCandidate: Identifiable, Equatable {
         )
     }
 
-    private static let platforms: [(domain: String, name: String, category: Category)] = [
-        ("youtube.com", "YouTube", .liveVideo),
-        ("twitch.tv", "Twitch", .liveVideo),
-        ("chzzk.naver.com", "치지직", .liveVideo),
-        ("sooplive.com", "SOOP", .liveVideo),
-        ("comic.naver.com", "네이버 웹툰", .webtoon),
-        ("series.naver.com", "네이버 시리즈", .webtoon),
-        ("page.kakao.com", "카카오페이지", .webtoon),
-        ("webtoon.kakao.com", "카카오웹툰", .webtoon),
-        ("lezhin.com", "레진코믹스", .webtoon),
-        ("toomics.com", "투믹스", .webtoon),
-        ("ridibooks.com", "리디", .webtoon)
+    private static let platforms: [(domain: String, name: String, category: Category, webtoonPaths: [String])] = [
+        ("youtube.com", "YouTube", .liveVideo, []),
+        ("twitch.tv", "Twitch", .liveVideo, []),
+        ("chzzk.naver.com", "치지직", .liveVideo, []),
+        ("sooplive.com", "SOOP", .liveVideo, []),
+        ("comic.naver.com", "네이버 웹툰", .webtoon, []),
+        ("series.naver.com", "네이버 시리즈", .webtoon, ["/comic"]),
+        ("page.kakao.com", "카카오페이지", .webtoon, []),
+        ("webtoon.kakao.com", "카카오웹툰", .webtoon, []),
+        ("lezhin.com", "레진코믹스", .webtoon, ["/ko/comic", "/ko/bookshome"]),
+        ("toomics.kr", "투믹스", .webtoon, []),
+        ("toomics.com", "투믹스", .webtoon, []),
+        ("ridibooks.com", "리디", .webtoon, [])
     ]
+
+    private static func routeMatches(_ path: String, allowed: [String]) -> Bool {
+        allowed.isEmpty || allowed.contains { path == $0 || path.hasPrefix($0 + "/") }
+    }
 
     private static func normalize(_ value: String) -> String {
         value.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))

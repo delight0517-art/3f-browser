@@ -436,7 +436,9 @@ final class BrowserModel: ObservableObject {
 
         let candidate = MediaSiteCandidate.detect(
             host: host,
+            path: url.path,
             blockedDomains: blockedDomains,
+            blockedUrlParts: rules["blockedUrlParts"] as? [String] ?? [],
             youtubeQuotaBlocked: rules["youtubeQuotaBlocked"] as? Bool == true
         )
         guard let candidate,
