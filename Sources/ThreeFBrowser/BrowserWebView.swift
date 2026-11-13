@@ -148,6 +148,12 @@ struct BrowserWebView: NSViewRepresentable {
                 forMainFrameOnly: true,
                 in: .defaultClient
             ))
+            configuration.userContentController.addUserScript(WKUserScript(
+                source: YouTubeUsageReporter.iframeKeyboardBlockerScript,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: false,
+                in: .defaultClient
+            ))
         }
         let view = ThreeFWindowAwareWebView(frame: .zero, configuration: configuration)
         context.coordinator.parent = self

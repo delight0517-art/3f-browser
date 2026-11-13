@@ -2,6 +2,47 @@ import Foundation
 import WebKit
 
 enum YouTubeUsageReporter {
+    static let iframeKeyboardBlockerScript = #"""
+    (() => {
+      try {
+        const host = location.hostname.toLowerCase().replace(/^\.+|\.+$/g, '');
+        const isYouTubeHost = host === 'youtu.be' ||
+          ((host === 'youtube.com' || host.endsWith('.youtube.com')) && host !== 'music.youtube.com');
+        if (!isYouTubeHost || window.top === window || window.__threefQuotaKeyboardBlocker) return;
+        window.__threefQuotaKeyboardBlocker = true;
+        const bridge = window.webkit?.messageHandlers?.threefYouTubeUsage;
+        let blocked = true, inFlight = null, lastRefreshAt = -Infinity;
+        const refreshPolicy = async (force = false) => {
+          if (inFlight) return inFlight;
+          const now = performance.now();
+          if (!force && now - lastRefreshAt < 500) return;
+          lastRefreshAt = now;
+          const pending = (async () => {
+            try {
+              if (!bridge?.postMessage) throw new Error('usage bridge unavailable');
+              const policy = await bridge.postMessage({ type: 'policy' });
+              const remainingSeconds = Number.isSafeInteger(policy?.remainingSeconds) ? policy.remainingSeconds : 0;
+              blocked = !policy || policy.youtubeQuotaBlocked !== false || remainingSeconds === 0;
+            } catch (_) { blocked = true; }
+          })();
+          inFlight = pending;
+          try { await pending; }
+          finally { if (inFlight === pending) inFlight = null; }
+        };
+        document.addEventListener('keydown', event => {
+          if (!blocked || !['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+          const target = event.target;
+          if (target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
+          event.preventDefault();
+          event.stopImmediatePropagation();
+        }, true);
+        void refreshPolicy(true);
+        setInterval(() => { void refreshPolicy(); }, 1000);
+        window.addEventListener('yt-navigate-finish', () => { void refreshPolicy(true); }, true);
+      } catch (_) {}
+    })();
+    """#
+
     static let script = #"""
     (() => {
       if (window.__threefFFUsageReporter) return;
@@ -295,12 +336,12 @@ final class YouTubeUsageScriptMessageHandler: NSObject, WKScriptMessageHandlerWi
         didReceive message: WKScriptMessage,
         replyHandler: @escaping (Any?, String?) -> Void
     ) {
-        guard message.frameInfo.isMainFrame,
-              YouTubeUsageBridgePayload.isYouTubeHost(message.frameInfo.securityOrigin.host),
+        guard YouTubeUsageBridgePayload.isYouTubeHost(message.frameInfo.securityOrigin.host),
               let webView = message.webView,
               YouTubeUsageBridgePayload.isYouTubeHost(webView.url?.host ?? ""),
               let body = message.body as? [String: Any],
-              let type = body["type"] as? String else {
+              let type = body["type"] as? String,
+              message.frameInfo.isMainFrame || type == "policy" else {
             replyHandler(nil, "untrusted usage message")
             return
         }
