@@ -816,6 +816,7 @@ struct BrowserView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 ForEach(model.theme.quickLinks) { link in
+                    HStack(spacing: 4) {
                     Button { navigateToQuickLink(link) } label: {
                         HStack(spacing: 6) {
                             Image(systemName: "globe")
@@ -870,32 +871,13 @@ struct BrowserView: View {
 
     private var youtubePolicyStatus: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
-            VStack(alignment: .leading, spacing: 5) {
-                if let summary = model.youtubeUsageSummary {
-                    Label(model.youtubePlaybackReason ?? "YouTube 시청 한도 · Shorts 포함", systemImage: model.youtubePlaybackReason == nil ? "clock" : "pause.circle")
-                        .font(.system(size: 12, weight: .semibold))
-                    Text(summary.statusLine).font(.system(size: 11))
-                    if let resume = summary.resumeStatus(at: context.date, isShorts: model.isYouTubeShortsContext) {
-                        Text(resume).font(.system(size: 12, weight: .semibold)).monospacedDigit()
-                    }
-                    if let sync = summary.synchronizationExplanation {
-                        Text(sync).font(.system(size: 11)).foregroundStyle(ThreeFPalette.muted)
-                    }
-                } else {
-                    Label(model.youtubeUsageStatusLabel, systemImage: "clock")
-                        .font(.system(size: 12, weight: .medium))
-                    if model.youtubeUsageUnavailable {
-                        Text("남은 시청량과 제한 해제 시간을 확인하지 못했습니다. FF 연결 상태를 확인해 주세요.")
-                            .font(.system(size: 11))
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .foregroundStyle(ThreeFPalette.ink)
-            .padding(.horizontal, 18)
-            .padding(.vertical, 10)
-            .background(ThreeFPalette.surface)
-            .accessibilityElement(children: .combine)
+            YouTubeUsageDashboardView(
+                summary: model.youtubeUsageSummary,
+                unavailable: model.youtubeUsageUnavailable,
+                playbackReason: model.youtubePlaybackReason,
+                isShorts: model.isYouTubeShortsContext,
+                now: context.date
+            )
         }
     }
 
