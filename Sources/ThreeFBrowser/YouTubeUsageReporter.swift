@@ -18,6 +18,8 @@ enum YouTubeUsageReporter {
       let leaseMode = 'unknown', leaseRequestPending = false, accountLease = null;
       let accountIntervals = [], accountReportPending = null, accountReportSending = false;
       const leaseRetryIntervalMs = 30000;
+      const policyRefreshIntervalMs = 2000;
+      let policyRefreshInFlight = null;
       let lastLeaseAttemptAt = -Infinity;
       const isYouTubeHost = value => {
         const host = value.toLowerCase().replace(/^\.+|\.+$/g, '');
@@ -45,16 +47,22 @@ enum YouTubeUsageReporter {
       }, true);
       const refreshQuota = async (force = false) => {
         const now = performance.now();
-        if (!force && now - lastPolicyAt < 30000) return;
+        if (policyRefreshInFlight) return policyRefreshInFlight;
+        if (!force && now - lastPolicyAt < policyRefreshIntervalMs) return;
         lastPolicyAt = now;
-        try {
-          const policy = await request({type:'policy'});
-          remainingSeconds = Number.isSafeInteger(policy?.remainingSeconds) ? policy.remainingSeconds : 0;
-          quotaBlocked = !policy || policy.youtubeQuotaBlocked !== false || remainingSeconds === 0;
-          shortsBlocked = policy?.blockShorts === true;
-          enforcePolicy();
-          if (blocked) { watchMs = 0; stop(); }
-        } catch (_) { remainingSeconds = 0; quotaBlocked = true; blocked = true; watchMs = 0; stop(); }
+        const pending = (async () => {
+          try {
+            const policy = await request({type:'policy'});
+            remainingSeconds = Number.isSafeInteger(policy?.remainingSeconds) ? policy.remainingSeconds : 0;
+            quotaBlocked = !policy || policy.youtubeQuotaBlocked !== false || remainingSeconds === 0;
+            shortsBlocked = policy?.blockShorts === true;
+            enforcePolicy();
+            if (blocked) { watchMs = 0; stop(); }
+          } catch (_) { remainingSeconds = 0; quotaBlocked = true; blocked = true; watchMs = 0; stop(); }
+        })();
+        policyRefreshInFlight = pending;
+        try { await pending; }
+        finally { if (policyRefreshInFlight === pending) policyRefreshInFlight = null; }
       };
       const requestAccountLease = async (renew = false) => {
         if (leaseRequestPending || blocked || !isYouTubeHost(location.hostname)) return;

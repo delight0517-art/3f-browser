@@ -16,6 +16,8 @@ final class BrowserThemeTests: XCTestCase {
         XCTAssertTrue(YouTubeUsageReporter.script.contains("if (blocked) stop();"))
         XCTAssertTrue(YouTubeUsageReporter.script.contains("['ArrowLeft', 'ArrowRight'].includes(event.key)"))
         XCTAssertTrue(YouTubeUsageReporter.script.contains("event.stopImmediatePropagation()"))
+        XCTAssertTrue(YouTubeUsageReporter.script.contains("const policyRefreshIntervalMs = 2000"))
+        XCTAssertTrue(YouTubeUsageReporter.script.contains("let policyRefreshInFlight = null"))
         XCTAssertFalse(YouTubeUsageReporter.script.contains("fetch("), "The YouTube page must not call the local HTTP API directly")
     }
 
