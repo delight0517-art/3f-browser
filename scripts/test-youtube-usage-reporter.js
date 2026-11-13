@@ -102,6 +102,7 @@ async function run(host, quotaBlocked = true, {
   const context = {
     window: { webkit: { messageHandlers: { threefYouTubeUsage: bridge } } },
     location: { hostname: host, pathname: pagePath, href: `https://${host}${pagePath}` }, document,
+    HTMLElement: class HTMLElement {},
     performance: { now: () => now },
     Date: { now: () => epoch + now },
     setInterval(callback) { timer = callback; }, addEventListener() {}, crypto: { randomUUID: () => `test-report-${++idCounter}` }
@@ -131,6 +132,14 @@ async function run(host, quotaBlocked = true, {
     get serverAccountWatchSeconds() { return serverAccountWatchSeconds; },
     setHost(value) { context.location.hostname = value; },
     get host() { return context.location.hostname; },
+    dispatchKey(key, tagName = 'VIDEO') {
+      const target = new context.HTMLElement();
+      target.tagName = tagName;
+      let prevented = false;
+      let stopped = false;
+      listeners.keydown({ key, target, preventDefault() { prevented = true; }, stopImmediatePropagation() { stopped = true; } });
+      return { prevented, stopped };
+    },
     seekTo(value) { video.currentTime = value; },
     async setVisibility(value) { document.visibilityState = value; await listeners.visibilitychange?.(); },
     get paused() { return paused; },
@@ -148,6 +157,22 @@ async function run(host, quotaBlocked = true, {
 
   const youtube = await run('m.youtube.com');
   assert.equal(youtube.video.paused, true, 'quota block must pause YouTube video');
+  assert.deepEqual(youtube.dispatchKey('ArrowLeft'), { prevented: true, stopped: true },
+    'a quota-blocked YouTube player cannot seek backward with ArrowLeft');
+  assert.deepEqual(youtube.dispatchKey('ArrowRight'), { prevented: true, stopped: true },
+    'a quota-blocked YouTube player cannot seek forward with ArrowRight');
+  assert.deepEqual(youtube.dispatchKey('ArrowRight', 'INPUT'), { prevented: false, stopped: false },
+    'arrow keys remain available for editing in input fields');
+  const allowedKeys = await run('youtube.com', false);
+  assert.deepEqual(allowedKeys.dispatchKey('ArrowRight'), { prevented: false, stopped: false },
+    'arrow keys remain available while YouTube playback is allowed');
+
+  const quotaExpires = await run('youtube.com', false, { remainingSeconds: 1 });
+  quotaExpires.startPlayback();
+  await quotaExpires.reportProgress(2);
+  assert.equal(quotaExpires.video.paused, true, 'video pauses when the final allowed second is consumed');
+  assert.deepEqual(quotaExpires.dispatchKey('ArrowRight'), { prevented: true, stopped: true },
+    'the newly exhausted quota immediately blocks forward seeking');
 
   const siteBlocked = await run('youtube.com', false, { youtubeSiteBlocked: true });
   assert.equal(siteBlocked.video.paused, true, 'domain block must stop YouTube playback while its page is available');
