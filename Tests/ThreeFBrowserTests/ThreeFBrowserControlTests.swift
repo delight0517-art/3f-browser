@@ -131,6 +131,21 @@ final class ThreeFBrowserControlTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testFocusFenceBlocksNumberedAdultMirrorsFromURLContainsStem() throws {
+        let rules = Data(#"{"blockedDomains":[],"blockedUrlParts":["yadongkorea"],"keywords":[],"blockExceptions":[]}"#.utf8)
+        for value in [
+            "https://yadongkorea17.com/",
+            "https://m.yadongkorea123456.co.kr/category/adult",
+        ] {
+            XCTAssertEqual(
+                ThreeFBrowserControlController.focusFenceAllows(URL(string: value)!, rules: rules),
+                false,
+                value
+            )
+        }
+    }
+
     func testFocusFenceRulesNormalizeWWWAndBlockProxyDestination() throws {
         let pathRules = Data(#"{"blockedDomains":[],"blockedUrlParts":["blocked.example/disallowed"],"keywords":[],"blockExceptions":[]}"#.utf8)
         XCTAssertEqual(ThreeFBrowserControlController.focusFenceAllows(URL(string: "https://www.blocked.example/disallowed")!, rules: pathRules), false)
