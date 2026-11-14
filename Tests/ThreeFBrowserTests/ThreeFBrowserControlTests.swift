@@ -90,6 +90,28 @@ final class ThreeFBrowserControlTests: XCTestCase {
         XCTAssertEqual(ThreeFBrowserControlController.focusFenceAllows(URL(string: "https://example.com/search?q=hiddenword")!, rules: rules), false)
     }
 
+    @MainActor
+    func testFocusFenceAdultDirectoryHostsBlockAllPathsAndSubdomains() throws {
+        let rules = Data(#"{"blockedDomains":["juso3.net","yako1234.com","mingky26.com"],"blockedUrlParts":[],"keywords":[],"blockExceptions":[]}"#.utf8)
+        for value in [
+            "https://juso3.net/category/adult",
+            "https://www.juso3.net/category/adult",
+            "https://video.yako1234.com/watch/1",
+            "https://mingky26.com/",
+        ] {
+            XCTAssertEqual(
+                ThreeFBrowserControlController.focusFenceAllows(URL(string: value)!, rules: rules),
+                false,
+                value
+            )
+        }
+        XCTAssertEqual(
+            ThreeFBrowserControlController.focusFenceAllows(URL(string: "https://notjuso3.net/category/adult")!, rules: rules),
+            true,
+            "domain matching must use DNS-label boundaries"
+        )
+    }
+
     func testFocusFenceRulesNormalizeWWWAndBlockProxyDestination() throws {
         let pathRules = Data(#"{"blockedDomains":[],"blockedUrlParts":["blocked.example/disallowed"],"keywords":[],"blockExceptions":[]}"#.utf8)
         XCTAssertEqual(ThreeFBrowserControlController.focusFenceAllows(URL(string: "https://www.blocked.example/disallowed")!, rules: pathRules), false)
