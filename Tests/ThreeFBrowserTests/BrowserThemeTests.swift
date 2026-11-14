@@ -4,6 +4,64 @@ import XCTest
 @testable import ThreeFBrowser
 
 final class BrowserThemeTests: XCTestCase {
+    @MainActor
+    func testOfflineYouTubeQuotaAndUsageQueueSurviveHandlerRecreation() throws {
+        let suite = "ThreeFBrowser.YouTubeOfflineQuotaTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let rules: [String: Any] = [
+            "youtubeQuotaBlocked": false,
+            "youtubeBlockedByActiveSchedule": false,
+            "youtubeQuotaResetAfterSeconds": 1_800,
+            "blockShorts": true,
+            "blockedDomains": [],
+            "blockExceptions": []
+        ]
+        let usageData = try JSONSerialization.data(withJSONObject: [
+            "todaySeconds": 300,
+            "dailyCapMinutes": 20,
+            "hourlyCapMinutes": 10,
+            "hourlyUsedSeconds": 5,
+            "hourlyRemainingSeconds": 595,
+            "blocked": false
+        ])
+        let usage = try XCTUnwrap(FocusFenceYouTubeUsageSummary.decode(usageData))
+        let store = YouTubeOfflineQuotaStore(defaults: defaults)
+
+        XCTAssertTrue(store.offlinePolicy(now: now)["youtubeQuotaBlocked"] as? Bool == true,
+                      "no local policy must fail closed instead of granting unlimited playback")
+        store.saveServerSnapshot(rules: rules, usage: usage, hourlyPolicyKnown: true, observedAt: now)
+        XCTAssertEqual(store.offlinePolicy(now: now)["remainingSeconds"] as? Int, 595)
+        XCTAssertEqual(store.offlinePolicy(now: now)["blockShorts"] as? Bool, true)
+
+        let report: [String: Any] = ["host": "www.youtube.com", "reportId": "offline-report-1",
+            "seconds": 5, "watchSeconds": 5, "playing": true, "browser": "3f"]
+        XCTAssertTrue(store.enqueue(report, now: now.addingTimeInterval(10)))
+        let relaunchedStore = YouTubeOfflineQuotaStore(defaults: defaults)
+        let disconnectedPolicy = relaunchedStore.offlinePolicy(now: now.addingTimeInterval(10))
+        XCTAssertEqual(disconnectedPolicy["remainingSeconds"] as? Int, 590,
+                       "locally recorded playback must reduce the saved allowance after page/app recreation")
+        XCTAssertEqual(relaunchedStore.offlineSummary(now: now.addingTimeInterval(10))?.compactStatusLine.contains("3F 로컬"), true,
+                       "the usage screen must show cached local enforcement instead of a generic connection error")
+        XCTAssertEqual(relaunchedStore.pendingReports().first?["reportId"] as? String, "offline-report-1",
+                       "an offline report remains queued durably for reconnection")
+        relaunchedStore.acknowledge(reportID: "offline-report-1")
+        XCTAssertTrue(relaunchedStore.pendingReports().isEmpty)
+        XCTAssertEqual(relaunchedStore.offlinePolicy(now: now.addingTimeInterval(10))["remainingSeconds"] as? Int, 590,
+                       "acknowledged usage remains in the local ledger until a fresh policy read confirms it")
+        XCTAssertTrue(relaunchedStore.enqueue(["host": "www.youtube.com", "reportId": "offline-report-2",
+            "seconds": 590, "watchSeconds": 590], now: now.addingTimeInterval(20)))
+        XCTAssertTrue(relaunchedStore.offlinePolicy(now: now.addingTimeInterval(20))["youtubeQuotaBlocked"] as? Bool == true,
+                      "offline playback must stop exactly when its cached rolling-hour allowance is consumed")
+
+        let scheduledRules = rules.merging(["youtubeBlockedByActiveSchedule": true] as [String: Any]) { _, new in new }
+        let scheduledStore = YouTubeOfflineQuotaStore(defaults: UserDefaults(suiteName: suite)!)
+        scheduledStore.saveServerSnapshot(rules: scheduledRules, usage: usage, hourlyPolicyKnown: true, observedAt: now)
+        XCTAssertTrue(scheduledStore.offlinePolicy(now: now.addingTimeInterval(7_200))["youtubeQuotaBlocked"] as? Bool == true,
+                      "an offline elapsed quota reset must never erase a scheduled block")
+    }
+
     func testThreeFYouTubeReporterWaitsForFocusFenceQuotaBeforePlayback() {
         XCTAssertTrue(OptionalFeatureAvailability.youtubeUsageReporting)
         XCTAssertTrue(YouTubeUsageReporter.script.contains("blocked = true;"))

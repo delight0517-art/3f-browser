@@ -80,12 +80,13 @@ struct FocusFenceYouTubeUsageSummary: Decodable, Equatable, Sendable {
     let blocked: Bool
     private let cloudSignedIn: Bool?
     private let accountBudget: FocusFenceAccountBudgetStatus?
+    private let localOnly: Bool?
     private(set) var playbackPolicy: FocusFenceYouTubePlaybackPolicy? = nil
     private(set) var policyReadAt: Date? = nil
 
     private enum CodingKeys: String, CodingKey {
         case todaySeconds, dailyCapMinutes, hourlyCapMinutes, hourlyUsedSeconds, hourlyRemainingSeconds
-        case blocked, cloudSignedIn, accountBudget
+        case blocked, cloudSignedIn, accountBudget, localOnly
     }
 
     func withPolicy(_ policy: FocusFenceYouTubePlaybackPolicy?, observedAt: Date = Date()) -> Self {
@@ -119,6 +120,7 @@ struct FocusFenceYouTubeUsageSummary: Decodable, Equatable, Sendable {
     }
 
     var synchronizationExplanation: String? {
+        if localOnly == true { return "FF 연결 끊김 · 3F에 저장된 최신 한도 적용 · 재연결 시 사용량 동기화" }
         guard cloudSignedIn == true, accountBudget?.available != true else { return accountSyncStatusLine }
         return "FF 계정 로그인됨 · 계정 공통 한도 확인 불가 · 현재는 이 Mac의 한도로 제한합니다."
     }
@@ -132,6 +134,7 @@ struct FocusFenceYouTubeUsageSummary: Decodable, Equatable, Sendable {
     }
 
     private var compactAccountSyncStatus: String? {
+        if localOnly == true { return "3F 로컬 · 동기화 대기" }
         guard cloudSignedIn != nil || accountBudget != nil else { return nil }
         guard cloudSignedIn == true else { return "연결 필요" }
         guard let accountBudget, accountBudget.available == true else { return "사용량 불가" }
@@ -211,7 +214,7 @@ enum FocusFenceYouTubeUsageClient {
 
     static func fetch(session: URLSession = .shared) async -> FocusFenceYouTubeUsageSummary? {
         let qaRequested = FocusFenceQARouting.isQARequested()
-        guard let baseURL = FocusFenceQARouting.currentQARequestBaseURL() else { return nil }
+        guard let baseURL = FocusFenceQARouting.currentQARequestBaseURL() else { return await offlineFallback() }
         let requestSession = qaRequested ? FocusFenceQARouting.makeSession() : session
         async let policy = fetchPolicy(session: requestSession)
         var request = URLRequest(url: baseURL.appendingPathComponent("usage/youtube"))
@@ -220,9 +223,14 @@ enum FocusFenceYouTubeUsageClient {
         request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
         guard let (data, response) = try? await requestSession.data(for: request),
               let response = response as? HTTPURLResponse,
-              response.statusCode == 200 else { return nil }
-        guard let summary = FocusFenceYouTubeUsageSummary.decode(data) else { return nil }
-        return await summary.withPolicy(policy)
+              response.statusCode == 200 else { return await offlineFallback() }
+        guard let summary = FocusFenceYouTubeUsageSummary.decode(data) else { return await offlineFallback() }
+        guard let resolvedPolicy = await policy else { return await offlineFallback() }
+        return summary.withPolicy(resolvedPolicy)
+    }
+
+    private static func offlineFallback() async -> FocusFenceYouTubeUsageSummary? {
+        await MainActor.run { YouTubeOfflineQuotaStore.shared.offlineSummary() }
     }
 
     static func fetchPolicy(session: URLSession = .shared) async -> FocusFenceYouTubePlaybackPolicy? {

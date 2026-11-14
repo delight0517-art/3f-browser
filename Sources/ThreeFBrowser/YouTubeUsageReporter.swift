@@ -327,9 +327,204 @@ enum YouTubeUsageBridgePayload {
     }
 }
 
+/// Durable last-known Focus Fence policy and aggregate-only usage queue. This is
+/// deliberately local to the 3F app profile; the web page never receives URLs,
+/// titles, account identifiers, or the persisted queue itself.
+@MainActor
+final class YouTubeOfflineQuotaStore {
+    static let shared = YouTubeOfflineQuotaStore()
+    private struct Snapshot: Codable {
+        var fetchedAt: Date
+        var quotaBlocked: Bool
+        var quotaResetAt: Date?
+        var scheduled: Bool
+        var siteBlocked: Bool
+        var blockShorts: Bool
+        var dailyCapMinutes: Int
+        var todaySeconds: Int
+        var hourlyCapMinutes: Int?
+        var hourlyRemainingSeconds: Int?
+        var hourlyPolicyKnown: Bool
+    }
+
+    private struct LocalReport: Codable {
+        var reportID: String
+        var host: String
+        var seconds: Int
+        var watchSeconds: Int
+        var createdAt: Date
+        var acknowledged: Bool
+    }
+
+    private struct State: Codable {
+        var snapshot: Snapshot?
+        var reports: [LocalReport] = []
+    }
+
+    private let defaults: UserDefaults
+    private let key = "threef.focusFence.youtubeOfflineQuota.v1"
+
+    init(defaults: UserDefaults = .standard) { self.defaults = defaults }
+
+    func saveServerSnapshot(rules: [String: Any], usage: FocusFenceYouTubeUsageSummary,
+                            hourlyPolicyKnown: Bool, observedAt: Date = Date()) {
+        var state = load()
+        let reset = (rules["youtubeQuotaResetAfterSeconds"] as? Int).flatMap {
+            (0...172_800).contains($0) ? $0 : nil
+        }
+        state.snapshot = Snapshot(
+            fetchedAt: observedAt,
+            quotaBlocked: (rules["youtubeQuotaBlocked"] as? Bool == true) || usage.blocked,
+            quotaResetAt: reset.map { observedAt.addingTimeInterval(TimeInterval($0)) },
+            scheduled: rules["youtubeBlockedByActiveSchedule"] as? Bool == true,
+            siteBlocked: ThreeFBrowserControlController.youtubeSiteIsBlocked(rules: rules) ?? true,
+            blockShorts: rules["blockShorts"] as? Bool == true,
+            dailyCapMinutes: usage.dailyCapMinutes,
+            todaySeconds: usage.todaySeconds,
+            hourlyCapMinutes: usage.hourlyCapMinutes,
+            hourlyRemainingSeconds: usage.hourlyRemainingSeconds,
+            hourlyPolicyKnown: hourlyPolicyKnown
+        )
+        // A fresh server read after an acknowledged ingest includes that report.
+        state.reports.removeAll { $0.acknowledged && $0.createdAt <= observedAt }
+        save(state)
+    }
+
+    func enqueue(_ payload: [String: Any], now: Date = Date()) -> Bool {
+        guard let reportID = payload["reportId"] as? String,
+              let host = payload["host"] as? String,
+              let seconds = payload["seconds"] as? Int,
+              let watchSeconds = payload["watchSeconds"] as? Int else { return false }
+        var state = load()
+        guard !state.reports.contains(where: { $0.reportID == reportID }) else { return true }
+        state.reports.append(LocalReport(reportID: reportID, host: host, seconds: seconds,
+                                         watchSeconds: watchSeconds, createdAt: now, acknowledged: false))
+        // Retain a bounded local ledger: one day's reports cover daily quota and
+        // give a conservative rolling-hour fallback after a long disconnection.
+        state.reports.removeAll { $0.acknowledged && now.timeIntervalSince($0.createdAt) > 86_400 }
+        save(state)
+        return true
+    }
+
+    func pendingReports() -> [[String: Any]] {
+        load().reports.filter { !$0.acknowledged }.map {
+            ["host": $0.host, "reportId": $0.reportID, "seconds": $0.seconds,
+             "watchSeconds": $0.watchSeconds, "playing": true, "browser": "3f"]
+        }
+    }
+
+    func acknowledge(reportID: String) {
+        var state = load()
+        guard let index = state.reports.firstIndex(where: { $0.reportID == reportID }) else { return }
+        state.reports[index].acknowledged = true
+        save(state)
+    }
+
+    func offlinePolicy(now: Date = Date()) -> [String: Any] {
+        let state = load()
+        guard let snapshot = state.snapshot else { return ["youtubeQuotaBlocked": true, "remainingSeconds": 0] }
+        let localDay = Calendar.current.startOfDay(for: now)
+        let baseDay = Calendar.current.startOfDay(for: snapshot.fetchedAt)
+        let sameDay = localDay == baseDay
+        let reportsToday = state.reports.filter { Calendar.current.startOfDay(for: $0.createdAt) == localDay }
+        let addedToday = reportsToday.reduce(0) { $0 + $1.watchSeconds }
+        let dailyUsed = (sameDay ? snapshot.todaySeconds : 0) + addedToday
+
+        let recentReports = state.reports.filter { now.timeIntervalSince($0.createdAt) < 3_600 }
+        let localRecentSeconds = recentReports.reduce(0) { $0 + $1.watchSeconds }
+        let cachedHourlyRemaining: Int?
+        if let cap = snapshot.hourlyCapMinutes, cap > 0,
+           now.timeIntervalSince(snapshot.fetchedAt) < 3_600,
+           let remaining = snapshot.hourlyRemainingSeconds {
+            cachedHourlyRemaining = max(0, remaining - state.reports.filter {
+                $0.createdAt > snapshot.fetchedAt && now.timeIntervalSince($0.createdAt) < 3_600
+            }.reduce(0) { $0 + $1.watchSeconds })
+        } else if let cap = snapshot.hourlyCapMinutes, cap > 0 {
+            cachedHourlyRemaining = max(0, cap * 60 - localRecentSeconds)
+        } else if snapshot.hourlyPolicyKnown {
+            cachedHourlyRemaining = nil
+        } else {
+            cachedHourlyRemaining = 0
+        }
+
+        var remaining = [Int]()
+        if snapshot.dailyCapMinutes > 0 { remaining.append(max(0, snapshot.dailyCapMinutes * 60 - dailyUsed)) }
+        if let cachedHourlyRemaining { remaining.append(cachedHourlyRemaining) }
+        let remainingSeconds = remaining.min() ?? -1
+        let resetExpired = snapshot.quotaResetAt.map { now >= $0 } ?? false
+        let quotaBlocked = snapshot.quotaBlocked && !resetExpired
+        let blocked = snapshot.siteBlocked || snapshot.scheduled || quotaBlocked || remainingSeconds == 0
+        return ["youtubeQuotaBlocked": blocked,
+                "remainingSeconds": remainingSeconds,
+                "blockShorts": snapshot.blockShorts,
+                "youtubeBlockedByActiveSchedule": snapshot.scheduled,
+                "offline": true,
+                "observedAt": snapshot.fetchedAt.timeIntervalSince1970]
+    }
+
+    func offlineSummary(now: Date = Date()) -> FocusFenceYouTubeUsageSummary? {
+        let state = load()
+        guard let snapshot = state.snapshot else { return nil }
+        let policy = offlinePolicy(now: now)
+        let localDay = Calendar.current.startOfDay(for: now)
+        let sameDay = localDay == Calendar.current.startOfDay(for: snapshot.fetchedAt)
+        let todayUsed = (sameDay ? snapshot.todaySeconds : 0) + state.reports
+            .filter { Calendar.current.startOfDay(for: $0.createdAt) == localDay }
+            .reduce(0) { $0 + $1.watchSeconds }
+        let recent = state.reports.filter { now.timeIntervalSince($0.createdAt) < 3_600 }
+        let localRecentSeconds = recent.reduce(0) { $0 + $1.watchSeconds }
+        let effectiveHourlyRemaining: Int? = snapshot.hourlyCapMinutes.flatMap { cap in
+            guard cap > 0 else { return nil }
+            if now.timeIntervalSince(snapshot.fetchedAt) < 3_600,
+               let remaining = snapshot.hourlyRemainingSeconds {
+                let afterSnapshot = state.reports.filter {
+                    $0.createdAt > snapshot.fetchedAt && now.timeIntervalSince($0.createdAt) < 3_600
+                }.reduce(0) { $0 + $1.watchSeconds }
+                return max(0, remaining - afterSnapshot)
+            }
+            return max(0, cap * 60 - localRecentSeconds)
+        }
+        let hourlyUsed = snapshot.hourlyCapMinutes.map { cap in
+            cap == 0 ? 0 : max(0, cap * 60 - (effectiveHourlyRemaining ?? 0))
+        }
+        let dataObject: [String: Any] = [
+            "todaySeconds": todayUsed,
+            "dailyCapMinutes": snapshot.dailyCapMinutes,
+            "hourlyCapMinutes": snapshot.hourlyCapMinutes as Any? ?? NSNull(),
+            "hourlyUsedSeconds": hourlyUsed as Any? ?? NSNull(),
+            "hourlyRemainingSeconds": effectiveHourlyRemaining as Any? ?? NSNull(),
+            "blocked": policy["youtubeQuotaBlocked"] as? Bool ?? true,
+            "localOnly": true
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: dataObject),
+              let summary = FocusFenceYouTubeUsageSummary.decode(data) else { return nil }
+        let resetSeconds = snapshot.quotaResetAt.map { max(0, Int($0.timeIntervalSince(now))) }
+        let policyObject: [String: Any] = [
+            "youtubeQuotaBlocked": policy["youtubeQuotaBlocked"] as? Bool ?? true,
+            "youtubeBlockedByActiveSchedule": snapshot.scheduled,
+            "youtubeQuotaResetAfterSeconds": resetSeconds as Any? ?? NSNull(),
+            "blockShorts": snapshot.blockShorts
+        ]
+        guard let policyData = try? JSONSerialization.data(withJSONObject: policyObject),
+              let playbackPolicy = FocusFenceYouTubePlaybackPolicy.decode(policyData) else { return summary }
+        return summary.withPolicy(playbackPolicy, observedAt: now)
+    }
+
+    private func load() -> State {
+        guard let data = defaults.data(forKey: key), let state = try? JSONDecoder().decode(State.self, from: data) else { return State() }
+        return state
+    }
+
+    private func save(_ state: State) {
+        guard let data = try? JSONEncoder().encode(state) else { return }
+        defaults.set(data, forKey: key)
+    }
+}
+
 @MainActor
 final class YouTubeUsageScriptMessageHandler: NSObject, WKScriptMessageHandlerWithReply {
     static let name = "threefYouTubeUsage"
+    private let offlineQuotaStore = YouTubeOfflineQuotaStore.shared
 
     func userContentController(
         _ userContentController: WKUserContentController,
@@ -379,10 +574,10 @@ final class YouTubeUsageScriptMessageHandler: NSObject, WKScriptMessageHandlerWi
     private func fetchPolicy() async -> [String: Any] {
         let qaRequested = FocusFenceQARouting.isQARequested()
         let baseURL = qaRequested ? FocusFenceQARouting.currentQARequestBaseURL() : URL(string: "http://127.0.0.1:17361")
-        guard let baseURL else { return ["youtubeQuotaBlocked": true] }
+        guard let baseURL else { return offlineQuotaStore.offlinePolicy() }
         var components = URLComponents(url: baseURL.appendingPathComponent("rules"), resolvingAgainstBaseURL: false)!
         components.queryItems = [URLQueryItem(name: "browser", value: "3f")]
-        guard let url = components.url else { return ["youtubeQuotaBlocked": true] }
+        guard let url = components.url else { return offlineQuotaStore.offlinePolicy() }
         var request = URLRequest(url: url)
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.timeoutInterval = 5
@@ -393,10 +588,17 @@ final class YouTubeUsageScriptMessageHandler: NSObject, WKScriptMessageHandlerWi
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let blocked = object["youtubeQuotaBlocked"] as? Bool,
               let youtubeSiteBlocked = ThreeFBrowserControlController.youtubeSiteIsBlocked(rules: object) else {
-            return ["youtubeQuotaBlocked": true]
+            return offlineQuotaStore.offlinePolicy()
         }
-        guard let usage = await FocusFenceYouTubeUsageClient.fetch() else {
-            return ["youtubeQuotaBlocked": true, "remainingSeconds": 0]
+        var usageRequest = URLRequest(url: baseURL.appendingPathComponent("usage/youtube"))
+        usageRequest.httpMethod = "GET"
+        usageRequest.timeoutInterval = FocusFenceYouTubeUsageClient.requestTimeoutInterval
+        usageRequest.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        guard let (usageData, usageResponse) = try? await session.data(for: usageRequest),
+              (usageResponse as? HTTPURLResponse)?.statusCode == 200,
+              let usage = FocusFenceYouTubeUsageSummary.decode(usageData),
+              let usageObject = try? JSONSerialization.jsonObject(with: usageData) as? [String: Any] else {
+            return offlineQuotaStore.offlinePolicy()
         }
         var remaining = [Int]()
         if usage.dailyCapMinutes > 0 {
@@ -408,24 +610,37 @@ final class YouTubeUsageScriptMessageHandler: NSObject, WKScriptMessageHandlerWi
             remaining.append(hourlyRemainingSeconds)
         }
         let remainingSeconds = remaining.min() ?? -1
-        return ["youtubeQuotaBlocked": blocked || youtubeSiteBlocked || usage.blocked || remainingSeconds == 0,
-                "remainingSeconds": remainingSeconds,
-                "blockShorts": object["blockShorts"] as? Bool ?? false]
+        let result: [String: Any] = ["youtubeQuotaBlocked": blocked || youtubeSiteBlocked || usage.blocked || remainingSeconds == 0,
+                                     "remainingSeconds": remainingSeconds,
+                                     "blockShorts": object["blockShorts"] as? Bool ?? false,
+                                     "youtubeBlockedByActiveSchedule": object["youtubeBlockedByActiveSchedule"] as? Bool ?? false]
+        offlineQuotaStore.saveServerSnapshot(rules: object, usage: usage, hourlyPolicyKnown: usageObject["hourlyCapMinutes"] != nil && !(usageObject["hourlyCapMinutes"] is NSNull))
+        await flushPendingReports(baseURL: baseURL, qaRequested: qaRequested)
+        return result
     }
 
     private func sendReport(_ payload: [String: Any]) async -> Bool {
         let qaRequested = FocusFenceQARouting.isQARequested()
         let baseURL = qaRequested ? FocusFenceQARouting.currentQARequestBaseURL() : URL(string: "http://127.0.0.1:17361")
-        guard let baseURL else { return false }
-        var request = URLRequest(url: baseURL.appendingPathComponent("ingest"))
-        request.httpMethod = "POST"
-        request.timeoutInterval = 5
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return false }
-        request.httpBody = data
-        guard let (_, response) = try? await (qaRequested ? FocusFenceQARouting.makeSession() : .shared).data(for: request),
-              let response = response as? HTTPURLResponse else { return false }
-        return response.statusCode == 200
+        guard offlineQuotaStore.enqueue(payload) else { return false }
+        guard let baseURL else { return true }
+        await flushPendingReports(baseURL: baseURL, qaRequested: qaRequested)
+        return true
+    }
+
+    private func flushPendingReports(baseURL: URL, qaRequested: Bool) async {
+        for payload in offlineQuotaStore.pendingReports() {
+            var request = URLRequest(url: baseURL.appendingPathComponent("ingest"))
+            request.httpMethod = "POST"
+            request.timeoutInterval = 5
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            guard let data = try? JSONSerialization.data(withJSONObject: payload) else { continue }
+            request.httpBody = data
+            guard let (_, response) = try? await (qaRequested ? FocusFenceQARouting.makeSession() : .shared).data(for: request),
+                  let response = response as? HTTPURLResponse, response.statusCode == 200,
+                  let reportID = payload["reportId"] as? String else { continue }
+            offlineQuotaStore.acknowledge(reportID: reportID)
+        }
     }
 
     private func requestLease(_ payload: [String: Any]) async -> [String: Any] {
