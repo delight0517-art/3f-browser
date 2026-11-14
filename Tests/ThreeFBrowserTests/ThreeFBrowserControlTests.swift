@@ -168,10 +168,12 @@ final class ThreeFBrowserControlTests: XCTestCase {
 
     @MainActor
     func testAdultProtectionOverridesExceptionsButOrdinaryExceptionsStillWork() throws {
-        let rules = Data(#"{"blockedDomains":["adult.example","ordinary.example"],"blockedUrlParts":["yadongkorea"],"adultProtectedDomains":["adult.example"],"adultProtectedUrlParts":["yadongkorea"],"adultProtectedKeywords":["adult-term"],"keywords":["adult-term"],"blockExceptions":["adult.example","ordinary.example"]}"#.utf8)
+        let rules = Data(#"{"blockedDomains":["adult.example","ordinary.example"],"blockedUrlParts":["yadongkorea"],"adultProtectedDomains":["adult.example"],"adultProtectedUrlParts":["yadongkorea"],"adultProtectedKeywords":["adult-term"],"keywords":["adult-term"],"blockExceptions":["adult.example","ordinary.example","yadongkorea17.com"]}"#.utf8)
         XCTAssertEqual(ThreeFBrowserControlController.focusFenceAllows(URL(string: "https://adult.example/allowed")!, rules: rules), false)
         XCTAssertEqual(ThreeFBrowserControlController.focusFenceAllows(URL(string: "https://sub.adult.example/")!, rules: rules), false)
         XCTAssertEqual(ThreeFBrowserControlController.focusFenceAllows(URL(string: "https://safe.example/search?q=yadongkorea17")!, rules: rules), false)
+        XCTAssertEqual(ThreeFBrowserControlController.focusFenceAllows(URL(string: "https://yadongkorea17.com/")!, rules: rules), false)
+        XCTAssertEqual(ThreeFBrowserControlController.focusFenceAllows(URL(string: "https://proxy.example/?target=https%3A%2F%2Fadult.example%2Fwatch")!, rules: rules), false)
         XCTAssertEqual(ThreeFBrowserControlController.focusFenceAllows(URL(string: "https://safe.example/search?q=adult-term")!, rules: rules), false)
         XCTAssertEqual(ThreeFBrowserControlController.focusFenceAllows(URL(string: "https://ordinary.example/")!, rules: rules), true)
     }
