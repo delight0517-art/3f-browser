@@ -256,7 +256,9 @@ final class ThreeFBrowserControlController {
               let keywords = rules["keywords"] as? [String],
               let blockExceptions = rules["blockExceptions"] as? [String] else { return nil }
         func normalizedDomain(_ value: String) -> String {
-            let domain = value.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
+            var domain = value.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
+            if domain.hasPrefix("*.") { domain = String(domain.dropFirst(2)) }
+            domain = domain.trimmingCharacters(in: CharacterSet(charactersIn: "."))
             return domain.hasPrefix("www.") ? String(domain.dropFirst(4)) : domain
         }
         let normalizedHost = normalizedDomain(host)

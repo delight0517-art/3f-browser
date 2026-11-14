@@ -340,6 +340,21 @@ final class BrowserNavigationFeedbackTests: XCTestCase {
                        "Opening the site must not turn off the domain's playback restriction")
     }
 
+    func testWildcardDomainBlocksAddressBarNavigationForRootAndSubdomains() throws {
+        let data = try JSONSerialization.data(withJSONObject: [
+            "blockedDomains": ["*.juso3.net", "*.yako1234.com"],
+            "blockedUrlParts": [String](),
+            "keywords": [String](),
+            "blockExceptions": [String](),
+        ])
+        for rawURL in ["https://juso3.net/", "https://www.juso3.net/category/adult", "https://video.yako1234.com/"] {
+            let url = try XCTUnwrap(URL(string: rawURL))
+            XCTAssertEqual(ThreeFBrowserControlController.navigationAuthorizationDecision(for: url, rules: data), .blocked, rawURL)
+        }
+        let lookalike = try XCTUnwrap(URL(string: "https://notjuso3.net/"))
+        XCTAssertEqual(ThreeFBrowserControlController.navigationAuthorizationDecision(for: lookalike, rules: data), .allowed)
+    }
+
     func testYouTubeSiteExceptionAlsoExemptsPlaybackDomainBlock() throws {
         let data = try JSONSerialization.data(withJSONObject: [
             "blockedDomains": ["youtube.com"],
