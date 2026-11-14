@@ -50,6 +50,13 @@ enum FocusFenceSearchResultFilter {
     function threefShouldHideImageSearchQuery(query, ruleIndex) {
       const normalized = String(query || '').normalize('NFKC').toLocaleLowerCase().replace(/\s+/gu, ' ').trim();
       if (!normalized) return false;
+      const blockedURLPartQuery = ruleIndex.blockedUrlParts.some(rawPart => {
+        const part = String(rawPart || '').toLocaleLowerCase().trim();
+        if (!/^[a-z0-9-]{4,}$/.test(part)) return false;
+        const escaped = part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        return new RegExp(`(^|[^a-z0-9])${escaped}[0-9]*(?=$|[^a-z0-9])`).test(normalized);
+      });
+      if (blockedURLPartQuery) return true;
       const compact = normalized.replace(/[\s\p{P}\p{S}]+/gu, '');
       const directory = /주소|link|링크|모음|모움|사이트|\bsite\b|\bwebsites?\b|\bdirector(?:y|ies)\b|\blists?\b|\bcollections?\b/u;
       const addressDirectory = /주소.{0,24}(?:link|링크|모음|모움|사이트|site|list|directory)|(?:link|링크|모음|모움|사이트|site|list|directory).{0,24}주소/u;
@@ -65,14 +72,19 @@ enum FocusFenceSearchResultFilter {
       const host = location.hostname.toLocaleLowerCase();
       const google = host === 'google.com' || /(^|\.)google\.[a-z.]+$/.test(host);
       if (!google || location.pathname !== '/search') return;
-      const params = new URL(location.href).searchParams;
-      if (params.get('tbm') !== 'isch' && params.get('udm') !== '2') return;
       const root = document.documentElement;
       if (!root) return;
       root.dataset.threefSearchGate = 'pending';
       const style = document.createElement('style');
       style.textContent = 'html[data-threef-search-gate="pending"] body > :not(#threef-search-policy-notice), html[data-threef-search-gate="blocked"] body > :not(#threef-search-policy-notice) { visibility: hidden !important; }';
       (document.head || root).appendChild(style);
+      const notice = document.createElement('div');
+      notice.id = 'threef-search-policy-notice';
+      notice.setAttribute('role', 'status');
+      notice.setAttribute('aria-live', 'polite');
+      notice.textContent = 'Focus Fence 정책 확인 중…';
+      notice.style.cssText = 'position:fixed;inset:0;z-index:2147483647;display:grid;place-items:center;padding:24px;background:#fff;color:#263244;font:16px system-ui,sans-serif;text-align:center';
+      (document.body || root).appendChild(notice);
     })();
     """#
 
@@ -116,10 +128,32 @@ enum FocusFenceSearchResultFilter {
           function restoreFilteredCards() {
             for (const card of filteredCards) restoreCard(card);
           }
+          function applyGoogleQueryPolicy() {
+            const googleSearch = isSearchResultsPage()
+              && (searchHost === 'google.com' || /(^|\.)google\.[a-z.]+$/.test(searchHost));
+            if (!googleSearch) return false;
+            if (!threefShouldHideImageSearchQuery(new URL(location.href).searchParams.get('q'), ruleIndex)) {
+              return false;
+            }
+            document.documentElement?.setAttribute('data-threef-search-gate', 'blocked');
+            let notice = document.getElementById('threef-search-policy-notice');
+            if (!notice && document.body) {
+              notice = document.createElement('div');
+              notice.id = 'threef-search-policy-notice';
+              notice.setAttribute('role', 'status');
+              notice.setAttribute('aria-live', 'polite');
+              notice.style.cssText = 'position:fixed;inset:0;z-index:2147483647;display:grid;place-items:center;padding:24px;background:#fff;color:#263244;font:16px system-ui,sans-serif;text-align:center';
+              document.body.appendChild(notice);
+            }
+            if (notice) notice.textContent = 'Focus Fence 정책에 따라 이 검색어의 결과를 숨겼습니다.';
+            return true;
+          }
           function applyImageQueryPolicy() {
             if (!isGoogleImagesSearch()) {
-              document.documentElement?.removeAttribute('data-threef-search-gate');
-              document.getElementById('threef-search-policy-notice')?.remove();
+              if (!(searchHost === 'google.com' || /(^|\.)google\.[a-z.]+$/.test(searchHost))) {
+                document.documentElement?.removeAttribute('data-threef-search-gate');
+                document.getElementById('threef-search-policy-notice')?.remove();
+              }
               return;
             }
             if (!threefShouldHideImageSearchQuery(new URL(location.href).searchParams.get('q'), ruleIndex)) {
@@ -151,6 +185,14 @@ enum FocusFenceSearchResultFilter {
           function destinationFor(link, imageSearch) {
             let target;
             try { target = new URL(link.href, location.href); } catch { return null; }
+            if (target.hostname.toLocaleLowerCase() === searchHost && target.pathname === '/url') {
+              const redirect = target.searchParams.get('q') || target.searchParams.get('url');
+              if (!redirect) return null;
+              try {
+                const destination = new URL(redirect);
+                return /^https?:$/.test(destination.protocol) ? destination : null;
+              } catch { return null; }
+            }
             if (!imageSearch || target.hostname.toLocaleLowerCase() !== searchHost || target.pathname !== '/imgres') return target;
             const sourcePage = target.searchParams.get('imgrefurl');
             if (!sourcePage) return null;
@@ -163,6 +205,7 @@ enum FocusFenceSearchResultFilter {
             for (const card of filteredCards) {
               if (!document.documentElement.contains(card)) filteredCards.delete(card);
             }
+            if (applyGoogleQueryPolicy()) return;
             applyImageQueryPolicy();
             if (!isSearchResultsPage()) {
               restoreFilteredCards();
@@ -189,6 +232,15 @@ enum FocusFenceSearchResultFilter {
               } else if (!shouldHide && card.dataset.threefFiltered === '1') {
                 restoreCard(card);
               }
+            }
+            // Google searches are gated before paint. Once valid policy rules
+            // have been applied to the query and every visible result, release
+            // the gate for ordinary/safe queries so the page cannot stay blank.
+            const googleSearch = (searchHost === 'google.com' || /(^|\.)google\.[a-z.]+$/.test(searchHost))
+              && isSearchResultsPage();
+            if (googleSearch && document.documentElement?.dataset.threefSearchGate === 'pending') {
+              document.documentElement.removeAttribute('data-threef-search-gate');
+              document.getElementById('threef-search-policy-notice')?.remove();
             }
           }
           let queued = false;

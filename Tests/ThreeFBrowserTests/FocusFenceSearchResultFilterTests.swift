@@ -35,7 +35,7 @@ final class FocusFenceSearchResultFilterTests: XCTestCase {
         XCTAssertTrue(script.contains("searchParams.get('udm') === '2'"))
         XCTAssertTrue(script.contains("threefShouldHideImageSearchQuery"))
         XCTAssertTrue(FocusFenceSearchResultFilter.prepaintGateScript.contains("root.dataset.threefSearchGate = 'pending'"))
-        XCTAssertTrue(FocusFenceSearchResultFilter.prepaintGateScript.contains("params.get('udm') !== '2'"))
+        XCTAssertTrue(FocusFenceSearchResultFilter.prepaintGateScript.contains("const google = host === 'google.com'"))
     }
 
     func testClassifierBlocksConfiguredDestinationsAndAdultDirectoriesButKeepsNeutralMentions() throws {
@@ -93,12 +93,122 @@ final class FocusFenceSearchResultFilterTests: XCTestCase {
         XCTAssertTrue(queryIsBlocked(context, query: "porn websites list", rules: rules))
         XCTAssertFalse(queryIsBlocked(context, query: "풍경 사진", rules: rules))
         XCTAssertFalse(queryIsBlocked(context, query: "주소 검색", rules: rules))
+
+        let mirrorRules = #"{"blockedDomains":["yadongkorea17.com"],"blockedUrlParts":["yadongkorea"],"keywords":[],"blockExceptions":[]}"#
+        XCTAssertTrue(queryIsBlocked(context, query: "yadongkorea17", rules: mirrorRules))
+        XCTAssertTrue(queryIsBlocked(context, query: "yadongkorea999.com", rules: mirrorRules))
+        XCTAssertFalse(queryIsBlocked(context, query: "myyadongkorea17", rules: mirrorRules))
+    }
+
+    private func installOrdinarySearchURLShim(in context: JSContext) {
+        context.evaluateScript(#"""
+        globalThis.URL = function(value, base) {
+          const raw = String(value);
+          const absolute = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : String(base || 'https://www.google.co.kr/') + raw;
+          const match = absolute.match(/^([a-z][a-z0-9+.-]*:)\/\/([^/?#]+)([^?#]*)(?:\?([^#]*))?/i);
+          if (!match) throw new TypeError('Invalid URL');
+          this.protocol = match[1].toLowerCase(); this.hostname = match[2].toLowerCase();
+          this.pathname = match[3] || '/'; this.href = absolute;
+          const params = new Map((match[4] || '').split('&').filter(Boolean).map(pair => {
+            const equals = pair.indexOf('=');
+            const decode = part => decodeURIComponent(part.replace(/\+/g, ' '));
+            return [decode(equals < 0 ? pair : pair.slice(0, equals)), decode(equals < 0 ? '' : pair.slice(equals + 1))];
+          }));
+          this.searchParams = { get(name) { return params.has(name) ? params.get(name) : null; } };
+        };
+        """#)
+    }
+
+    func testOrdinaryGoogleSearchPrepaintGateWaitsForValidRulesAndReleasesSafeQueryAfterScan() throws {
+        func makeContext(query: String) throws -> JSContext {
+            let context = try XCTUnwrap(JSContext())
+            let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
+            context.evaluateScript(#"""
+            globalThis.location = { hostname: 'www.google.co.kr', pathname: '/search', href: 'https://www.google.co.kr/search?q=\#(encoded)' };
+            const root = { dataset: {}, appendChild(style) { globalThis.injectedStyle = style; },
+              setAttribute(name, value) { this.dataset[name.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase())] = value; },
+              removeAttribute(name) { delete this.dataset[name.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase())]; } };
+            globalThis.document = { documentElement: root, head: null,
+              createElement() { return { textContent: '' }; } };
+            """#)
+            installOrdinarySearchURLShim(in: context)
+            return context
+        }
+        let queryContext = try makeContext(query: "성인 주소 모음")
+        queryContext.evaluateScript(FocusFenceSearchResultFilter.prepaintGateScript)
+        XCTAssertEqual(queryContext.evaluateScript("document.documentElement.dataset.threefSearchGate")?.toString(), "pending")
+        XCTAssertTrue(queryContext.evaluateScript("injectedStyle.textContent")?.toString().contains("data-threef-search-gate=\"pending\"") == true)
+
+        let safeContext = try makeContext(query: "landscape")
+        safeContext.evaluateScript(FocusFenceSearchResultFilter.prepaintGateScript)
+        XCTAssertEqual(safeContext.evaluateScript("document.documentElement.dataset.threefSearchGate")?.toString(), "pending")
+
+        // The rules script must classify the URLSearchParams-decoded query and
+        // replace the pending whole-page gate with a policy notice when blocked.
+        let policyContext = try XCTUnwrap(JSContext())
+        policyContext.evaluateScript(#"""
+        globalThis.location = { hostname: 'www.google.co.kr', pathname: '/search', href: 'https://www.google.co.kr/search?q=성인%20주소%20모음' };
+        const root = { dataset: { threefSearchGate: 'pending' }, attrs: { 'data-threef-search-gate': 'pending' },
+          contains() { return true; }, setAttribute(name, value) { this.attrs[name] = value; this.dataset[name.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase())] = value; },
+          removeAttribute(name) { delete this.attrs[name]; delete this.dataset[name.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase())]; } };
+        const body = { notice: null, appendChild(node) { this.notice = node; }, removeChild(node) { if (this.notice === node) this.notice = null; } };
+        globalThis.document = { documentElement: root, body, querySelectorAll() { return []; },
+          getElementById(id) { return id === 'threef-search-policy-notice' ? body.notice : null; },
+          createElement() { return { id: '', style: {}, setAttribute() {}, remove() { body.notice = null; } }; } };
+        globalThis.addEventListener = () => {}; globalThis.requestAnimationFrame = callback => callback();
+        globalThis.MutationObserver = function() { this.observe = () => {}; };
+        globalThis.history = { pushState() {}, replaceState() {} };
+        """#)
+        installOrdinarySearchURLShim(in: policyContext)
+        let rules = Data(#"{"blockedDomains":[],"blockedUrlParts":[],"keywords":[],"blockExceptions":[]}"#.utf8)
+        let blockedURL = try XCTUnwrap(URL(string: "https://www.google.co.kr/search?q=성인%20주소%20모음"))
+        let blockedScript = try XCTUnwrap(FocusFenceSearchResultFilter.script(for: blockedURL, rules: rules))
+        policyContext.evaluateScript(blockedScript)
+        XCTAssertEqual(policyContext.evaluateScript("document.documentElement.dataset.threefSearchGate")?.toString(), "blocked")
+        XCTAssertTrue(policyContext.evaluateScript("Boolean(document.getElementById('threef-search-policy-notice'))")?.toBool() ?? false)
+
+        // For a safe query, the pending gate should remain until a valid-rules
+        // scan has run, then be released.
+        let safeRulesContext = try XCTUnwrap(JSContext())
+        safeRulesContext.evaluateScript(#"""
+        globalThis.location = { hostname: 'www.google.co.kr', pathname: '/search', href: 'https://www.google.co.kr/search?q=landscape' };
+        const root = { dataset: { threefSearchGate: 'pending' }, removeAttribute(name) { delete this.dataset[name.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase())]; }, setAttribute(name, value) { this.dataset[name.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase())] = value; }, contains() { return true; } };
+        globalThis.document = { documentElement: root, body: { appendChild() {} }, querySelectorAll() { return []; }, getElementById() { return null; }, createElement() { return { style: {}, setAttribute() {}, remove() {} }; } };
+        globalThis.addEventListener = () => {}; globalThis.requestAnimationFrame = callback => callback();
+        globalThis.MutationObserver = function() { this.observe = () => {}; }; globalThis.history = { pushState() {}, replaceState() {} };
+        """#)
+        installOrdinarySearchURLShim(in: safeRulesContext)
+        safeRulesContext.evaluateScript(FocusFenceSearchResultFilter.prepaintGateScript)
+        XCTAssertEqual(safeRulesContext.evaluateScript("document.documentElement.dataset.threefSearchGate")?.toString(), "pending")
+        let safeURL = try XCTUnwrap(URL(string: "https://www.google.co.kr/search?q=landscape"))
+        safeRulesContext.evaluateScript(try XCTUnwrap(FocusFenceSearchResultFilter.script(for: safeURL, rules: rules)))
+        XCTAssertEqual(
+            safeRulesContext.evaluateScript("typeof document.documentElement.dataset.threefSearchGate")?.toString(),
+            "undefined"
+        )
+    }
+
+    func testOrdinaryGoogleRedirectResultUnwrapsDestinationAndHidesBlockedCard() throws {
+        let context = try XCTUnwrap(JSContext())
+        context.evaluateScript(#"""
+        globalThis.location = { hostname: 'www.google.co.kr', pathname: '/search', href: 'https://www.google.co.kr/search?q=adult' };
+        const card = { dataset: {}, innerText: 'Adult directory', _attrs: {}, hasAttribute(name) { return Object.hasOwn(this._attrs, name); }, getAttribute(name) { return this._attrs[name] ?? null; }, setAttribute(name, value) { this._attrs[name] = value; }, removeAttribute(name) { delete this._attrs[name]; }, style: { setProperty(name, value) { card.hidden = value === 'none'; } } };
+        const link = { href: 'https://www.google.co.kr/url?opi=79508299&q=https%3A%2F%2Fjusonawal.com%2Fadult%2F', innerText: 'Adult directory', parentElement: null, closest() { return card; }, getAttribute() { return null; }, querySelector() { return null; } };
+        globalThis.document = { documentElement: { contains() { return true; }, removeAttribute() {}, setAttribute() {} }, body: { appendChild() {} }, querySelectorAll() { return [link]; }, getElementById() { return null; }, createElement() { return { style: {}, setAttribute() {}, remove() {} }; } };
+        globalThis.addEventListener = () => {}; globalThis.requestAnimationFrame = callback => callback();
+        globalThis.MutationObserver = function() { this.observe = () => {}; }; globalThis.history = { pushState() {}, replaceState() {} };
+        """#)
+        installOrdinarySearchURLShim(in: context)
+        let rules = Data(#"{"blockedDomains":["jusonawal.com"],"blockedUrlParts":[],"keywords":[],"blockExceptions":[]}"#.utf8)
+        let url = try XCTUnwrap(URL(string: "https://www.google.co.kr/search?q=adult"))
+        context.evaluateScript(try XCTUnwrap(FocusFenceSearchResultFilter.script(for: url, rules: rules)))
+        XCTAssertTrue(context.evaluateScript("Boolean(card.hidden)")?.toBool() ?? false)
     }
 
     func testPrepaintGateActivatesForBothGoogleImageFormatsBeforePolicyRead() throws {
         let imageContext = try XCTUnwrap(JSContext())
         imageContext.evaluateScript(#"""
-        globalThis.location = { hostname: 'www.google.co.kr', pathname: '/search', href: 'https://www.google.co.kr/search?q=주소모음&udm=2' };
+        globalThis.location = { hostname: 'www.google.co.kr', pathname: '/search', href: 'https://www.google.co.kr/search?q=landscape&udm=2' };
         globalThis.URL = function(value) {
           const query = String(value).split('?')[1] || '';
           const params = new Map(query.split('&').filter(Boolean).map(pair => pair.split('=').map(decodeURIComponent)));
@@ -135,13 +245,13 @@ final class FocusFenceSearchResultFilterTests: XCTestCase {
         globalThis.document = { documentElement: { dataset: {} } };
         """#)
         ordinaryContext.evaluateScript(FocusFenceSearchResultFilter.prepaintGateScript)
-        XCTAssertFalse(ordinaryContext.evaluateScript("Boolean(document.documentElement.dataset.threefSearchGate)")?.toBool() ?? true)
+        XCTAssertEqual(ordinaryContext.evaluateScript("document.documentElement.dataset.threefSearchGate")?.toString(), "pending")
     }
 
     func testImageFilterRestoresExactStyleAndRunsOnHistoryTransitionsSynchronously() throws {
         let context = try XCTUnwrap(JSContext())
         context.evaluateScript(#"""
-        globalThis.location = { hostname: 'www.google.co.kr', pathname: '/search', href: 'https://www.google.co.kr/search?q=주소모음&udm=2' };
+        globalThis.location = { hostname: 'www.google.co.kr', pathname: '/search', href: 'https://www.google.co.kr/search?q=landscape&udm=2' };
         globalThis.URL = function(value) {
           const match = String(value).match(/^https?:\/\/([^/?#]+)([^?#]*)(?:\?([^#]*))?/i);
           const query = new Map((match?.[3] || '').split('&').filter(Boolean).map(pair => pair.split('=').map(decodeURIComponent)));
@@ -193,7 +303,7 @@ final class FocusFenceSearchResultFilterTests: XCTestCase {
         """#)
 
         let rules = Data(#"{"blockedDomains":["adult.example"],"blockedUrlParts":[],"keywords":["주소모음"],"blockExceptions":[]}"#.utf8)
-        let imageSearch = try XCTUnwrap(URL(string: "https://www.google.co.kr/search?q=주소모음&udm=2"))
+        let imageSearch = try XCTUnwrap(URL(string: "https://www.google.co.kr/search?q=landscape&udm=2"))
         let filterScript = try XCTUnwrap(FocusFenceSearchResultFilter.script(for: imageSearch, rules: rules))
         context.evaluateScript(filterScript)
         XCTAssertTrue(context.evaluateScript("__test.card.dataset.threefFiltered === '1'")?.toBool() ?? false)
@@ -205,24 +315,24 @@ final class FocusFenceSearchResultFilterTests: XCTestCase {
         XCTAssertFalse(context.evaluateScript("Boolean(__test.root.dataset.threefSearchGate)")?.toBool() ?? true)
 
         context.evaluateScript("__test.link.href = 'https://adult.example/directory';")
-        XCTAssertEqual(context.evaluateScript("history.replaceState({}, '', 'https://www.google.co.kr/search?q=주소모음&udm=2')")?.toString(), "replace-result")
+        XCTAssertEqual(context.evaluateScript("history.replaceState({}, '', 'https://www.google.co.kr/search?q=landscape&udm=2')")?.toString(), "replace-result")
         XCTAssertEqual(context.evaluateScript("__test.card.style.display")?.toString(), "none")
-        XCTAssertEqual(context.evaluateScript("__test.root.dataset.threefSearchGate")?.toString(), "blocked")
+        XCTAssertFalse(context.evaluateScript("Boolean(__test.root.dataset.threefSearchGate)")?.toBool() ?? true)
 
-        context.evaluateScript("history.pushState({}, '', 'https://www.google.co.kr/search?q=주소모음')")
+        context.evaluateScript("history.pushState({}, '', 'https://www.google.co.kr/search?q=landscape')")
         XCTAssertFalse(context.evaluateScript("Boolean(__test.root.dataset.threefSearchGate)")?.toBool() ?? true)
         XCTAssertFalse(context.evaluateScript("Boolean(document.getElementById('threef-search-policy-notice'))")?.toBool() ?? true)
         XCTAssertEqual(context.evaluateScript("__test.card.style.display")?.toString(), "none",
                        "ordinary Google Search still applies shared Focus Fence destination rules")
 
-        context.evaluateScript("history.pushState({}, '', 'https://www.google.co.kr/search?q=주소모음&udm=2')")
-        XCTAssertEqual(context.evaluateScript("__test.root.dataset.threefSearchGate")?.toString(), "blocked")
+        context.evaluateScript("history.pushState({}, '', 'https://www.google.co.kr/search?q=landscape&udm=2')")
+        XCTAssertFalse(context.evaluateScript("Boolean(__test.root.dataset.threefSearchGate)")?.toBool() ?? true)
 
-        context.evaluateScript("history.pushState({}, '', 'https://www.google.co.kr/?q=주소모음&udm=2')")
+        context.evaluateScript("history.pushState({}, '', 'https://www.google.co.kr/?q=landscape&udm=2')")
         XCTAssertEqual(context.evaluateScript("__test.card.getAttribute('style')")?.toString(), "color: red; display: grid !important; margin: 2px")
         XCTAssertFalse(context.evaluateScript("Boolean(__test.root.dataset.threefSearchGate)")?.toBool() ?? true)
 
-        context.evaluateScript("history.pushState({}, '', 'https://www.google.co.kr/search?q=주소모음&udm=2')")
+        context.evaluateScript("history.pushState({}, '', 'https://www.google.co.kr/search?q=landscape&udm=2')")
         XCTAssertEqual(context.evaluateScript("__test.card.style.display")?.toString(), "none")
 
         context.evaluateScript("__test.link.href = 'https://safe.example/article'; location.href = 'https://www.google.co.kr/search?q=landscape&udm=2'; __test.listeners.popstate();")
