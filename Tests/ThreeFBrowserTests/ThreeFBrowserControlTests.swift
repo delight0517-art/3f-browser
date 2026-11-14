@@ -61,7 +61,7 @@ final class ThreeFBrowserControlTests: XCTestCase {
             Data(#"{"todaySeconds":0,"dailyCapMinutes":180,"blocked":false,"browserSeconds":{}}"#.utf8)
         ), "a usage summary is not a navigation rules payload")
         XCTAssertTrue(ThreeFBrowserControlController.usableFocusFenceRules(
-            Data(#"{"blockedDomains":[],"blockedUrlParts":[],"keywords":[],"blockExceptions":[]}"#.utf8)
+            Data(#"{"blockedDomains":[],"blockedUrlParts":[],"adultProtectedDomains":[],"adultProtectedUrlParts":[],"adultProtectedKeywords":[],"keywords":[],"blockExceptions":[]}"#.utf8)
         ))
         XCTAssertFalse(ThreeFBrowserControlController.usableFocusFenceRules(
             Data(#"{"blockedDomains":[],"blockedUrlParts":[]}"#.utf8)
@@ -86,8 +86,8 @@ final class ThreeFBrowserControlTests: XCTestCase {
             .appendingPathComponent("3f-rules-cache-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let cache = FocusFenceRulesCache(directory: directory)
-        let first = Data(#"{"blockedDomains":["juso3.net"],"blockedUrlParts":[],"keywords":[],"blockExceptions":[]}"#.utf8)
-        let latest = Data(#"{"blockedDomains":["juso3.net","new-adult.example"],"blockedUrlParts":[],"keywords":[],"blockExceptions":[]}"#.utf8)
+        let first = Data(#"{"blockedDomains":["juso3.net"],"blockedUrlParts":[],"adultProtectedDomains":["juso3.net"],"adultProtectedUrlParts":[],"adultProtectedKeywords":[],"keywords":[],"blockExceptions":[]}"#.utf8)
+        let latest = Data(#"{"blockedDomains":["juso3.net","new-adult.example"],"blockedUrlParts":[],"adultProtectedDomains":["juso3.net","new-adult.example"],"adultProtectedUrlParts":[],"adultProtectedKeywords":[],"keywords":[],"blockExceptions":[]}"#.utf8)
 
         XCTAssertNil(cache.load(), "no previous successful sync must not invent an allow policy")
         XCTAssertTrue(cache.save(first))
@@ -102,7 +102,7 @@ final class ThreeFBrowserControlTests: XCTestCase {
 
     @MainActor
     func testFocusFenceRulesAllowUnlistedHostAndBlockDomainAndURLPart() throws {
-        let rules = Data(#"{"blockedDomains":["www.blocked.example"],"blockedUrlParts":["disallowed-path"],"keywords":["hiddenword"],"blockExceptions":[]}"#.utf8)
+        let rules = Data(#"{"blockedDomains":["www.blocked.example"],"blockedUrlParts":["disallowed-path"],"adultProtectedDomains":[],"adultProtectedUrlParts":[],"adultProtectedKeywords":[],"keywords":["hiddenword"],"blockExceptions":[]}"#.utf8)
         XCTAssertEqual(ThreeFBrowserControlController.focusFenceAllows(URL(string: "https://developer.apple.com")!, rules: rules), true)
         XCTAssertEqual(ThreeFBrowserControlController.focusFenceAllows(URL(string: "https://sub.blocked.example/page")!, rules: rules), false)
         XCTAssertEqual(ThreeFBrowserControlController.focusFenceAllows(URL(string: "https://example.com/disallowed-path")!, rules: rules), false)
@@ -111,7 +111,7 @@ final class ThreeFBrowserControlTests: XCTestCase {
 
     @MainActor
     func testFocusFenceAdultDirectoryHostsBlockAllPathsAndSubdomains() throws {
-        let rules = Data(#"{"blockedDomains":["juso3.net","yako1234.com","mingky26.com"],"blockedUrlParts":[],"keywords":[],"blockExceptions":[]}"#.utf8)
+        let rules = Data(#"{"blockedDomains":["juso3.net","yako1234.com","mingky26.com"],"blockedUrlParts":[],"adultProtectedDomains":["juso3.net","yako1234.com","mingky26.com"],"adultProtectedUrlParts":[],"adultProtectedKeywords":[],"keywords":[],"blockExceptions":[]}"#.utf8)
         for value in [
             "https://juso3.net/category/adult",
             "https://www.juso3.net/category/adult",
@@ -133,7 +133,7 @@ final class ThreeFBrowserControlTests: XCTestCase {
 
     @MainActor
     func testFocusFenceBlocksNumberedAdultMirrorsFromURLContainsStem() throws {
-        let rules = Data(#"{"blockedDomains":[],"blockedUrlParts":["yadongkorea"],"keywords":[],"blockExceptions":[]}"#.utf8)
+        let rules = Data(#"{"blockedDomains":[],"blockedUrlParts":["yadongkorea"],"adultProtectedDomains":[],"adultProtectedUrlParts":["yadongkorea"],"adultProtectedKeywords":[],"keywords":[],"blockExceptions":[]}"#.utf8)
         for value in [
             "https://yadongkorea17.com/",
             "https://m.yadongkorea123456.co.kr/category/adult",
@@ -148,22 +148,32 @@ final class ThreeFBrowserControlTests: XCTestCase {
     }
 
     func testFocusFenceRulesNormalizeWWWAndBlockProxyDestination() throws {
-        let pathRules = Data(#"{"blockedDomains":[],"blockedUrlParts":["blocked.example/disallowed"],"keywords":[],"blockExceptions":[]}"#.utf8)
+        let pathRules = Data(#"{"blockedDomains":[],"blockedUrlParts":["blocked.example/disallowed"],"adultProtectedDomains":[],"adultProtectedUrlParts":[],"adultProtectedKeywords":[],"keywords":[],"blockExceptions":[]}"#.utf8)
         XCTAssertEqual(ThreeFBrowserControlController.focusFenceAllows(URL(string: "https://www.blocked.example/disallowed")!, rules: pathRules), false)
 
-        let proxyRules = Data(#"{"blockedDomains":["blocked.example"],"blockedUrlParts":[],"keywords":[],"blockExceptions":[]}"#.utf8)
+        let proxyRules = Data(#"{"blockedDomains":["blocked.example"],"blockedUrlParts":[],"adultProtectedDomains":[],"adultProtectedUrlParts":[],"adultProtectedKeywords":[],"keywords":[],"blockExceptions":[]}"#.utf8)
         XCTAssertEqual(ThreeFBrowserControlController.focusFenceAllows(URL(string: "https://proxy.example/?target=https%3A%2F%2Fblocked.example%2Fpage")!, rules: proxyRules), false)
     }
 
     func testFocusFenceExceptionAndUnavailableRulesAreHandled() throws {
-        let rules = Data(#"{"blockedDomains":["blocked.example"],"blockedUrlParts":["forbidden"],"keywords":["hiddenword"],"blockExceptions":["example.com"]}"#.utf8)
+        let rules = Data(#"{"blockedDomains":["blocked.example"],"blockedUrlParts":["forbidden"],"adultProtectedDomains":[],"adultProtectedUrlParts":[],"adultProtectedKeywords":[],"keywords":["hiddenword"],"blockExceptions":["example.com"]}"#.utf8)
         XCTAssertEqual(ThreeFControlControllerTestShim.evaluate("https://blocked.example", rules: rules), false)
         XCTAssertEqual(ThreeFControlControllerTestShim.evaluate("https://sub.example.com/forbidden?q=hiddenword", rules: rules), true)
         XCTAssertNil(ThreeFControlControllerTestShim.evaluate("https://developer.apple.com", rules: Data("{}".utf8)))
         XCTAssertNil(ThreeFControlControllerTestShim.evaluate(
             "https://developer.apple.com",
-            rules: Data(#"{"blockedDomains":[],"blockedUrlParts":[],"keywords":[]}"#.utf8)
+            rules: Data(#"{"blockedDomains":[],"blockedUrlParts":[],"adultProtectedDomains":[],"adultProtectedUrlParts":[],"adultProtectedKeywords":[],"keywords":[]}"#.utf8)
         ), "a policy missing its exception list is malformed and must fail closed")
+    }
+
+    @MainActor
+    func testAdultProtectionOverridesExceptionsButOrdinaryExceptionsStillWork() throws {
+        let rules = Data(#"{"blockedDomains":["adult.example","ordinary.example"],"blockedUrlParts":["yadongkorea"],"adultProtectedDomains":["adult.example"],"adultProtectedUrlParts":["yadongkorea"],"adultProtectedKeywords":["adult-term"],"keywords":["adult-term"],"blockExceptions":["adult.example","ordinary.example"]}"#.utf8)
+        XCTAssertEqual(ThreeFBrowserControlController.focusFenceAllows(URL(string: "https://adult.example/allowed")!, rules: rules), false)
+        XCTAssertEqual(ThreeFBrowserControlController.focusFenceAllows(URL(string: "https://sub.adult.example/")!, rules: rules), false)
+        XCTAssertEqual(ThreeFBrowserControlController.focusFenceAllows(URL(string: "https://safe.example/search?q=yadongkorea17")!, rules: rules), false)
+        XCTAssertEqual(ThreeFBrowserControlController.focusFenceAllows(URL(string: "https://safe.example/search?q=adult-term")!, rules: rules), false)
+        XCTAssertEqual(ThreeFBrowserControlController.focusFenceAllows(URL(string: "https://ordinary.example/")!, rules: rules), true)
     }
 
     func testWebKitNavigationRequiresFocusFenceApprovalIncludingDownloads() {
@@ -178,7 +188,7 @@ final class ThreeFBrowserControlTests: XCTestCase {
     @MainActor
     func testPolicyStatusReportsAllowedWithoutLeakingSensitiveURL() async throws {
         let secretURL = try XCTUnwrap(URL(string: "https://example.com/private/path?query=secret"))
-        let rules = Data(#"{"blockedDomains":[],"blockedUrlParts":[],"keywords":[],"blockExceptions":[]}"#.utf8)
+        let rules = Data(#"{"blockedDomains":[],"blockedUrlParts":[],"adultProtectedDomains":[],"adultProtectedUrlParts":[],"adultProtectedKeywords":[],"keywords":[],"blockExceptions":[]}"#.utf8)
         let controller = ThreeFBrowserControlController(policyRulesFetcher: { rules })
         let model = BrowserModel()
         model.currentURL = secretURL
@@ -200,7 +210,7 @@ final class ThreeFBrowserControlTests: XCTestCase {
     @MainActor
     func testPolicyStatusReportsBlockedAndFetchOrSchemaFailureAsUnknown() async throws {
         let url = try XCTUnwrap(URL(string: "https://blocked.example/private?q=needle"))
-        let blockedRules = Data(#"{"blockedDomains":["blocked.example"],"blockedUrlParts":[],"keywords":[],"blockExceptions":[]}"#.utf8)
+        let blockedRules = Data(#"{"blockedDomains":["blocked.example"],"blockedUrlParts":[],"adultProtectedDomains":[],"adultProtectedUrlParts":[],"adultProtectedKeywords":[],"keywords":[],"blockExceptions":[]}"#.utf8)
         let blockedController = ThreeFBrowserControlController(policyRulesFetcher: { blockedRules })
         let blockedModel = BrowserModel()
         blockedModel.currentURL = url

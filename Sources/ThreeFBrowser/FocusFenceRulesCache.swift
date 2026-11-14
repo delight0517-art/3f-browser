@@ -31,6 +31,9 @@ struct FocusFenceRulesCache {
         guard let rules = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               rules["blockedDomains"] is [String],
               rules["blockedUrlParts"] is [String],
+              rules["adultProtectedDomains"] is [String],
+              rules["adultProtectedUrlParts"] is [String],
+              rules["adultProtectedKeywords"] is [String],
               rules["keywords"] is [String],
               rules["blockExceptions"] is [String] else { return false }
         return true

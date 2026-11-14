@@ -253,6 +253,9 @@ final class ThreeFBrowserControlController {
               let host = url.host?.lowercased(), !host.isEmpty,
               let blockedDomains = rules["blockedDomains"] as? [String],
               let blockedURLParts = rules["blockedUrlParts"] as? [String],
+              let adultProtectedDomains = rules["adultProtectedDomains"] as? [String],
+              let adultProtectedURLParts = rules["adultProtectedUrlParts"] as? [String],
+              let adultProtectedKeywords = rules["adultProtectedKeywords"] as? [String],
               let keywords = rules["keywords"] as? [String],
               let blockExceptions = rules["blockExceptions"] as? [String] else { return nil }
         func normalizedDomain(_ value: String) -> String {
@@ -263,14 +266,15 @@ final class ThreeFBrowserControlController {
         }
         let normalizedHost = normalizedDomain(host)
         let exceptions = blockExceptions.map(normalizedDomain)
-        if exceptions.contains(where: { normalizedHost == $0 || normalizedHost.hasSuffix("." + $0) }) { return true }
-        func isBlockedHost(_ candidate: String) -> Bool {
+        func matchesDomain(_ candidate: String, in entries: [String]) -> Bool {
             let candidate = normalizedDomain(candidate)
-            return blockedDomains.contains { entry in
+            return entries.contains { entry in
                 let domain = normalizedDomain(entry)
                 return !domain.isEmpty && (candidate == domain || candidate.hasSuffix("." + domain))
             }
         }
+        let hostAdultProtected = matchesDomain(host, in: adultProtectedDomains)
+        func isBlockedHost(_ candidate: String) -> Bool { matchesDomain(candidate, in: blockedDomains) }
         let hostBlocked = isBlockedHost(host)
         let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
         let nestedHostBlocked = queryItems.contains { item in
@@ -286,10 +290,13 @@ final class ThreeFBrowserControlController {
                 } else {
                     target = nil
                 }
-                if let nestedHost = target?.host, !exceptions.contains(where: {
-                    let domain = normalizedDomain($0)
-                    return normalizedDomain(nestedHost) == domain || normalizedDomain(nestedHost).hasSuffix("." + domain)
-                }), isBlockedHost(nestedHost) { return true }
+                if let nestedHost = target?.host {
+                    if matchesDomain(nestedHost, in: adultProtectedDomains) { return true }
+                    if !exceptions.contains(where: {
+                        let domain = normalizedDomain($0)
+                        return normalizedDomain(nestedHost) == domain || normalizedDomain(nestedHost).hasSuffix("." + domain)
+                    }), isBlockedHost(nestedHost) { return true }
+                }
                 guard layer < 2, let decoded = candidate.removingPercentEncoding, decoded != candidate else { break }
                 candidate = decoded
             }
@@ -310,9 +317,17 @@ final class ThreeFBrowserControlController {
         let partBlocked = blockedURLParts.contains { part in
             !part.isEmpty && addresses.contains { $0.contains(part.lowercased()) }
         }
+        let adultPartBlocked = adultProtectedURLParts.contains { part in
+            !part.isEmpty && addresses.contains { $0.contains(part.lowercased()) }
+        }
         let keywordBlocked = keywords.contains { keyword in
             keyword.count >= 2 && addresses.contains { $0.contains(keyword.lowercased()) }
         }
+        let adultKeywordBlocked = adultProtectedKeywords.contains { keyword in
+            keyword.count >= 2 && addresses.contains { $0.contains(keyword.lowercased()) }
+        }
+        if hostAdultProtected || adultPartBlocked || adultKeywordBlocked { return false }
+        if exceptions.contains(where: { normalizedHost == $0 || normalizedHost.hasSuffix("." + $0) }) { return true }
         let firstLabel = normalizedHost.split(separator: ".").first.map(String.init) ?? ""
         let stem = String(firstLabel.reversed().drop(while: \.isNumber).reversed())
         let digitCount = firstLabel.count - stem.count
