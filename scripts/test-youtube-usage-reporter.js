@@ -50,6 +50,7 @@ async function runIframeKeyboardBlocker(host, quotaBlocked = true, { topFrame = 
 async function run(host, quotaBlocked = true, {
   failFirstAck = false, videoAtStart = true, playbackRate = 1, remainingSeconds = -1,
   accountLeaseUnsupported = true, accountLeaseUnavailable = false, failFirstLeaseAck = false,
+  accountLeaseReportsUnavailable = false,
   mismatchLeaseRequestId = false, shortsBlocked = false, youtubeSiteBlocked = false, policyUnavailable = false,
   deferPolicy = false, pagePath = '/watch'
 } = {}) {
@@ -70,6 +71,7 @@ async function run(host, quotaBlocked = true, {
   const payloads = [];
   const leaseRequests = [];
   const leaseReports = [];
+  const fallbackReports = [];
   let leaseUnavailable = accountLeaseUnavailable;
   let leaseReportAttempts = 0;
   let idCounter = 0;
@@ -86,6 +88,7 @@ async function run(host, quotaBlocked = true, {
       if (message.type === 'report') {
         const report = message.report;
         payloads.push(report);
+        if (report.reportId.startsWith('lease-fallback-')) fallbackReports.push(report);
         if (!acceptedReports.has(report.reportId)) {
           acceptedReports.add(report.reportId);
           serverWatchSeconds += report.watchSeconds;
@@ -118,6 +121,7 @@ async function run(host, quotaBlocked = true, {
       if (message.type === 'leaseReport') {
         leaseReports.push(message.report);
         leaseReportAttempts += 1;
+        if (accountLeaseReportsUnavailable) return { queued: false };
         if (failFirstLeaseAck && leaseReportAttempts === 1) return { queued: false };
         if (!acceptedLeaseReports.has(message.report.reportId)) {
           acceptedLeaseReports.add(message.report.reportId);
@@ -150,7 +154,7 @@ async function run(host, quotaBlocked = true, {
   vm.runInNewContext(match[1], context);
   await new Promise(resolve => setImmediate(resolve));
   return {
-    video, listeners, payloads, leaseRequests, leaseReports,
+    video, listeners, payloads, leaseRequests, leaseReports, fallbackReports,
     async reportProgress(seconds = 2) { now += seconds * 1000; video.currentTime += seconds * video.playbackRate; await timer(); },
     async reportProgressWithSourceChange(seconds = 2) { now += seconds * 1000; video.currentTime += seconds * video.playbackRate; video.currentSrc = `test-video-${now}`; await timer(); },
     async advancePlayback(ms) { now += ms; video.currentTime += ms / 1000 * video.playbackRate; await timer(); },
@@ -484,6 +488,22 @@ async function run(host, quotaBlocked = true, {
     'time after recovery is recorded once through the shared account lease');
   assert.equal(recoversSharedService.serverWatchSeconds, 35,
     'shared lease reporting does not double-count local usage');
+
+  const disconnectDuringLease = await run('youtube.com', false, {
+    videoAtStart: false, accountLeaseUnsupported: false, accountLeaseReportsUnavailable: true
+  });
+  disconnectDuringLease.startPlayback();
+  for (let i = 0; i < 5; i += 1) await disconnectDuringLease.reportProgress(1);
+  assert.equal(disconnectDuringLease.leaseRequests.length, 1,
+    'qualified playback receives a shared account lease before the simulated disconnect');
+  for (let i = 0; i < 31; i += 1) await disconnectDuringLease.reportProgress(1);
+  assert.ok(disconnectDuringLease.fallbackReports.length >= 1,
+    'unreported account-lease usage is transferred to the durable local report route at lease expiry');
+  assert.ok(disconnectDuringLease.fallbackReports.every(report =>
+    report.seconds === report.watchSeconds && report.seconds > 0 && report.seconds <= 30),
+  'local fallback preserves measured lease usage with a bounded aggregate');
+  assert.equal(disconnectDuringLease.video.paused, false,
+    'a failed shared lease report does not itself stop playback while cached local quota remains');
 
   const shorts = await run('youtube.com', false, { videoAtStart: false, pagePath: '/shorts/abcdefghijk' });
   shorts.startPlayback();

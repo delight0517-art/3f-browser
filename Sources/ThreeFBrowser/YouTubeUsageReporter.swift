@@ -152,20 +152,51 @@ enum YouTubeUsageReporter {
         }
       };
       const sendAccountReport = async () => {
-        if (!accountLease || !accountIntervals.length || accountReportSending) return;
+        if (!accountLease || !accountIntervals.length) return true;
+        if (accountReportSending) return false;
         if (!accountReportPending) accountReportPending = {
           type:'leaseReport', report:{grantId:accountLease.grantId,reportId:crypto.randomUUID(),intervals:accountIntervals.slice(0,20).map(x => x.slice())}
         };
         accountReportSending = true;
+        let queued = false;
         try {
           const result = await request(accountReportPending);
           if (result?.queued === true) {
             accountIntervals.splice(0, accountReportPending.report.intervals.length);
             accountReportPending = null;
+            queued = true;
             await refreshQuota(true);
           }
         } catch (_) { /* retain intervals and report ID for a deduplicated retry */ }
         finally { accountReportSending = false; }
+        return queued;
+      };
+      const moveAccountUsageToLocalLedger = async () => {
+        if (!accountLease) return false;
+        const intervals = accountReportPending?.report?.intervals || accountIntervals;
+        const watchedMs = intervals.reduce((sum, range) => sum + Math.max(0, range[1] - range[0]), 0);
+        const seconds = Math.ceil(watchedMs / 1000);
+        if (seconds > 0) {
+          const sourceReportId = accountReportPending?.report?.reportId || crypto.randomUUID();
+          const report = {
+            host: location.hostname.toLowerCase(), reportId:`lease-fallback-${sourceReportId}`,
+            seconds, watchSeconds:seconds, playing:true, browser:'3f'
+          };
+          try {
+            const result = await request({type:'report', report});
+            if (result?.ok !== true) return false;
+          } catch (_) { return false; }
+        }
+        // The native report route durably enqueues before returning success. Once
+        // accepted, local policy includes these seconds and retries the upload.
+        accountIntervals = [];
+        accountReportPending = null;
+        accountLease = null;
+        leaseMode = 'local';
+        lastLeaseAttemptAt = performance.now();
+        await refreshQuota(true);
+        enforcePolicy();
+        return true;
       };
       const tick = async (flush = false) => {
         await refreshQuota();
@@ -205,9 +236,14 @@ enum YouTubeUsageReporter {
         if (leaseMode === 'account' && accountLease) {
           if (flush || accountIntervals.reduce((sum, range) => sum + range[1] - range[0], 0) >= 5000) await sendAccountReport();
           if (performance.now() >= accountLease.deadline && !leaseRequestPending && !blocked) {
-            await sendAccountReport();
-            if (!accountReportPending && accountIntervals.length === 0) await requestAccountLease(true);
-            else { quotaBlocked = true; blocked = true; stop(); }
+            const reportAccepted = await sendAccountReport();
+            if (reportAccepted && !accountReportPending && accountIntervals.length === 0) {
+              await requestAccountLease(true);
+            } else if (await moveAccountUsageToLocalLedger()) {
+              if (!blocked) enforcePolicy();
+            } else {
+              quotaBlocked = true; blocked = true; stop();
+            }
           }
           return;
         }
