@@ -136,6 +136,8 @@ final class ThreeFBrowserControlTests: XCTestCase {
         let rules = Data(#"{"blockedDomains":[],"blockedUrlParts":["yadongkorea"],"adultProtectedDomains":[],"adultProtectedUrlParts":["yadongkorea"],"adultProtectedKeywords":[],"keywords":[],"blockExceptions":[]}"#.utf8)
         for value in [
             "https://yadongkorea17.com/",
+            "https://yadongkorea17.com",
+            "https://yadongkorea17.com?category=adult",
             "https://m.yadongkorea123456.co.kr/category/adult",
             "https://www.google.com/search?q=yadongkorea17",
         ] {
