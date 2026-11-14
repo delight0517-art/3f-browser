@@ -81,6 +81,25 @@ final class ThreeFBrowserControlTests: XCTestCase {
         XCTAssertFalse(ThreeFBrowserControlController.usableFocusFenceRules(Data("not-json".utf8)))
     }
 
+    func testFocusFenceRulesCacheKeepsLatestValidRulesAndRejectsCorruption() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("3f-rules-cache-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let cache = FocusFenceRulesCache(directory: directory)
+        let first = Data(#"{"blockedDomains":["juso3.net"],"blockedUrlParts":[],"keywords":[],"blockExceptions":[]}"#.utf8)
+        let latest = Data(#"{"blockedDomains":["juso3.net","new-adult.example"],"blockedUrlParts":[],"keywords":[],"blockExceptions":[]}"#.utf8)
+
+        XCTAssertNil(cache.load(), "no previous successful sync must not invent an allow policy")
+        XCTAssertTrue(cache.save(first))
+        XCTAssertTrue(cache.save(latest))
+        XCTAssertEqual(cache.load(), latest)
+        XCTAssertFalse(cache.save(Data("{}".utf8)), "invalid response must not replace the last valid local rules")
+        XCTAssertEqual(cache.load(), latest)
+
+        try Data("corrupt".utf8).write(to: cache.rulesURL, options: .atomic)
+        XCTAssertNil(cache.load(), "corrupt storage must not be treated as an allow-all policy")
+    }
+
     @MainActor
     func testFocusFenceRulesAllowUnlistedHostAndBlockDomainAndURLPart() throws {
         let rules = Data(#"{"blockedDomains":["www.blocked.example"],"blockedUrlParts":["disallowed-path"],"keywords":["hiddenword"],"blockExceptions":[]}"#.utf8)

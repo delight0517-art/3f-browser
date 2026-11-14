@@ -370,14 +370,14 @@ final class BrowserNavigationFeedbackTests: XCTestCase {
         XCTAssertEqual(ThreeFBrowserControlController.navigationAuthorizationDecision(for: youtube, rules: data), .allowed)
     }
 
-    func testFocusFenceUnavailableAllowsOnlyOrdinaryHTTPNavigation() throws {
+    func testFocusFenceUnavailableBlocksNavigationUntilRulesAreAvailable() throws {
         let http = try XCTUnwrap(URL(string: "http://example.com/path"))
         let https = try XCTUnwrap(URL(string: "https://gemini.google.com/app"))
         let file = try XCTUnwrap(URL(string: "file:///etc/hosts"))
         let javascript = try XCTUnwrap(URL(string: "javascript:alert(1)"))
 
-        XCTAssertEqual(ThreeFBrowserControlController.navigationAuthorizationDecision(for: http, rules: nil), .allowed)
-        XCTAssertEqual(ThreeFBrowserControlController.navigationAuthorizationDecision(for: https, rules: nil), .allowed)
+        XCTAssertEqual(ThreeFBrowserControlController.navigationAuthorizationDecision(for: http, rules: nil), .unavailable)
+        XCTAssertEqual(ThreeFBrowserControlController.navigationAuthorizationDecision(for: https, rules: nil), .unavailable)
         XCTAssertEqual(ThreeFBrowserControlController.navigationAuthorizationDecision(for: file, rules: nil), .unavailable)
         XCTAssertEqual(ThreeFBrowserControlController.navigationAuthorizationDecision(for: javascript, rules: nil), .unavailable)
         XCTAssertEqual(ThreeFBrowserControlController.navigationAuthorizationDecision(for: https, rules: Data("{}".utf8)), .unavailable,

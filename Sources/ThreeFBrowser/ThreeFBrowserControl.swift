@@ -174,20 +174,15 @@ final class ThreeFBrowserControlController {
 
     nonisolated static func focusFencePolicyDecision(for url: URL) async -> Bool? {
         guard OptionalFeatureAvailability.focusFenceEnforcement else { return true }
-        guard let data = await fetchFocusFenceRules() else {
-            // Keep ordinary web navigation usable during a Focus Fence outage.
-            // YouTube playback accounting still fails closed in its own reporter.
-            return isOrdinaryWebURL(url) ? true : nil
-        }
-        guard usableFocusFenceRules(data) else { return nil }
-        return focusFenceAllows(url, rules: data)
+        guard let snapshot = await fetchFocusFenceRulesSnapshot() else { return nil }
+        return focusFenceAllows(url, rules: snapshot.data)
     }
 
     nonisolated static func navigationAuthorizationDecision(
         for url: URL,
         rules data: Data?
     ) -> BrowserNavigationAuthorizationDecision {
-        guard let data else { return isOrdinaryWebURL(url) ? .allowed : .unavailable }
+        guard let data else { return .unavailable }
         guard let allowed = focusFenceAllows(url, rules: data) else { return .unavailable }
         if allowed { return .allowed }
 
@@ -206,26 +201,42 @@ final class ThreeFBrowserControlController {
     }
 
     nonisolated static func refreshFocusFencePolicyContact() async -> Bool {
-        guard let data = await fetchFocusFenceRules() else { return false }
-        return usableFocusFenceRules(data)
+        await fetchFocusFenceRulesSnapshot() != nil
     }
 
     nonisolated static func fetchFocusFenceRules() async -> Data? {
+        await fetchFocusFenceRulesSnapshot()?.data
+    }
+
+    struct FocusFenceRulesSnapshot: Sendable {
+        let data: Data
+        let isCached: Bool
+    }
+
+    nonisolated static func fetchFocusFenceRulesSnapshot() async -> FocusFenceRulesSnapshot? {
+        let isQA = FocusFenceQARouting.isQARequested()
         let baseURL = FocusFenceQARouting.isQARequested()
             ? FocusFenceQARouting.currentQARequestBaseURL()
             : URL(string: "http://127.0.0.1:17361")
-        guard let baseURL else { return nil }
-        let session = FocusFenceQARouting.isQARequested() ? FocusFenceQARouting.makeSession() : URLSession.shared
-        var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
-        components.path = "/rules"
-        components.queryItems = [URLQueryItem(name: "browser", value: "3f")]
-        var request = URLRequest(url: components.url!)
-        request.httpMethod = "GET"
-        request.timeoutInterval = 2
-        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
-        guard let (data, response) = try? await session.data(for: request),
-              let status = response as? HTTPURLResponse, status.statusCode == 200 else { return nil }
-        return data
+        if let baseURL {
+            let session = isQA ? FocusFenceQARouting.makeSession() : URLSession.shared
+            var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
+            components.path = "/rules"
+            components.queryItems = [URLQueryItem(name: "browser", value: "3f")]
+            var request = URLRequest(url: components.url!)
+            request.httpMethod = "GET"
+            request.timeoutInterval = 2
+            request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+            if let (data, response) = try? await session.data(for: request),
+               let status = response as? HTTPURLResponse, status.statusCode == 200,
+               usableFocusFenceRules(data) {
+                if !isQA { _ = FocusFenceRulesCache.production.save(data) }
+                return FocusFenceRulesSnapshot(data: data, isCached: false)
+            }
+        }
+        // QA sessions are isolated; never borrow or overwrite production policy.
+        guard !isQA, let cached = FocusFenceRulesCache.production.load() else { return nil }
+        return FocusFenceRulesSnapshot(data: cached, isCached: true)
     }
 
     nonisolated static func usableFocusFenceRules(_ data: Data) -> Bool {

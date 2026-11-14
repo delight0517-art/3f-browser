@@ -136,13 +136,18 @@ final class FocusFenceConnectionService: ObservableObject {
         filterStatus = "확인 중…"
 
         do {
-            let payload = try await fetchFocusFenceRules()
+            guard let snapshot = await ThreeFBrowserControlController.fetchFocusFenceRulesSnapshot() else {
+                throw URLError(.cannotConnectToHost)
+            }
+            let payload = snapshot.data
             guard ThreeFBrowserControlController.usableFocusFenceRules(payload),
                   let object = try JSONSerialization.jsonObject(with: payload) as? [String: Any],
                   let blockedDomains = object["blockedDomains"] as? [String] else {
                 throw URLError(.cannotDecodeContentData)
             }
-            rulesStatus = "차단 규칙 연결됨 · 도메인 \(blockedDomains.count)개"
+            rulesStatus = snapshot.isCached
+                ? "저장된 차단 규칙 사용 중 · 도메인 \(blockedDomains.count)개"
+                : "차단 규칙 연결됨 · 도메인 \(blockedDomains.count)개"
         } catch {
             rulesStatus = "규칙 연결 안 됨 · 페이지 이동 차단됨"
         }
@@ -200,24 +205,6 @@ final class FocusFenceConnectionService: ObservableObject {
             throw URLError(.badServerResponse)
         }
         return try JSONDecoder().decode(type, from: data)
-    }
-
-    private func fetchFocusFenceRules() async throws -> Data {
-        guard let baseURL = FocusFenceQARouting.currentQARequestBaseURL() else {
-            throw URLError(.badURL)
-        }
-        var components = URLComponents(url: baseURL.appendingPathComponent("rules"), resolvingAgainstBaseURL: false)!
-        components.queryItems = [URLQueryItem(name: "browser", value: "3f")]
-        var request = URLRequest(url: components.url!)
-        request.httpMethod = "GET"
-        request.timeoutInterval = 2
-        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
-        let session = FocusFenceQARouting.isQARequested() ? FocusFenceQARouting.makeSession() : URLSession.shared
-        let (data, response) = try await session.data(for: request)
-        guard let response = response as? HTTPURLResponse, response.statusCode == 200 else {
-            throw URLError(.badServerResponse)
-        }
-        return data
     }
 
     private struct DiscoveryStatus: Decodable {
