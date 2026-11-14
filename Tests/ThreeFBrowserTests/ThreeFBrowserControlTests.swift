@@ -137,6 +137,7 @@ final class ThreeFBrowserControlTests: XCTestCase {
         for value in [
             "https://yadongkorea17.com/",
             "https://m.yadongkorea123456.co.kr/category/adult",
+            "https://www.google.com/search?q=yadongkorea17",
         ] {
             XCTAssertEqual(
                 ThreeFBrowserControlController.focusFenceAllows(URL(string: value)!, rules: rules),
