@@ -344,6 +344,9 @@ final class BrowserNavigationFeedbackTests: XCTestCase {
         let data = try JSONSerialization.data(withJSONObject: [
             "blockedDomains": ["*.juso3.net", "*.yako1234.com"],
             "blockedUrlParts": [String](),
+            "adultProtectedDomains": [String](),
+            "adultProtectedUrlParts": [String](),
+            "adultProtectedKeywords": [String](),
             "keywords": [String](),
             "blockExceptions": [String](),
         ])
