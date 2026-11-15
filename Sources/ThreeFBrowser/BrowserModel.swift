@@ -209,7 +209,14 @@ final class BrowserModel: ObservableObject {
         searchProvider = SearchProvider(rawValue: savedProvider ?? "") ?? .google
         bookmarks = Self.load([BrowserQuickLink].self, forKey: bookmarksKey, preferences: preferences) ?? BrowserTheme.standard.quickLinks
         installedWebApps = (Self.load([InstalledWebApp].self, forKey: installedWebAppsKey, preferences: preferences) ?? []).filter(\.isValid)
-        history = Self.load([BrowserHistoryEntry].self, forKey: historyKey, preferences: preferences) ?? []
+        let savedHistory = Self.load([BrowserHistoryEntry].self, forKey: historyKey, preferences: preferences) ?? []
+        history = savedHistory.filter {
+            !FocusFenceSearchResultFilter.historyEntryContainsSensitiveKeyword(
+                title: $0.title,
+                url: $0.url,
+                rules: Self.cachedFocusFenceRules
+            )
+        }
         reloadThemeModule()
     }
 
@@ -585,11 +592,22 @@ final class BrowserModel: ObservableObject {
     private func recordVisit(to url: URL, title: String) {
         guard ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
               url.user == nil, url.password == nil else { return }
-        let entry = BrowserHistoryEntry(url: url.absoluteString, title: title, visitedAt: Date())
+        let urlString = url.absoluteString
+        guard !FocusFenceSearchResultFilter.historyEntryContainsSensitiveKeyword(
+            title: title,
+            url: urlString,
+            rules: Self.cachedFocusFenceRules
+        ) else { return }
+        let entry = BrowserHistoryEntry(url: urlString, title: title, visitedAt: Date())
         history.removeAll { $0.url == entry.url }
         history.insert(entry, at: 0)
         if history.count > 100 { history = Array(history.prefix(100)) }
         Self.save(history, forKey: historyKey, preferences: preferenceStore)
+    }
+
+    private static var cachedFocusFenceRules: Data? {
+        guard !FocusFenceQARouting.isQARequested() else { return nil }
+        return FocusFenceRulesCache.production.load()
     }
 
     private static func load<Value: Decodable>(

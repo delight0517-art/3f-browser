@@ -97,6 +97,12 @@ struct BrowserWebView: NSViewRepresentable {
                 forMainFrameOnly: true
             ))
         }
+        let cachedPolicy = FocusFenceQARouting.isQARequested() ? nil : FocusFenceRulesCache.production.load()
+        configuration.userContentController.addUserScript(WKUserScript(
+            source: FocusFenceSearchResultFilter.youtubeTitleFilterScript(rules: cachedPolicy),
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        ))
         if BrowserSessionStore.isolatedQAProfileEnabled {
             configuration.websiteDataStore = .nonPersistent()
         }
@@ -316,6 +322,7 @@ struct BrowserWebView: NSViewRepresentable {
                 // soon as the document is committed; the injected observer
                 // continues filtering results as Google fills in the page.
                 self.filterSearchResultsIfNeeded(in: webView)
+                self.filterSensitiveYouTubeTitlesIfNeeded(in: webView)
             }
         }
 
@@ -328,6 +335,19 @@ struct BrowserWebView: NSViewRepresentable {
                 self.parent.onNavigation(webView.url, webView.title)
                 self.parent.onNavigationState(webView.canGoBack, webView.canGoForward)
                 ThreeFBrowserControlController.shared.navigationDidFinish(for: webView)
+                self.filterSensitiveYouTubeTitlesIfNeeded(in: webView)
+            }
+        }
+
+        private func filterSensitiveYouTubeTitlesIfNeeded(in webView: WKWebView) {
+            guard let url = webView.url,
+                  FocusFenceSearchResultFilter.isYouTubeURL(url) else { return }
+            Task { @MainActor [weak webView] in
+                guard let webView, webView.url == url else { return }
+                let rules = await ThreeFBrowserControlController.fetchFocusFenceRules()
+                guard webView.url == url else { return }
+                let script = FocusFenceSearchResultFilter.youtubeTitleFilterScript(rules: rules)
+                _ = try? await webView.evaluateJavaScript(script)
             }
         }
 

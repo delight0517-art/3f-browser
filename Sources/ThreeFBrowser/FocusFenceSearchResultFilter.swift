@@ -1,6 +1,8 @@
 import Foundation
 
 enum FocusFenceSearchResultFilter {
+    private static let builtInSensitiveTitleKeywords = ["야짤", "후방주의", "후방 주의", "은꼴"]
+
     static let classifierSource = #"""
     function threefNormalizeHost(value) {
       return String(value || '').toLocaleLowerCase().replace(/^www\./, '').replace(/^\.+|\.+$/g, '');
@@ -9,8 +11,19 @@ enum FocusFenceSearchResultFilter {
       return {
         blockedDomains: new Set((rules.blockedDomains || []).map(threefNormalizeHost).filter(Boolean)),
         blockedUrlParts: (rules.blockedUrlParts || []).map(value => String(value || '').toLocaleLowerCase()).filter(Boolean),
-        keywords: (rules.keywords || []).map(value => String(value || '').normalize('NFKC').toLocaleLowerCase().trim())
+        keywords: (rules.keywords || []).map(value => String(value || '').normalize('NFKC').toLocaleLowerCase().trim()),
+        sensitiveTitleKeywords: [...new Set([
+          '야짤', '후방주의', '후방 주의', '은꼴',
+          ...(rules.keywords || []), ...(rules.adultProtectedKeywords || [])
+        ].map(threefNormalizeSensitiveText).filter(value => value.length >= 2))]
       };
+    }
+    function threefNormalizeSensitiveText(value) {
+      return String(value || '').normalize('NFKC').toLocaleLowerCase().replace(/[\s\p{P}\p{S}]+/gu, '');
+    }
+    function threefTitleMatchesSensitiveKeyword(title, ruleIndex) {
+      const normalized = threefNormalizeSensitiveText(title);
+      return Boolean(normalized) && ruleIndex.sensitiveTitleKeywords.some(keyword => normalized.includes(keyword));
     }
     function threefDomainIsBlocked(host, ruleIndex) {
       let candidate = host;
@@ -25,6 +38,7 @@ enum FocusFenceSearchResultFilter {
     function threefShouldHideResult(host, path, title, snippet, ruleIndex) {
       const normalizedHost = threefNormalizeHost(host);
       if (threefDomainIsBlocked(normalizedHost, ruleIndex)) return true;
+      if (threefTitleMatchesSensitiveKeyword(title, ruleIndex)) return true;
 
       const destination = (normalizedHost + String(path || '')).toLocaleLowerCase();
       if (ruleIndex.blockedUrlParts.some(part => destination.includes(part))) return true;
@@ -50,6 +64,7 @@ enum FocusFenceSearchResultFilter {
     function threefShouldHideImageSearchQuery(query, ruleIndex) {
       const normalized = String(query || '').normalize('NFKC').toLocaleLowerCase().replace(/\s+/gu, ' ').trim();
       if (!normalized) return false;
+      if (threefTitleMatchesSensitiveKeyword(normalized, ruleIndex)) return true;
       const blockedURLPartQuery = ruleIndex.blockedUrlParts.some(rawPart => {
         const part = String(rawPart || '').toLocaleLowerCase().trim();
         if (!/^[a-z0-9-]{4,}$/.test(part)) return false;
@@ -66,6 +81,165 @@ enum FocusFenceSearchResultFilter {
         || (compact.includes('주소') && /(?:link|링크|모음|모움|사이트|site|list|directory)/u.test(compact));
     }
     """#
+
+    static func youtubeTitleFilterScript(rules: Data?) -> String {
+        let rulesJSON: String
+        if let rules, ThreeFBrowserControlController.usableFocusFenceRules(rules),
+           let serialized = String(data: rules, encoding: .utf8) {
+            rulesJSON = serialized
+        } else {
+            rulesJSON = "{}"
+        }
+        return #"""
+        (() => {
+          const rules = \#(rulesJSON);
+          const builtInKeywords = ['야짤', '후방주의', '후방 주의', '은꼴'];
+          \#(classifierSource)
+          const host = location.hostname.toLocaleLowerCase();
+          if (!(host === 'youtube.com' || host.endsWith('.youtube.com') || host === 'youtu.be')) return;
+          const initialRules = { ...rules, keywords: [...(rules.keywords || []), ...builtInKeywords] };
+          const previous = window.__threefSensitiveTitlePolicy;
+          if (previous) { previous.update(initialRules); return; }
+          const state = { rules: initialRules, hidden: new Set(), queued: false };
+          window.__threefSensitiveTitlePolicy = state;
+          const style = document.createElement('style');
+          style.textContent = '[data-threef-sensitive-title-hidden="1"]{display:none!important} html[data-threef-sensitive-watch="1"] ytd-player,html[data-threef-sensitive-watch="1"] #player{display:none!important}';
+          (document.head || document.documentElement)?.appendChild(style);
+          function index() { return threefBuildRuleIndex(state.rules); }
+          function setHidden(node, hidden) {
+            if (!node) return;
+            if (hidden && node.dataset.threefSensitiveTitleHidden !== '1') {
+              node.dataset.threefSensitiveHadStyle = String(node.hasAttribute('style'));
+              node.dataset.threefSensitiveOldStyle = node.getAttribute('style') || '';
+              node.dataset.threefSensitiveTitleHidden = '1';
+              node.style.setProperty('display', 'none', 'important');
+              state.hidden.add(node);
+            } else if (!hidden && node.dataset.threefSensitiveTitleHidden === '1') {
+              if (node.dataset.threefSensitiveHadStyle === 'true') node.setAttribute('style', node.dataset.threefSensitiveOldStyle || '');
+              else node.removeAttribute('style');
+              delete node.dataset.threefSensitiveHadStyle;
+              delete node.dataset.threefSensitiveOldStyle;
+              delete node.dataset.threefSensitiveTitleHidden;
+              state.hidden.delete(node);
+            }
+          }
+          function titleOf(card) {
+            const title = card.querySelector('#video-title, #video-title-link, a[title][href*="watch"], a[href*="/shorts/"]');
+            return title?.getAttribute('title') || title?.getAttribute('aria-label') || title?.innerText || '';
+          }
+          function queryIsSensitive(ruleIndex) {
+            try { return threefTitleMatchesSensitiveKeyword(new URL(location.href).searchParams.get('search_query'), ruleIndex); }
+            catch { return false; }
+          }
+          function videoPageTitle() {
+            return document.querySelector('ytd-watch-metadata h1, #title h1, h1 yt-formatted-string')?.innerText
+              || document.querySelector('meta[property="og:title"]')?.content
+              || document.title || '';
+          }
+          function notice(message) {
+            let node = document.getElementById('threef-sensitive-title-notice');
+            if (!node && document.body) {
+              node = document.createElement('div');
+              node.id = 'threef-sensitive-title-notice';
+              node.setAttribute('role', 'status');
+              node.style.cssText = 'position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:2147483647;padding:10px 14px;border-radius:10px;background:#241b2e;color:white;font:13px system-ui,sans-serif;text-align:center;box-shadow:0 2px 12px #0005';
+              document.body.appendChild(node);
+            }
+            if (node) node.textContent = message;
+          }
+          function scan() {
+            const ruleIndex = index();
+            const blockedQuery = queryIsSensitive(ruleIndex);
+            const results = document.querySelector('#contents, ytd-section-list-renderer, ytd-search #primary');
+            if (results) setHidden(results, blockedQuery);
+            if (blockedQuery) notice('Focus Fence 키워드가 포함된 영상 검색 결과를 숨겼습니다.');
+            else if (location.pathname === '/results') document.getElementById('threef-sensitive-title-notice')?.remove();
+
+            const cards = 'ytd-video-renderer, ytd-rich-item-renderer, ytd-compact-video-renderer, ytd-reel-item-renderer, yt-lockup-view-model, ytd-grid-video-renderer';
+            for (const card of document.querySelectorAll(cards)) {
+              setHidden(card, threefTitleMatchesSensitiveKeyword(titleOf(card), ruleIndex));
+            }
+            const suggestions = 'ytd-searchbox [role="option"], .ytSearchboxComponentSuggestion, ytd-compact-suggestion, #suggestions [role="option"]';
+            for (const suggestion of document.querySelectorAll(suggestions)) {
+              setHidden(suggestion, threefTitleMatchesSensitiveKeyword(suggestion.innerText || suggestion.textContent, ruleIndex));
+            }
+
+            const watchPage = location.pathname === '/watch' || location.pathname.startsWith('/shorts/');
+            const blockedTitle = watchPage && threefTitleMatchesSensitiveKeyword(videoPageTitle(), ruleIndex);
+            if (blockedTitle) {
+              document.documentElement.dataset.threefSensitiveWatch = '1';
+              document.querySelector('video')?.pause();
+              notice('Focus Fence 키워드가 포함된 영상은 숨겼습니다.');
+            } else {
+              delete document.documentElement.dataset.threefSensitiveWatch;
+              if (!blockedQuery) document.getElementById('threef-sensitive-title-notice')?.remove();
+            }
+            for (const node of state.hidden) if (!document.documentElement?.contains(node)) state.hidden.delete(node);
+          }
+          function schedule() {
+            if (state.queued) return;
+            state.queued = true;
+            requestAnimationFrame(() => { state.queued = false; scan(); });
+          }
+          state.update = nextRules => {
+            state.rules = { ...nextRules, keywords: [...(nextRules.keywords || []), ...builtInKeywords] };
+            schedule();
+          };
+          scan();
+          new MutationObserver(schedule).observe(document.documentElement, { childList: true, subtree: true, characterData: true });
+          addEventListener('popstate', schedule, true);
+          addEventListener('yt-navigate-finish', schedule, true);
+        })();
+        """#
+    }
+
+    static func historyEntryContainsSensitiveKeyword(title: String, url: String, rules: Data?) -> Bool {
+        var candidates = [title, url]
+        if let components = URLComponents(string: url) {
+            candidates.append(contentsOf: components.queryItems?.compactMap(\.value) ?? [])
+        }
+        for value in [title, url] {
+            var decoded = value
+            for _ in 0..<2 {
+                guard let next = decoded.removingPercentEncoding, next != decoded else { break }
+                candidates.append(next)
+                decoded = next
+            }
+        }
+        let terms = sensitiveTitleKeywords(rules: rules)
+        return candidates.contains { candidate in
+            let normalized = compactSensitiveText(candidate)
+            return terms.contains { normalized.contains($0) }
+        }
+    }
+
+    private static func sensitiveTitleKeywords(rules: Data?) -> [String] {
+        var terms = builtInSensitiveTitleKeywords
+        if let rules,
+           let dictionary = try? JSONSerialization.jsonObject(with: rules) as? [String: Any] {
+            terms += dictionary["keywords"] as? [String] ?? []
+            terms += dictionary["adultProtectedKeywords"] as? [String] ?? []
+        }
+        return Array(Set(terms.map(compactSensitiveText).filter { $0.count >= 2 }))
+    }
+
+    private static func compactSensitiveText(_ value: String) -> String {
+        value.precomposedStringWithCompatibilityMapping
+            .lowercased()
+            .unicodeScalars
+            .filter {
+                !CharacterSet.whitespacesAndNewlines.contains($0)
+                    && !CharacterSet.punctuationCharacters.contains($0)
+                    && !CharacterSet.symbols.contains($0)
+            }
+            .map(String.init)
+            .joined()
+    }
+
+    static func isYouTubeURL(_ url: URL) -> Bool {
+        guard let host = url.host?.lowercased() else { return false }
+        return host == "youtu.be" || host == "youtube.com" || host.hasSuffix(".youtube.com")
+    }
 
     static let prepaintGateScript = #"""
     (() => {
