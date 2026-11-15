@@ -3,6 +3,25 @@ import XCTest
 @testable import ThreeFBrowser
 
 final class CloudflareInAppNavigationTests: XCTestCase {
+    func testCloudflareSignUpIsAllowedWhenFocusFenceIsOffline() throws {
+        let signup = try XCTUnwrap(URL(string: "https://dash.cloudflare.com/sign-up"))
+
+        XCTAssertEqual(
+            ThreeFBrowserControlController.navigationAuthorizationDecision(for: signup, rules: nil),
+            .allowed
+        )
+    }
+
+    func testExplicitFocusFenceRuleStillBlocksCloudflareLogin() throws {
+        let signup = try XCTUnwrap(URL(string: "https://dash.cloudflare.com/sign-up"))
+        let blockedRules = Data(#"{"blockedDomains":["dash.cloudflare.com"],"blockedUrlParts":[],"adultProtectedDomains":[],"adultProtectedUrlParts":[],"adultProtectedKeywords":[],"keywords":[],"blockExceptions":[]}"#.utf8)
+
+        XCTAssertEqual(
+            ThreeFBrowserControlController.navigationAuthorizationDecision(for: signup, rules: blockedRules),
+            .blocked
+        )
+    }
+
     @MainActor
     func testCloudflareSignupWithoutAuthorizerStaysInThreeF() throws {
         let model = makeModel()

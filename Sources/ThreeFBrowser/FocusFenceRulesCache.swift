@@ -12,6 +12,10 @@ struct FocusFenceRulesCache {
     var rulesURL: URL { directory.appendingPathComponent("rules-v1.json") }
 
     func save(_ data: Data) -> Bool {
+        // Legacy cached snapshots are normalized only for in-memory offline
+        // enforcement. Never write that compatibility projection back as a
+        // fresh server snapshot; network writes require the current schema.
+        guard Self.isUsable(data) else { return false }
         guard let normalized = Self.normalizedRules(data) else { return false }
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
