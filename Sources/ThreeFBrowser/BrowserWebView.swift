@@ -242,6 +242,10 @@ struct BrowserWebView: NSViewRepresentable {
 
                 authorizeNavigation(url) { [weak self] decision in
                     guard let self else { return }
+                    if decision.isAllowed, CloudflareLoginNavigationPolicy.isLoginURL(url) {
+                        self.openCloudflareLoginInDefaultBrowser(url)
+                        return
+                    }
                     if decision.isAllowed, GoogleOAuthNavigationPolicy.requiresSystemBrowser(for: url) {
                         self.openOAuthInSystemBrowser(url, sourceURL: webView.url)
                         return
@@ -254,6 +258,24 @@ struct BrowserWebView: NSViewRepresentable {
                     case .newTab(let destination): self.parent.onOpenLinkInNewTab?(destination)
                     case .newWindow(let destination): self.parent.onOpenLinkInNewWindow?(destination)
                     }
+                }
+                return nil
+            }
+
+            if let url = navigationAction.request.url,
+               CloudflareLoginNavigationPolicy.isLoginURL(url) {
+                guard !navigationAction.shouldPerformDownload else { return nil }
+                guard let authorizeNavigation = parent.authorizeNavigation else {
+                    openCloudflareLoginInDefaultBrowser(url)
+                    return nil
+                }
+                authorizeNavigation(url) { [weak self] decision in
+                    guard let self else { return }
+                    guard decision.isAllowed else {
+                        self.parent.onRejectedNavigation?(url, decision)
+                        return
+                    }
+                    self.openCloudflareLoginInDefaultBrowser(url)
                 }
                 return nil
             }
@@ -292,6 +314,11 @@ struct BrowserWebView: NSViewRepresentable {
 
         private func openOAuthInSystemBrowser(_ url: URL, sourceURL: URL?) {
             GoogleOAuthHandoffDiagnostics.shared.handoff(url, sourceURL: sourceURL)
+        }
+
+        private func openCloudflareLoginInDefaultBrowser(_ url: URL) {
+            guard CloudflareLoginNavigationPolicy.isLoginURL(url) else { return }
+            _ = NSWorkspace.shared.open(url)
         }
 
         @discardableResult
@@ -343,17 +370,20 @@ struct BrowserWebView: NSViewRepresentable {
                     (() => {
                       const root = document.documentElement;
                       if (!root) return;
-                      root.dataset.threefSearchGate = 'blocked';
+                      root.dataset.threefSearchGate = 'unfiltered';
                       let notice = document.getElementById('threef-search-policy-notice');
                       if (!notice && document.body) {
                         notice = document.createElement('div');
                         notice.id = 'threef-search-policy-notice';
-                        notice.setAttribute('role', 'alert');
-                        notice.setAttribute('aria-live', 'assertive');
-                        notice.style.cssText = 'position:fixed;inset:0;z-index:2147483647;display:grid;place-items:center;padding:24px;background:#fff;color:#263244;font:16px system-ui,sans-serif;text-align:center';
+                        notice.setAttribute('role', 'status');
+                        notice.setAttribute('aria-live', 'polite');
+                        notice.style.cssText = 'position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:2147483647;max-width:90vw;padding:10px 14px;border-radius:10px;background:#fff7d6;color:#493900;box-shadow:0 2px 12px #0003;font:13px system-ui,sans-serif;text-align:center';
                         document.body.appendChild(notice);
                       }
-                      if (notice) notice.textContent = 'Focus Fence 정책을 확인할 수 없어 검색 결과를 숨겼습니다.';
+                      if (notice) {
+                        notice.textContent = '검색은 계속할 수 있어요. 저장된 Focus Fence 규칙을 불러오지 못해 검색 결과 필터가 꺼졌습니다. 차단 대상 이동은 규칙을 다시 불러올 때까지 보류됩니다.';
+                        setTimeout(() => notice.remove(), 8000);
+                      }
                     })();
                     """#
                     _ = try? await webView.evaluateJavaScript(failure)
@@ -408,6 +438,11 @@ struct BrowserWebView: NSViewRepresentable {
                 decisionHandler(.cancel)
                 return
             }
+            if CloudflareLoginNavigationPolicy.isLoginURL(url), parent.authorizeNavigation == nil {
+                decisionHandler(.cancel)
+                openCloudflareLoginInDefaultBrowser(url)
+                return
+            }
             guard let authorize = parent.authorizeNavigation else {
                 let navigationDecision = Self.navigationDecision(isAllowed: nil, shouldDownload: navigationAction.shouldPerformDownload, allowsDownloads: parent.allowsDownloads)
                 if navigationDecision == .allow, GoogleOAuthNavigationPolicy.requiresSystemBrowser(for: url) {
@@ -421,6 +456,11 @@ struct BrowserWebView: NSViewRepresentable {
             authorize(url) { [weak self] decision in
                 if !decision.isAllowed { self?.parent.onRejectedNavigation?(url, decision) }
                 let navigationDecision = Self.navigationDecision(isAllowed: decision.isAllowed, shouldDownload: navigationAction.shouldPerformDownload, allowsDownloads: self?.parent.allowsDownloads ?? false)
+                if decision.isAllowed, CloudflareLoginNavigationPolicy.isLoginURL(url) {
+                    decisionHandler(.cancel)
+                    self?.openCloudflareLoginInDefaultBrowser(url)
+                    return
+                }
                 if navigationDecision == .allow, GoogleOAuthNavigationPolicy.requiresSystemBrowser(for: url) {
                     decisionHandler(.cancel)
                     self?.openOAuthInSystemBrowser(url, sourceURL: webView.url)

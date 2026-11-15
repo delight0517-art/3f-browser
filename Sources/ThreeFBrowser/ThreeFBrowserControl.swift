@@ -174,14 +174,33 @@ final class ThreeFBrowserControlController {
 
     nonisolated static func focusFencePolicyDecision(for url: URL) async -> Bool? {
         guard OptionalFeatureAvailability.focusFenceEnforcement else { return true }
-        guard let snapshot = await fetchFocusFenceRulesSnapshot() else { return nil }
-        return focusFenceAllows(url, rules: snapshot.data)
+        let snapshot = await fetchFocusFenceRulesSnapshot()
+        switch navigationAuthorizationDecision(for: url, rules: snapshot?.data) {
+        case .allowed: return true
+        case .blocked, .youtubeBlocked: return false
+        case .unavailable: return nil
+        }
     }
 
     nonisolated static func navigationAuthorizationDecision(
         for url: URL,
         rules data: Data?
     ) -> BrowserNavigationAuthorizationDecision {
+        switch CloudflareLoginNavigationPolicy.route(for: url, rules: data) {
+        case .openInDefaultBrowser:
+            return .allowed
+        case .blockedByFocusFence:
+            return .blocked
+        case .continueInThreeF:
+            break
+        }
+
+        if FocusFenceSearchResultFilter.isSearchResultsURL(url) {
+            guard let data,
+                  let allowed = focusFenceAllowsSearchProvider(url, rules: data) else { return .allowed }
+            return allowed ? .allowed : .blocked
+        }
+
         guard let data else { return .unavailable }
         guard let allowed = focusFenceAllows(url, rules: data) else { return .unavailable }
         if allowed { return .allowed }
@@ -192,6 +211,30 @@ final class ThreeFBrowserControlController {
               (host == "youtu.be" || host == "youtube.com" || host.hasSuffix(".youtube.com")),
               host != "music.youtube.com" else { return .blocked }
         return .youtubeBlocked
+    }
+
+    private nonisolated static func focusFenceAllowsSearchProvider(_ url: URL, rules data: Data) -> Bool? {
+        guard let rules = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let blockedDomains = rules["blockedDomains"] as? [String],
+              let adultProtectedDomains = rules["adultProtectedDomains"] as? [String],
+              let exceptions = rules["blockExceptions"] as? [String],
+              let host = url.host.map({ normalizedDomain($0) }) else { return nil }
+
+        func matches(_ candidate: String, entries: [String]) -> Bool {
+            entries.contains { rawEntry in
+                let entry = normalizedDomain(rawEntry)
+                return !entry.isEmpty && (candidate == entry || candidate.hasSuffix("." + entry))
+            }
+        }
+
+        if matches(host, entries: adultProtectedDomains) { return false }
+        if matches(host, entries: exceptions) { return true }
+        return !matches(host, entries: blockedDomains)
+    }
+
+    private nonisolated static func normalizedDomain(_ value: String) -> String {
+        let domain = value.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        return domain.hasPrefix("www.") ? String(domain.dropFirst(4)) : domain
     }
 
     nonisolated static func isOrdinaryWebURL(_ url: URL) -> Bool {
