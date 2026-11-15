@@ -17,6 +17,8 @@ struct GoogleOAuthHandoffEvent: Identifiable, Equatable {
         case httpResponse = "HTTP 응답"
         case cloudflareChallengeAllowed = "Cloudflare 검증 프레임 허용"
         case cloudflareChallengeRejected = "Cloudflare 검증 프레임 거부"
+        case cloudflareLoginState = "Cloudflare 로그인 폼 상태"
+        case cloudflareLoginSubmitted = "Cloudflare 로그인 제출"
         case opened = "Google 로그인 페이지 열림 · 3F 내부"
         case cefBrowserHandoff = "Google 인증을 3F Chromium 창으로 전달"
         case cefBrowserUnavailable = "3F Chromium 창 열기 실패"
@@ -35,6 +37,55 @@ final class BrowserDiagnosticsScriptMessageHandler: NSObject, WKScriptMessageHan
     static let name = "threeFDiagnostics"
     static let script = #"""
     (() => {
+      const isCloudflareLogin = () => location.protocol === 'https:'
+        && location.hostname.toLowerCase() === 'dash.cloudflare.com'
+        && /^\/(login|sign-in|signup|sign-up)(\/|$)/i.test(location.pathname);
+      let lastLoginState = '';
+      let scheduledLoginState = false;
+      const visible = element => {
+        if (!(element instanceof Element)) return false;
+        const style = getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+      };
+      const post = payload => window.webkit?.messageHandlers?.threeFDiagnostics?.postMessage(payload);
+      const loginState = () => {
+        if (!isCloudflareLogin()) return;
+        const passwordFields = [...document.querySelectorAll('input[type="password"]')].filter(visible);
+        const loginForm = passwordFields[0]?.form || null;
+        const identityFields = loginForm
+          ? [...loginForm.querySelectorAll('input[type="email"], input[autocomplete="username"], input[type="text"][name="email"], input[type="text"][name="username"]')].filter(visible)
+          : [];
+        const submitButtons = loginForm
+          ? [...loginForm.querySelectorAll('button[type="submit"], button:not([type]), input[type="submit"]')].filter(visible)
+          : [];
+        const challengeFramePresent = [...document.querySelectorAll('iframe[src]')].filter(visible).some(frame => {
+          try { return new URL(frame.src, location.href).hostname.toLowerCase() === 'challenges.cloudflare.com'; }
+          catch (_) { return false; }
+        });
+        const invalidFieldPresent = !!loginForm
+          && [...loginForm.querySelectorAll('input[aria-invalid="true"], [role="alert"]')].some(visible);
+        const values = {
+          formPresent: String(passwordFields.length > 0),
+          identityFieldPresent: String(identityFields.length > 0),
+          identityFilled: String(identityFields.some(field => field.value.length > 0)),
+          passwordFieldPresent: String(passwordFields.length > 0),
+          passwordFilled: String(passwordFields.some(field => field.value.length > 0)),
+          submitPresent: String(submitButtons.length > 0),
+          submitEnabled: String(submitButtons.some(button => !button.disabled && button.getAttribute('aria-disabled') !== 'true')),
+          challengeFramePresent: String(challengeFramePresent),
+          validationMessagePresent: String(invalidFieldPresent)
+        };
+        const signature = Object.values(values).join('|');
+        if (signature === lastLoginState) return;
+        lastLoginState = signature;
+        post({kind: 'cloudflareLoginState', ...values});
+      };
+      const scheduleLoginState = () => {
+        if (scheduledLoginState) return;
+        scheduledLoginState = true;
+        setTimeout(() => { scheduledLoginState = false; loginState(); }, 150);
+      };
       document.addEventListener('error', event => {
         const media = event.target;
         if (!(media instanceof HTMLMediaElement)) return;
@@ -45,13 +96,50 @@ final class BrowserDiagnosticsScriptMessageHandler: NSObject, WKScriptMessageHan
           window.webkit?.messageHandlers?.threeFDiagnostics?.postMessage({kind:'unsupportedMedia', mime:mime.slice(0,80), ext:ext.slice(0,12)});
         }
       }, true);
+      document.addEventListener('input', scheduleLoginState, true);
+      document.addEventListener('change', scheduleLoginState, true);
+      document.addEventListener('submit', event => {
+        if (!isCloudflareLogin() || !(event.target instanceof HTMLFormElement)
+          || !event.target.querySelector('input[type="password"]')) return;
+        post({kind: 'cloudflareLoginSubmitted'});
+      }, true);
+      document.addEventListener('DOMContentLoaded', scheduleLoginState, {once: true});
+      window.addEventListener('pageshow', scheduleLoginState);
+      if (document.documentElement) {
+        new MutationObserver(scheduleLoginState).observe(document.documentElement, {
+          subtree: true, childList: true, attributes: true,
+          attributeFilter: ['disabled', 'aria-disabled', 'aria-invalid', 'src', 'style', 'class']
+        });
+      } else {
+        document.addEventListener('DOMContentLoaded', () => {
+          if (document.documentElement) new MutationObserver(scheduleLoginState).observe(document.documentElement, {
+            subtree: true, childList: true, attributes: true,
+            attributeFilter: ['disabled', 'aria-disabled', 'aria-invalid', 'src', 'style', 'class']
+          });
+        }, {once: true});
+      }
+      scheduleLoginState();
     })();
     """#
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard message.name == Self.name,
-              let body = message.body as? [String: String],
-              body["kind"] == "unsupportedMedia" else { return }
+        guard message.name == Self.name, let body = message.body as? [String: String] else { return }
+        if body["kind"] == "cloudflareLoginState" || body["kind"] == "cloudflareLoginSubmitted" {
+            let origin = message.frameInfo.securityOrigin
+            guard message.frameInfo.isMainFrame,
+                  origin.protocol.lowercased() == "https",
+                  origin.host.lowercased() == "dash.cloudflare.com" else { return }
+            Task { @MainActor in
+                let diagnostics = GoogleOAuthHandoffDiagnostics.shared
+                if body["kind"] == "cloudflareLoginSubmitted" {
+                    diagnostics.record(.cloudflareLoginSubmitted, detail: "제출 이벤트 감지 · 입력값은 저장하지 않음", key: "cloudflare-login-submitted")
+                } else {
+                    diagnostics.recordCloudflareLoginState(body)
+                }
+            }
+            return
+        }
+        guard body["kind"] == "unsupportedMedia" else { return }
         let mime = body["mime"]?.lowercased().filter { $0.isASCII && ($0.isLetter || $0.isNumber || "/-+._".contains($0)) } ?? ""
         let ext = body["ext"]?.lowercased().filter { $0.isASCII && ($0.isLetter || $0.isNumber) } ?? ""
         let suffix = mime.isEmpty ? ext : mime
@@ -126,6 +214,21 @@ final class GoogleOAuthHandoffDiagnostics: ObservableObject {
             detail: "Cloudflare 비기본 프레임",
             key: allowed ? "cloudflare-challenge-allowed" : "cloudflare-challenge-rejected"
         )
+    }
+
+    func recordCloudflareLoginState(_ body: [String: String]) {
+        func state(_ key: String, yes: String, no: String) -> String? {
+            guard let value = body[key], value == "true" || value == "false" else { return nil }
+            return value == "true" ? yes : no
+        }
+        guard let identity = state("identityFilled", yes: "계정 칸 입력됨", no: "계정 칸 비어 있음"),
+              let password = state("passwordFilled", yes: "암호 칸 입력됨", no: "암호 칸 비어 있음"),
+              let submit = state("submitEnabled", yes: "로그인 버튼 활성", no: "로그인 버튼 비활성") else { return }
+        let form = state("formPresent", yes: "폼 감지", no: "폼 미감지") ?? "폼 상태 미상"
+        let challenge = state("challengeFramePresent", yes: "검증 프레임 있음", no: "검증 프레임 없음") ?? "검증 프레임 미상"
+        let invalid = state("validationMessagePresent", yes: "검증 오류 표시", no: "검증 오류 표시 없음") ?? "검증 오류 미상"
+        let detail = [form, identity, password, submit, challenge, invalid].joined(separator: " · ")
+        record(.cloudflareLoginState, detail: detail, key: "cloudflare-login-state-\(detail)")
     }
 
     nonisolated static func isCloudflareChallengeURL(_ url: URL?) -> Bool {

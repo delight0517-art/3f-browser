@@ -418,6 +418,14 @@ struct BrowserSettingsView: View {
                         Divider()
                         statusRow("최근 Cloudflare 프레임", value: challenge.outcome.rawValue, symbol: "checkmark.shield")
                     }
+                    if let loginState = oauthDiagnostics.events.first(where: { $0.outcome == .cloudflareLoginState }) {
+                        Divider()
+                        statusRow("Cloudflare 로그인 폼", value: loginState.detail ?? "상태 미상", symbol: "person.text.rectangle")
+                    }
+                    if let loginSubmit = oauthDiagnostics.events.first(where: { $0.outcome == .cloudflareLoginSubmitted }) {
+                        Divider()
+                        statusRow("Cloudflare 제출 기록", value: loginSubmit.date.formatted(date: .omitted, time: .standard), symbol: "arrow.up.right.square")
+                    }
                     if let response = oauthDiagnostics.events.first(where: { $0.outcome == .httpResponse }) {
                         Divider()
                         statusRow("최근 HTTP 응답", value: response.detail ?? response.outcome.rawValue, symbol: "network")
