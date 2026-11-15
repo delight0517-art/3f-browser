@@ -3,16 +3,27 @@
   "title": "3F saves the latest compatible FF policy for offline browser use",
   "ownerThread": "01a1d294-0253-71a1-8fe8-166a4bfa36c7",
   "repo": "/Users/rogan/appDev/apps/3f-browser-mac",
-  "state": "active",
+  "state": "complete",
   "startedAt": "2026-11-15T16:34:15+09:00",
-  "lastSubstantiveProgressAt": "2026-11-15T16:39:00+09:00",
-  "rootCause": "Focus Fence /rules?browser=3f returns HTTP 200 but omits the three newer adultProtected arrays. 3F rejects the full policy and continues using its older local cache.",
-  "nextAction": "Build signed 0.1.0+35 from the committed source, then verify install and cache persistence without changing the current browser session unnecessarily.",
+  "lastSubstantiveProgressAt": "2026-11-15T16:48:56+09:00",
+  "completedAt": "2026-11-15T16:48:56+09:00",
+  "rootCause": "Focus Fence /rules?browser=3f returns HTTP 200 but omits the three newer adultProtected arrays. 3F rejected the complete legacy policy and kept an older local cache.",
+  "nextAction": "No local implementation remains. The installed 3F cache refresh and Google search were verified. A deliberate FF outage was not induced; the existing cached-policy fallback remains the offline route.",
   "evidence": {
-    "sourceHeadBeforeEdit": "5c0fc1903e38f2b08d34678ea15a32a67900d139",
-    "sourceCommit": "aa2044d767250a0d3a69b1a6693a74884a768edc",
-    "liveRulesResponse": "HTTP 200; blockedDomains/blockedUrlParts/keywords/blockExceptions are present; adultProtectedDomains/adultProtectedUrlParts/adultProtectedKeywords are absent.",
-    "localCache": "rules-v1.json timestamp 2026-11-14T19:12:38Z; valid local policy exists.",
-    "installed": "0.1.0+34; executable SHA-256 240b062ab78bf4cdef3e77e6a0c7cf099963d2e0edd37d4608f9e9f04c58e6fe"
+    "sourceCommits": [
+      "aa2044d767250a0d3a69b1a6693a74884a768edc",
+      "4dfb0451629c04e9cfe55963a8c974bfdf52bfa8"
+    ],
+    "build": "swift build --build-path .build -c release --product ThreeFBrowser passed in 19.90s; executable SHA-256 274e8ee8fab506be3c8c134d639ca7224dc8648e83a0c366e6522b2a6f880427.",
+    "installed": "0.1.0+35 at /Users/rogan/Applications/3F Browser.app; strict signature and workflow-control verify-mac passed; process 5462 launched from that exact path.",
+    "runtime": "3F control API returned Google /search page text; /v1/policy/status returned fetchStatus=success, schemaValid=true, decision=allowed. No credentials or account data were entered.",
+    "durability": "Application Support/3F Browser/FocusFence/rules-v1.json updated at 2026-11-15 16:45 KST; stored FF timestamp 2026-11-15T07:40:30Z; 757 blocked domains and 483 blocked URL parts; all adult-protection arrays normalized and present.",
+    "outageLimit": "FF stayed online during verification; an actual disconnect was not simulated. No tests were run or added.",
+    "retention": ".tasks/threef-offline-policy-cache-20261115/retention-receipt.md",
+    "driveMaster": {
+      "url": "https://docs.google.com/document/d/1tZuvW4zsL_QMwJLzW3zvv9NCmUOlGWPldxGk66llShE",
+      "revisionId": "AHj4eMR3PbWER2oKaK1p2d6El7TpByY9pysORRBKiMQEvy5JrjrUbSmUKLDQDLgBpF1OdDyyq0BlrY462pUK0lqHiKXZuGtAnP36gBNsPwI",
+      "readback": "2026-11-15T; appended paragraph found at document index 859331"
+    }
   }
 }
