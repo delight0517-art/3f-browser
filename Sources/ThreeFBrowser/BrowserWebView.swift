@@ -425,6 +425,13 @@ struct BrowserWebView: NSViewRepresentable {
                 openBackgroundLink(destination)
                 return
             }
+            if Self.allowsEmbeddedAboutDocument(
+                navigationAction.request.url,
+                targetFrameIsMainFrame: navigationAction.targetFrame?.isMainFrame
+            ) {
+                decisionHandler(.allow)
+                return
+            }
             guard let url = navigationAction.request.url,
                   let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme),
                   url.user == nil, url.password == nil else {
@@ -458,6 +465,13 @@ struct BrowserWebView: NSViewRepresentable {
             decidePolicyFor navigationResponse: WKNavigationResponse,
             decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
         ) {
+            if Self.allowsEmbeddedAboutDocument(
+                navigationResponse.response.url,
+                targetFrameIsMainFrame: navigationResponse.isForMainFrame
+            ) {
+                decisionHandler(.allow)
+                return
+            }
             let disposition = (navigationResponse.response as? HTTPURLResponse)?
                 .value(forHTTPHeaderField: "Content-Disposition")?.lowercased() ?? ""
             let isAttachment = disposition.contains("attachment")
@@ -527,6 +541,16 @@ struct BrowserWebView: NSViewRepresentable {
             guard isAllowed == true else { return .cancel }
             if shouldDownload { return allowsDownloads ? .download : .cancel }
             return .allow
+        }
+
+        static func allowsEmbeddedAboutDocument(_ url: URL?, targetFrameIsMainFrame: Bool?) -> Bool {
+            guard targetFrameIsMainFrame == false,
+                  let url,
+                  url.scheme?.lowercased() == "about",
+                  url.host == nil,
+                  url.query == nil,
+                  url.fragment == nil else { return false }
+            return ["blank", "srcdoc"].contains(url.path.lowercased())
         }
 
         private static func webKitActionPolicy(_ decision: NavigationDecision) -> WKNavigationActionPolicy {
