@@ -54,12 +54,58 @@ enum YouTubeUsageReporter {
       };
       let lastAt = performance.now(), samples = new Map();
       let watchMs = 0, blocked = true, remainingSeconds = 0;
-      let quotaBlocked = true, shortsBlocked = false;
+      let quotaBlocked = true, shortsBlocked = false, siteBlocked = true, scheduleBlocked = true, titleTimeExempt = false;
       let lastPolicyAt = -Infinity, pendingReport = null, sending = false;
       let leaseMode = 'unknown', leaseRequestPending = false, accountLease = null;
       let accountIntervals = [], accountReportPending = null, accountReportSending = false;
       const leaseRetryIntervalMs = 30000;
       const policyRefreshIntervalMs = 2000;
+      let feedBlocked = true, feedStart = null, feedStartPerf = performance.now(), feedLastPerf = performance.now();
+      let feedReportPending = [];
+      const isFeedRoute = () => {
+        const path = location.pathname || '/';
+        if (/^\/(?:watch|shorts|live|embed|playlist)(?:\/|$)/i.test(path)) return false;
+        return path === '/' || /^\/(?:feed(?:\/|$)|results$|@[^/]+(?:\/|$)|channel\/[^/]+|c\/[^/]+|user\/[^/]+)/i.test(path);
+      };
+      const activeFeed = () => isFeedRoute() && document.visibilityState === 'visible' && document.hasFocus()
+        && ![...document.querySelectorAll('video')].some(v => !v.paused && !v.ended && !v.seeking && v.readyState >= 2);
+      const showFeedGate = () => {
+        let gate = document.getElementById('__threef_feed_limit');
+        const videoPlaying = [...document.querySelectorAll('video')].some(v => !v.paused && !v.ended && !v.seeking && v.readyState >= 2);
+        if (!feedBlocked || !isFeedRoute() || videoPlaying) { gate?.remove(); return; }
+        if (!gate) {
+          gate = document.createElement('div'); gate.id = '__threef_feed_limit';
+          gate.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:rgba(18,18,22,.72);display:grid;place-items:center;font:14px system-ui;color:#24212c';
+          gate.innerHTML = '<div style="background:#fff;padding:24px 28px;border-radius:14px;max-width:340px;box-shadow:0 8px 32px #0005"><b>YouTube 피드 이용 한도</b><p style="margin:10px 0 0">오늘 40분 또는 최근 1시간 5분 한도를 사용했습니다. 영상 페이지는 기존 시청 한도로 관리됩니다.</p></div>';
+          document.documentElement.appendChild(gate);
+        }
+      };
+      const flushFeed = async () => {
+        if (!feedReportPending.length) return;
+        const batch = feedReportPending.splice(0, 20);
+        try {
+          const result = await request({type:'feedReport', reportId:crypto.randomUUID(), intervals:batch});
+          if (result?.ok !== true) feedReportPending.unshift(...batch);
+          else if (typeof result.feedBlocked === 'boolean') { feedBlocked = result.feedBlocked; showFeedGate(); }
+          await refreshQuota(true);
+        } catch (_) { feedReportPending.unshift(...batch); }
+      };
+      const feedTick = () => {
+        const now = performance.now(), elapsed = now - feedLastPerf;
+        if (activeFeed() && elapsed > 0 && elapsed <= 6000) {
+          if (feedStart === null) { feedStart = Date.now() - elapsed; feedStartPerf = now - elapsed; }
+          if (now - feedStartPerf >= 5000) {
+            feedReportPending.push([feedStart, Date.now()]);
+            feedStart = Date.now(); feedStartPerf = now;
+            void flushFeed();
+          }
+        } else {
+          if (feedStart && Date.now() > feedStart && Date.now() - feedStart <= 6000) feedReportPending.push([feedStart, Date.now()]);
+          feedStart = null; feedStartPerf = now;
+          if (feedReportPending.length) void flushFeed();
+        }
+        feedLastPerf = now;
+      };
       let policyRefreshInFlight = null;
       let lastLeaseAttemptAt = -Infinity;
       const isYouTubeHost = value => {
@@ -76,7 +122,7 @@ enum YouTubeUsageReporter {
       stop();
       const enforcePolicy = () => {
         const onShorts = /^\/shorts(?:\/|$)/i.test(location.pathname || '');
-        blocked = quotaBlocked || (shortsBlocked && onShorts);
+        blocked = quotaBlocked || siteBlocked || scheduleBlocked || (shortsBlocked && onShorts);
         if (blocked) stop();
       };
       document.addEventListener('keydown', event => {
@@ -95,9 +141,20 @@ enum YouTubeUsageReporter {
           try {
             const policy = await request({type:'policy'});
             remainingSeconds = Number.isSafeInteger(policy?.remainingSeconds) ? policy.remainingSeconds : 0;
-            quotaBlocked = !policy || policy.youtubeQuotaBlocked !== false || remainingSeconds === 0;
+            const title = (document.querySelector('meta[property="og:title"]')?.content || document.title || '').toLocaleLowerCase();
+            const matchedTitleKeyword = Array.isArray(policy?.unlimitedTitleKeywords) &&
+              policy.unlimitedTitleKeywords.some(keyword => String(keyword).trim() && title.includes(String(keyword).toLocaleLowerCase()));
+            siteBlocked = policy?.youtubeSiteBlocked !== false;
+            scheduleBlocked = policy?.youtubeBlockedByActiveSchedule !== false;
+            titleTimeExempt = matchedTitleKeyword && !siteBlocked && !scheduleBlocked;
+            const quotaLimitReached = typeof policy?.youtubeQuotaLimitReached === 'boolean'
+              ? policy.youtubeQuotaLimitReached
+              : (!policy || policy.youtubeQuotaBlocked !== false || remainingSeconds === 0);
+            quotaBlocked = !policy || (quotaLimitReached && !titleTimeExempt);
             shortsBlocked = policy?.blockShorts === true;
+            feedBlocked = policy?.youtubeFeedQuotaBlocked !== false;
             enforcePolicy();
+            showFeedGate();
             if (blocked) { watchMs = 0; stop(); }
           } catch (_) { remainingSeconds = 0; quotaBlocked = true; blocked = true; watchMs = 0; stop(); }
         })();
@@ -207,7 +264,7 @@ enum YouTubeUsageReporter {
         let watchedMs = 0;
         // WebKit can coalesce background timers; count only a bounded gap with matching media progress.
         const maxElapsedMs = document.visibilityState === 'hidden' ? 120000 : 15000;
-        if (!blocked && onYouTube && elapsed > 0 && elapsed <= maxElapsedMs) {
+        if (!blocked && !titleTimeExempt && onYouTube && elapsed > 0 && elapsed <= maxElapsedMs) {
           for (const [video, next] of current) {
             const prev = samples.get(video);
             if (!prev?.playing || !(prev.rate > 0)) continue;
@@ -233,6 +290,11 @@ enum YouTubeUsageReporter {
         lastAt = now; samples = current;
         if (blocked) stop();
         if (!onYouTube) return;
+        if (titleTimeExempt) {
+          watchMs = 0;
+          if (leaseMode === 'account' && accountIntervals.length) await sendAccountReport();
+          return;
+        }
         if (leaseMode === 'account' && accountLease) {
           if (flush || accountIntervals.reduce((sum, range) => sum + range[1] - range[0], 0) >= 5000) await sendAccountReport();
           if (performance.now() >= accountLease.deadline && !leaseRequestPending && !blocked) {
@@ -279,19 +341,25 @@ enum YouTubeUsageReporter {
         } catch (_) { /* retain the batch and report ID for a deduplicated retry */ }
         finally { sending = false; }
       };
-      document.addEventListener('play', enforcePolicy, true);
+      document.addEventListener('play', () => { enforcePolicy(); showFeedGate(); }, true);
       document.addEventListener('playing', event => {
         if (!event.target || event.target.tagName !== 'VIDEO') return;
         lastAt = performance.now();
         samples = snapshot();
       }, true);
       for (const eventName of ['pause', 'ended']) {
-        document.addEventListener(eventName, () => tick(true), true);
+        document.addEventListener(eventName, () => { showFeedGate(); tick(true); }, true);
       }
       document.addEventListener('visibilitychange', () => tick(true), true);
+      addEventListener('blur', () => {
+        if (feedStart && Date.now() > feedStart && Date.now() - feedStart <= 6000) feedReportPending.push([feedStart, Date.now()]);
+        feedStart = null; feedStartPerf = performance.now(); feedLastPerf = performance.now(); void flushFeed();
+      }, true);
+      addEventListener('focus', () => { feedStart = null; feedStartPerf = performance.now(); feedLastPerf = performance.now(); }, true);
       refreshQuota(true);
       setInterval(tick, 1000);
-      addEventListener('yt-navigate-finish', () => { enforcePolicy(); tick(true); }, true);
+      setInterval(feedTick, 1000);
+      addEventListener('yt-navigate-finish', () => { enforcePolicy(); showFeedGate(); tick(true); }, true);
     })();
     """#
 }
@@ -356,6 +424,17 @@ enum YouTubeUsageBridgePayload {
         ]
     }
 
+    static func feedReport(from value: Any, pageHost: String) -> [String: Any]? {
+        guard isYouTubeHost(pageHost), let input = value as? [String: Any],
+              let reportID = input["reportId"] as? String,
+              reportID.range(of: "^[A-Za-z0-9-]{1,80}$", options: .regularExpression) != nil,
+              let raw = input["intervals"] as? [[NSNumber]], (1...20).contains(raw.count) else { return nil }
+        let now = Int64(Date().timeIntervalSince1970 * 1000)
+        let intervals = raw.map { $0.map(\.int64Value) }
+        guard intervals.allSatisfy({ $0.count == 2 && $0[1] > $0[0] && $0[1] - $0[0] <= 6_000 && $0[1] <= now + 1_000 && $0[0] >= now - 93_600_000 }) else { return nil }
+        return ["intervals": intervals, "reportId": reportID, "browser": "3f"]
+    }
+
     static func isYouTubeHost(_ host: String) -> Bool {
         let value = host.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
         return value == "youtu.be" ||
@@ -381,6 +460,11 @@ final class YouTubeOfflineQuotaStore {
         var hourlyCapMinutes: Int?
         var hourlyRemainingSeconds: Int?
         var hourlyPolicyKnown: Bool
+        var feedDailyCapMinutes: Int?
+        var feedTodaySeconds: Int?
+        var feedHourlyCapMinutes: Int?
+        var feedHourlyUsedSeconds: Int?
+        var feedIntervals: [[Int64]]?
     }
 
     private struct LocalReport: Codable {
@@ -395,6 +479,13 @@ final class YouTubeOfflineQuotaStore {
     private struct State: Codable {
         var snapshot: Snapshot?
         var reports: [LocalReport] = []
+        var feedReports: [LocalFeedReport]?
+    }
+
+    private struct LocalFeedReport: Codable {
+        var reportID: String
+        var intervals: [[Int64]]
+        var createdAt: Date
     }
 
     private let defaults: UserDefaults
@@ -403,6 +494,7 @@ final class YouTubeOfflineQuotaStore {
     init(defaults: UserDefaults = .standard) { self.defaults = defaults }
 
     func saveServerSnapshot(rules: [String: Any], usage: FocusFenceYouTubeUsageSummary,
+                            usageObject: [String: Any]? = nil,
                             hourlyPolicyKnown: Bool, observedAt: Date = Date()) {
         var state = load()
         let reset = (rules["youtubeQuotaResetAfterSeconds"] as? Int).flatMap {
@@ -419,11 +511,48 @@ final class YouTubeOfflineQuotaStore {
             todaySeconds: usage.todaySeconds,
             hourlyCapMinutes: usage.hourlyCapMinutes,
             hourlyRemainingSeconds: usage.hourlyRemainingSeconds,
-            hourlyPolicyKnown: hourlyPolicyKnown
+            hourlyPolicyKnown: hourlyPolicyKnown,
+            feedDailyCapMinutes: usage.feedDailyCapMinutes,
+            feedTodaySeconds: usage.feedTodaySeconds,
+            feedHourlyCapMinutes: usage.feedHourlyCapMinutes,
+            feedHourlyUsedSeconds: usage.feedHourlyUsedSeconds,
+            feedIntervals: (usageObject?["feedIntervals"] as? [[NSNumber]])?.map { $0.map(\.int64Value) }
+                ?? (usageObject?["feedIntervals"] as? [[Int64]])
         )
         // A fresh server read after an acknowledged ingest includes that report.
         state.reports.removeAll { $0.acknowledged && $0.createdAt <= observedAt }
+        if let serverIntervals = state.snapshot?.feedIntervals {
+            let remaining = (state.feedReports ?? []).filter { report in
+                !report.intervals.allSatisfy { interval in
+                    serverIntervals.contains { $0.count == 2 && $0[0] <= interval[0] && $0[1] >= interval[1] }
+                }
+            }
+            state.feedReports = remaining.isEmpty ? nil : remaining
+        }
         save(state)
+    }
+
+    func enqueueFeedReport(_ payload: [String: Any], now: Date = Date()) -> Bool {
+        guard let reportID = payload["reportId"] as? String,
+              let raw = payload["intervals"] as? [[NSNumber]], (1...20).contains(raw.count) else { return false }
+        let intervals = raw.map { $0.map(\.int64Value) }
+        guard intervals.allSatisfy({ $0.count == 2 && $0[1] > $0[0] && $0[1] - $0[0] <= 6_000 }) else { return false }
+        var state = load()
+        var feedReports = state.feedReports ?? []
+        guard !feedReports.contains(where: { $0.reportID == reportID }) else { return true }
+        feedReports.append(LocalFeedReport(reportID: reportID, intervals: intervals, createdAt: now))
+        state.feedReports = Array(feedReports.suffix(1200))
+        save(state)
+        return true
+    }
+
+    func pendingFeedReports() -> [[String: Any]] {
+        let reports = load().feedReports ?? []
+        return stride(from: 0, to: reports.count, by: 20).map { start in
+            let batch = Array(reports[start..<min(start + 20, reports.count)])
+            return ["reportId": "feed-\(batch.first!.reportID)-\(batch.last!.reportID)",
+                    "intervals": batch.flatMap(\.intervals)]
+        }
     }
 
     func enqueue(_ payload: [String: Any], now: Date = Date()) -> Bool {
@@ -458,7 +587,10 @@ final class YouTubeOfflineQuotaStore {
 
     func offlinePolicy(now: Date = Date()) -> [String: Any] {
         let state = load()
-        guard let snapshot = state.snapshot else { return ["youtubeQuotaBlocked": true, "remainingSeconds": 0] }
+        guard let snapshot = state.snapshot else {
+            return ["youtubeQuotaBlocked": true, "youtubeQuotaLimitReached": true, "youtubeSiteBlocked": true,
+                    "youtubeBlockedByActiveSchedule": true, "remainingSeconds": 0, "youtubeFeedQuotaBlocked": true]
+        }
         let localDay = Calendar.current.startOfDay(for: now)
         let baseDay = Calendar.current.startOfDay(for: snapshot.fetchedAt)
         let sameDay = localDay == baseDay
@@ -489,9 +621,17 @@ final class YouTubeOfflineQuotaStore {
         let remainingSeconds = remaining.min() ?? -1
         let resetExpired = snapshot.quotaResetAt.map { now >= $0 } ?? false
         let quotaBlocked = snapshot.quotaBlocked && !resetExpired
-        let blocked = snapshot.siteBlocked || snapshot.scheduled || quotaBlocked || remainingSeconds == 0
+        let quotaLimitReached = quotaBlocked || remainingSeconds == 0
+        let blocked = snapshot.siteBlocked || snapshot.scheduled || quotaLimitReached
+        let feed = feedUsage(snapshot: snapshot, reports: state.feedReports ?? [], now: now)
         return ["youtubeQuotaBlocked": blocked,
+                "youtubeQuotaLimitReached": quotaLimitReached,
+                "youtubeSiteBlocked": snapshot.siteBlocked,
                 "remainingSeconds": remainingSeconds,
+                "youtubeFeedQuotaBlocked": feed.today >= feed.dailyCap * 60 || feed.hourly >= feed.hourlyCap * 60,
+                "youtubeFeedTodaySeconds": feed.today,
+                "youtubeFeedHourlyUsedSeconds": feed.hourly,
+                "youtubeFeedRemainingSeconds": min(max(0, feed.dailyCap * 60 - feed.today), max(0, feed.hourlyCap * 60 - feed.hourly)),
                 "blockShorts": snapshot.blockShorts,
                 "youtubeBlockedByActiveSchedule": snapshot.scheduled,
                 "offline": true,
@@ -529,6 +669,11 @@ final class YouTubeOfflineQuotaStore {
             "hourlyCapMinutes": snapshot.hourlyCapMinutes as Any? ?? NSNull(),
             "hourlyUsedSeconds": hourlyUsed as Any? ?? NSNull(),
             "hourlyRemainingSeconds": effectiveHourlyRemaining as Any? ?? NSNull(),
+            "feedTodaySeconds": (policy["youtubeFeedTodaySeconds"] as? Int) ?? 0,
+            "feedDailyCapMinutes": snapshot.feedDailyCapMinutes ?? 40,
+            "feedHourlyUsedSeconds": (policy["youtubeFeedHourlyUsedSeconds"] as? Int) ?? 0,
+            "feedHourlyCapMinutes": snapshot.feedHourlyCapMinutes ?? 5,
+            "feedBlocked": policy["youtubeFeedQuotaBlocked"] as? Bool ?? true,
             "blocked": policy["youtubeQuotaBlocked"] as? Bool ?? true,
             "localOnly": true
         ]
@@ -555,12 +700,49 @@ final class YouTubeOfflineQuotaStore {
         guard let data = try? JSONEncoder().encode(state) else { return }
         defaults.set(data, forKey: key)
     }
+
+    private func feedUsage(snapshot: Snapshot, reports: [LocalFeedReport], now: Date) -> (today: Int, hourly: Int, dailyCap: Int, hourlyCap: Int) {
+        let dailyCap = snapshot.feedDailyCapMinutes ?? 40
+        let hourlyCap = snapshot.feedHourlyCapMinutes ?? 5
+        let localReports = reports.filter { $0.createdAt > snapshot.fetchedAt }
+        let localIntervals = localReports.flatMap(\.intervals)
+        let all = (snapshot.feedIntervals ?? []) + reports.flatMap(\.intervals)
+        func duration(_ intervals: [[Int64]], from lower: Int64, to upper: Int64) -> Int {
+            let clipped = intervals.compactMap { item -> (Int64, Int64)? in
+                guard item.count == 2 else { return nil }
+                let start = max(lower, item[0]), end = min(upper, item[1])
+                return end > start ? (start, end) : nil
+            }.sorted { $0.0 < $1.0 }
+            var sum: Int64 = 0, current: (Int64, Int64)?
+            for range in clipped {
+                guard let prior = current else { current = range; continue }
+                if range.0 <= prior.1 { current = (prior.0, max(prior.1, range.1)) }
+                else { sum += prior.1 - prior.0; current = range }
+            }
+            if let current { sum += current.1 - current.0 }
+            return Int(max(0, sum / 1000))
+        }
+        let nowMs = Int64(now.timeIntervalSince1970 * 1000)
+        var calendar = Calendar(identifier: .gregorian); calendar.timeZone = TimeZone(identifier: "Asia/Seoul") ?? .current
+        let todayStart = Int64(calendar.startOfDay(for: now).timeIntervalSince1970 * 1000)
+        let sameDay = calendar.startOfDay(for: snapshot.fetchedAt) == calendar.startOfDay(for: now)
+        let intervalDaily = duration(all, from: todayStart, to: nowMs)
+        let intervalHourly = duration(all, from: nowMs - 3_600_000, to: nowMs)
+        let hasExactIntervals = snapshot.feedIntervals != nil
+        func localDuration(_ lower: Int64, _ upper: Int64) -> Int { duration(localIntervals, from: lower, to: upper) }
+        let daily = hasExactIntervals ? intervalDaily
+            : (sameDay ? (snapshot.feedTodaySeconds ?? 0) + localDuration(todayStart, nowMs) : localDuration(todayStart, nowMs))
+        let hourlyBase = now.timeIntervalSince(snapshot.fetchedAt) < 3_600 ? snapshot.feedHourlyUsedSeconds ?? 0 : 0
+        let hourly = hasExactIntervals ? intervalHourly : hourlyBase + localDuration(nowMs - 3_600_000, nowMs)
+        return (daily, hourly, dailyCap, hourlyCap)
+    }
 }
 
 @MainActor
 final class YouTubeUsageScriptMessageHandler: NSObject, WKScriptMessageHandlerWithReply {
     static let name = "threefYouTubeUsage"
     private let offlineQuotaStore = YouTubeOfflineQuotaStore.shared
+    private var lastFeedFlushAt = Date.distantPast
 
     func userContentController(
         _ userContentController: WKUserContentController,
@@ -580,7 +762,23 @@ final class YouTubeUsageScriptMessageHandler: NSObject, WKScriptMessageHandlerWi
         Task { @MainActor in
             switch type {
             case "policy":
-                replyHandler(await fetchPolicy(), nil)
+                var policy = await fetchPolicy()
+                for (key, value) in YouTubeTitleExemptionStore.shared.policyFields() { policy[key] = value }
+                replyHandler(policy, nil)
+            case "applyTitleKeyword":
+                guard let id = body["id"] as? String,
+                      YouTubeTitleExemptionStore.shared.applyPending(id: id) else {
+                    replyHandler(["ok": false], nil)
+                    return
+                }
+                replyHandler(["ok": true], nil)
+            case "removeTitleKeyword":
+                guard let id = body["id"] as? String,
+                      YouTubeTitleExemptionStore.shared.removeApplied(id: id) else {
+                    replyHandler(["ok": false], nil)
+                    return
+                }
+                replyHandler(["ok": true], nil)
             case "lease":
                 guard let requestBody = YouTubeUsageBridgePayload.leaseRequest(from: body, pageHost: webView.url?.host ?? "") else {
                     replyHandler(["ok": false, "error": "invalid_request"], nil)
@@ -601,6 +799,12 @@ final class YouTubeUsageScriptMessageHandler: NSObject, WKScriptMessageHandlerWi
                     return
                 }
                 replyHandler(["ok": await sendReport(report)], nil)
+            case "feedReport":
+                guard let report = YouTubeUsageBridgePayload.feedReport(from: body, pageHost: webView.url?.host ?? "") else {
+                    replyHandler(["ok": false], nil)
+                    return
+                }
+                replyHandler(await sendFeedReport(report), nil)
             default:
                 replyHandler(nil, "unsupported usage message")
             }
@@ -646,13 +850,29 @@ final class YouTubeUsageScriptMessageHandler: NSObject, WKScriptMessageHandlerWi
             remaining.append(hourlyRemainingSeconds)
         }
         let remainingSeconds = remaining.min() ?? -1
-        let result: [String: Any] = ["youtubeQuotaBlocked": blocked || youtubeSiteBlocked || usage.blocked || remainingSeconds == 0,
+        let feedDailyRemaining = max(0, 2400 - (usageObject["feedTodaySeconds"] as? Int ?? 0))
+        let feedHourlyRemaining = max(0, 300 - (usageObject["feedHourlyUsedSeconds"] as? Int ?? 0))
+        let quotaLimitReached = blocked || usage.blocked || remainingSeconds == 0
+        let result: [String: Any] = ["youtubeQuotaBlocked": quotaLimitReached || youtubeSiteBlocked,
+                                     "youtubeQuotaLimitReached": quotaLimitReached,
+                                     "youtubeSiteBlocked": youtubeSiteBlocked,
                                      "remainingSeconds": remainingSeconds,
+                                     "youtubeFeedQuotaBlocked": usageObject["feedBlocked"] as? Bool ?? true,
+                                     "youtubeFeedRemainingSeconds": min(feedDailyRemaining, feedHourlyRemaining),
+                                     "youtubeFeedTodaySeconds": usageObject["feedTodaySeconds"] as? Int ?? 0,
+                                     "youtubeFeedHourlyUsedSeconds": usageObject["feedHourlyUsedSeconds"] as? Int ?? 0,
                                      "blockShorts": object["blockShorts"] as? Bool ?? false,
                                      "youtubeBlockedByActiveSchedule": object["youtubeBlockedByActiveSchedule"] as? Bool ?? false]
-        offlineQuotaStore.saveServerSnapshot(rules: object, usage: usage, hourlyPolicyKnown: usageObject["hourlyCapMinutes"] != nil && !(usageObject["hourlyCapMinutes"] is NSNull))
+        offlineQuotaStore.saveServerSnapshot(rules: object, usage: usage, usageObject: usageObject,
+            hourlyPolicyKnown: usageObject["hourlyCapMinutes"] != nil && !(usageObject["hourlyCapMinutes"] is NSNull))
+        await flushPendingFeedReports(baseURL: baseURL, session: session)
+        let refreshedFeed = offlineQuotaStore.offlinePolicy()
+        var resolved = result
+        resolved["youtubeFeedQuotaBlocked"] = refreshedFeed["youtubeFeedQuotaBlocked"] as? Bool ?? true
+        resolved["youtubeFeedTodaySeconds"] = refreshedFeed["youtubeFeedTodaySeconds"] as? Int ?? 0
+        resolved["youtubeFeedHourlyUsedSeconds"] = refreshedFeed["youtubeFeedHourlyUsedSeconds"] as? Int ?? 0
         await flushPendingReports(baseURL: baseURL, qaRequested: qaRequested)
-        return result
+        return resolved
     }
 
     private func sendReport(_ payload: [String: Any]) async -> Bool {
@@ -662,6 +882,47 @@ final class YouTubeUsageScriptMessageHandler: NSObject, WKScriptMessageHandlerWi
         guard let baseURL else { return true }
         await flushPendingReports(baseURL: baseURL, qaRequested: qaRequested)
         return true
+    }
+
+    private func sendFeedReport(_ payload: [String: Any]) async -> [String: Any] {
+        let qaRequested = FocusFenceQARouting.isQARequested()
+        guard offlineQuotaStore.enqueueFeedReport(payload) else { return ["ok": false] }
+        guard let baseURL = qaRequested ? FocusFenceQARouting.currentQARequestBaseURL() : URL(string: "http://127.0.0.1:17361") else {
+            let cached = offlineQuotaStore.offlinePolicy()
+            return ["ok": true, "feedBlocked": cached["youtubeFeedQuotaBlocked"] as? Bool ?? true]
+        }
+        var components = URLComponents(url: baseURL.appendingPathComponent("usage/youtube/feed"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "browser", value: "3f")]
+        guard let url = components.url else { return ["ok": true, "feedBlocked": true] }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"; request.timeoutInterval = 8
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return ["ok": true, "feedBlocked": true] }
+        request.httpBody = data
+        guard let (responseData, response) = try? await (qaRequested ? FocusFenceQARouting.makeSession() : .shared).data(for: request),
+              (response as? HTTPURLResponse)?.statusCode == 200,
+              let result = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any] else {
+            let cached = offlineQuotaStore.offlinePolicy()
+            return ["ok": true, "feedBlocked": cached["youtubeFeedQuotaBlocked"] as? Bool ?? true]
+        }
+        let feedBlocked = result["feedBlocked"] as? Bool ?? true
+        return ["ok": true, "feedBlocked": feedBlocked]
+    }
+
+    private func flushPendingFeedReports(baseURL: URL, session: URLSession) async {
+        guard Date().timeIntervalSince(lastFeedFlushAt) >= 15 else { return }
+        lastFeedFlushAt = Date()
+        for payload in offlineQuotaStore.pendingFeedReports() {
+            var components = URLComponents(url: baseURL.appendingPathComponent("usage/youtube/feed"), resolvingAgainstBaseURL: false)!
+            components.queryItems = [URLQueryItem(name: "browser", value: "3f")]
+            guard let url = components.url else { continue }
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"; request.timeoutInterval = 8
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            guard let data = try? JSONSerialization.data(withJSONObject: payload) else { continue }
+            request.httpBody = data
+            _ = try? await session.data(for: request)
+        }
     }
 
     private func flushPendingReports(baseURL: URL, qaRequested: Bool) async {

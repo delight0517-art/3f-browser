@@ -4,6 +4,7 @@ import WebKit
 enum ThreeFContextMenuAction: String, Equatable {
     case openInNewTab = "threef.openLink.newTab"
     case openInNewWindow = "threef.openLink.newWindow"
+    case addYouTubeUnlimitedKeyword = "threef.youtube.addUnlimitedKeyword"
 }
 
 enum ThreeFContextMenuIntent: Equatable {
@@ -31,6 +32,7 @@ enum ThreeFContextMenuPolicy {
         switch action {
         case .openInNewTab: return .newTab(url)
         case .openInNewWindow: return .newWindow(url)
+        case .addYouTubeUnlimitedKeyword: return nil
         }
     }
 }

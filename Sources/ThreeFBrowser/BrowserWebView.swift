@@ -15,25 +15,41 @@ import AppKit
 final class ThreeFWindowAwareWebView: WKWebView {
     var onWindowAttachment: ((WKWebView) -> Void)?
     var contextMenuAction: ThreeFContextMenuAction?
+    var selectedYouTubeKeyword: String?
 
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
         super.willOpenMenu(menu, with: event)
-        guard let index = menu.items.firstIndex(where: {
+        if let index = menu.items.firstIndex(where: {
             $0.identifier?.rawValue == ThreeFContextMenuPolicy.webKitOpenLinkInNewWindowIdentifier
-        }) else { return }
+        }) {
+            let webKitItem = menu.items[index]
+            menu.removeItem(at: index)
+            let actions: [(ThreeFContextMenuAction, String)] = [
+                (.openInNewTab, "링크를 새 탭으로 열기"),
+                (.openInNewWindow, "링크를 새 창으로 열기")
+            ]
+            for (offset, item) in actions.enumerated() {
+                let menuItem = NSMenuItem(title: item.1, action: #selector(openLinkFromContextMenu(_:)), keyEquivalent: "")
+                menuItem.identifier = NSUserInterfaceItemIdentifier(item.0.rawValue)
+                menuItem.target = self
+                menuItem.representedObject = webKitItem
+                menu.insertItem(menuItem, at: index + offset)
+            }
+        }
 
-        let webKitItem = menu.items[index]
-        menu.removeItem(at: index)
-        let actions: [(ThreeFContextMenuAction, String)] = [
-            (.openInNewTab, "링크를 새 탭으로 열기"),
-            (.openInNewWindow, "링크를 새 창으로 열기")
-        ]
-        for (offset, item) in actions.enumerated() {
-            let menuItem = NSMenuItem(title: item.1, action: #selector(openLinkFromContextMenu(_:)), keyEquivalent: "")
-            menuItem.identifier = NSUserInterfaceItemIdentifier(item.0.rawValue)
+        if YouTubeUsageBridgePayload.isYouTubeHost(url?.host ?? ""),
+           let keyword = selectedYouTubeKeyword,
+           !menu.items.contains(where: { $0.identifier?.rawValue == ThreeFContextMenuAction.addYouTubeUnlimitedKeyword.rawValue }) {
+            menu.addItem(.separator())
+            let menuItem = NSMenuItem(
+                title: "이 키워드 영상은 YouTube 시간 무제한 · 40분 뒤 Apply",
+                action: #selector(addYouTubeUnlimitedKeyword(_:)),
+                keyEquivalent: ""
+            )
+            menuItem.identifier = NSUserInterfaceItemIdentifier(ThreeFContextMenuAction.addYouTubeUnlimitedKeyword.rawValue)
             menuItem.target = self
-            menuItem.representedObject = webKitItem
-            menu.insertItem(menuItem, at: index + offset)
+            menuItem.representedObject = keyword
+            menu.addItem(menuItem)
         }
     }
 
@@ -53,6 +69,11 @@ final class ThreeFWindowAwareWebView: WKWebView {
             contextMenuAction = nil
             return
         }
+    }
+
+    @objc private func addYouTubeUnlimitedKeyword(_ menuItem: NSMenuItem) {
+        guard let keyword = menuItem.representedObject as? String else { return }
+        _ = YouTubeTitleExemptionStore.shared.addPending(keyword)
     }
 
     override func viewDidMoveToWindow() {
@@ -107,6 +128,17 @@ struct BrowserWebView: NSViewRepresentable {
             configuration.websiteDataStore = .nonPersistent()
         }
         let coordinator = context.coordinator
+        if OptionalFeatureAvailability.youtubeUsageReporting {
+            configuration.userContentController.add(
+                YouTubeKeywordSelectionScriptMessageHandler(),
+                name: YouTubeTitleExemptionScripts.selectionMessageName
+            )
+            configuration.userContentController.addUserScript(WKUserScript(
+                source: YouTubeTitleExemptionScripts.selection,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: true
+            ))
+        }
         configuration.userContentController.add(
             BrowserDiagnosticsScriptMessageHandler(),
             contentWorld: .defaultClient,
@@ -148,6 +180,12 @@ struct BrowserWebView: NSViewRepresentable {
             ))
         }
         if OptionalFeatureAvailability.youtubeUsageReporting {
+            configuration.userContentController.addUserScript(WKUserScript(
+                source: YouTubeTitleExemptionScripts.overlay,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: true,
+                in: .defaultClient
+            ))
             configuration.userContentController.addUserScript(WKUserScript(
                 source: YouTubeUsageReporter.script,
                 injectionTime: .atDocumentStart,
