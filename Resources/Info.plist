@@ -4,35 +4,11 @@
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
-	<key>CFBundleExecutable</key>
-	<string>ThreeFBrowser</string>
-	<key>CFBundleIdentifier</key>
-	<string>com.rogan.threef.browser</string>
-	<key>CFBundleInfoDictionaryVersion</key>
-	<string>6.0</string>
-	<key>CFBundleName</key>
-	<string>3F Browser</string>
 	<key>CFBundleDisplayName</key>
 	<string>3F Browser</string>
-	<key>LSApplicationCategoryType</key>
-	<string>public.app-category.web-browsers</string>
-	<key>CFBundleIconFile</key>
-	<string>3f-icon.icns</string>
-	<key>CFBundlePackageType</key>
-	<string>APPL</string>
-	<key>CFBundleShortVersionString</key>
-	<string>0.1.0</string>
-	<key>CFBundleVersion</key>
-	<string>27</string>
-	<key>LSMinimumSystemVersion</key>
-	<string>14.0</string>
-	<key>NSHighResolutionCapable</key>
-	<true/>
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>
-			<key>CFBundleTypeName</key>
-			<string>HTML document</string>
 			<key>CFBundleTypeExtensions</key>
 			<array>
 				<string>html</string>
@@ -41,6 +17,8 @@
 				<string>xht</string>
 				<string>xhtml</string>
 			</array>
+			<key>CFBundleTypeName</key>
+			<string>HTML document</string>
 			<key>CFBundleTypeOSTypes</key>
 			<array>
 				<string>HTML</string>
@@ -49,6 +27,20 @@
 			<string>Viewer</string>
 		</dict>
 	</array>
+	<key>CFBundleExecutable</key>
+	<string>ThreeFBrowser</string>
+	<key>CFBundleIconFile</key>
+	<string>3f-icon.icns</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.rogan.threef.browser</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>3F Browser</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.1.0</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -69,5 +61,13 @@
 			</array>
 		</dict>
 	</array>
+	<key>CFBundleVersion</key>
+	<string>28</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.web-browsers</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
 </dict>
 </plist>
