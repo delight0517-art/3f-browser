@@ -129,6 +129,27 @@ final class ThreeFBrowserControlTests: XCTestCase {
     }
 
     @MainActor
+    func testLegacyAdultRulesStayProtectedAheadOfExceptions() throws {
+        let legacy = Data(#"{"blockedDomains":["juso3.net","pornhub.com","yadongkorea17.com","ordinary-blocked.example"],"blockedUrlParts":["yadong","/limit"],"keywords":[],"blockExceptions":["juso3.net","pornhub.com","yadongkorea17.com","ordinary-blocked.example"]}"#.utf8)
+        let normalized = try XCTUnwrap(FocusFenceRulesCache.normalizedRules(legacy))
+
+        for value in [
+            "https://juso3.net/category/adult",
+            "https://www.pornhub.com/",
+            "https://yadongkorea17.com/",
+            "https://example.com/search?q=yadongkorea17",
+        ] {
+            XCTAssertFalse(
+                ThreeFBrowserControlController.focusFenceAllows(URL(string: value)!, rules: normalized)!,
+                "legacy adult protections must win over exceptions for \(value)"
+            )
+        }
+        XCTAssertTrue(ThreeFBrowserControlController.focusFenceAllows(
+            URL(string: "https://ordinary-blocked.example/")!, rules: normalized
+        )!, "ordinary exceptions remain usable")
+    }
+
+    @MainActor
     func testFocusFenceRulesAllowUnlistedHostAndBlockDomainAndURLPart() throws {
         let rules = Data(#"{"blockedDomains":["www.blocked.example"],"blockedUrlParts":["disallowed-path"],"adultProtectedDomains":[],"adultProtectedUrlParts":[],"adultProtectedKeywords":[],"keywords":["hiddenword"],"blockExceptions":[]}"#.utf8)
         XCTAssertEqual(ThreeFBrowserControlController.focusFenceAllows(URL(string: "https://developer.apple.com")!, rules: rules), true)
