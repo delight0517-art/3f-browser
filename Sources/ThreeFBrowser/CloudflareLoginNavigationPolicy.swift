@@ -18,10 +18,22 @@ enum CloudflareLoginNavigationPolicy {
         }
     }
 
+    static func loginURL(for url: URL) -> URL? {
+        if isLoginURL(url) { return url }
+        guard let host = url.host?.lowercased(),
+              ["google.com", "www.google.com"].contains(host),
+              url.path == "/url",
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let target = components.queryItems?.first(where: { ["q", "url"].contains($0.name) })?.value,
+              let destination = URL(string: target),
+              isLoginURL(destination) else { return nil }
+        return destination
+    }
+
     static func route(for url: URL, rules: Data?) -> Route {
-        guard isLoginURL(url) else { return .continueInThreeF }
+        guard let loginURL = loginURL(for: url) else { return .continueInThreeF }
         guard let rules,
-              let allowed = ThreeFBrowserControlController.focusFenceAllows(url, rules: rules) else {
+              let allowed = ThreeFBrowserControlController.focusFenceAllows(loginURL, rules: rules) else {
             // A missing/offline policy must not make an explicit user sign-in
             // action silently fail. A valid explicit block still wins.
             return .openInDefaultBrowser

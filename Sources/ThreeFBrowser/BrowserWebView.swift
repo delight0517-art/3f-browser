@@ -242,7 +242,7 @@ struct BrowserWebView: NSViewRepresentable {
 
                 authorizeNavigation(url) { [weak self] decision in
                     guard let self else { return }
-                    if decision.isAllowed, CloudflareLoginNavigationPolicy.isLoginURL(url) {
+                    if decision.isAllowed, CloudflareLoginNavigationPolicy.loginURL(for: url) != nil {
                         self.openCloudflareLoginInDefaultBrowser(url)
                         return
                     }
@@ -263,7 +263,7 @@ struct BrowserWebView: NSViewRepresentable {
             }
 
             if let url = navigationAction.request.url,
-               CloudflareLoginNavigationPolicy.isLoginURL(url) {
+               CloudflareLoginNavigationPolicy.loginURL(for: url) != nil {
                 guard !navigationAction.shouldPerformDownload else { return nil }
                 guard let authorizeNavigation = parent.authorizeNavigation else {
                     openCloudflareLoginInDefaultBrowser(url)
@@ -317,8 +317,13 @@ struct BrowserWebView: NSViewRepresentable {
         }
 
         private func openCloudflareLoginInDefaultBrowser(_ url: URL) {
-            guard CloudflareLoginNavigationPolicy.isLoginURL(url) else { return }
-            _ = NSWorkspace.shared.open(url)
+            guard let loginURL = CloudflareLoginNavigationPolicy.loginURL(for: url),
+                  let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "at.studio.AsideBrowser") else { return }
+            NSWorkspace.shared.open(
+                [loginURL],
+                withApplicationAt: appURL,
+                configuration: NSWorkspace.OpenConfiguration()
+            )
         }
 
         @discardableResult
@@ -438,7 +443,7 @@ struct BrowserWebView: NSViewRepresentable {
                 decisionHandler(.cancel)
                 return
             }
-            if CloudflareLoginNavigationPolicy.isLoginURL(url), parent.authorizeNavigation == nil {
+            if CloudflareLoginNavigationPolicy.loginURL(for: url) != nil, parent.authorizeNavigation == nil {
                 decisionHandler(.cancel)
                 openCloudflareLoginInDefaultBrowser(url)
                 return
@@ -456,7 +461,7 @@ struct BrowserWebView: NSViewRepresentable {
             authorize(url) { [weak self] decision in
                 if !decision.isAllowed { self?.parent.onRejectedNavigation?(url, decision) }
                 let navigationDecision = Self.navigationDecision(isAllowed: decision.isAllowed, shouldDownload: navigationAction.shouldPerformDownload, allowsDownloads: self?.parent.allowsDownloads ?? false)
-                if decision.isAllowed, CloudflareLoginNavigationPolicy.isLoginURL(url) {
+                if decision.isAllowed, CloudflareLoginNavigationPolicy.loginURL(for: url) != nil {
                     decisionHandler(.cancel)
                     self?.openCloudflareLoginInDefaultBrowser(url)
                     return
