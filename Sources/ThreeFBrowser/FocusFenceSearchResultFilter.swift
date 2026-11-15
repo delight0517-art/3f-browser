@@ -259,6 +259,18 @@ enum FocusFenceSearchResultFilter {
       notice.textContent = 'Focus Fence 정책 확인 중…';
       notice.style.cssText = 'position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:2147483647;max-width:90vw;padding:10px 14px;border-radius:10px;background:#fff7d6;color:#493900;box-shadow:0 2px 12px #0003;font:13px system-ui,sans-serif;text-align:center;pointer-events:none';
       (document.body || root).appendChild(notice);
+      // The native policy fetch can time out after this document-start script
+      // runs. Never leave the user with a permanent "checking" banner. Search
+      // navigation remains available; a later policy injection still filters
+      // results and can replace this status with a specific block notice.
+      setTimeout(() => {
+        if (root.dataset.threefSearchGate !== 'pending') return;
+        root.removeAttribute('data-threef-search-gate');
+        const currentNotice = document.getElementById('threef-search-policy-notice');
+        if (!currentNotice) return;
+        currentNotice.textContent = '검색은 계속할 수 있어요. Focus Fence 규칙 응답이 지연되어 검색 결과 필터가 아직 적용되지 않았습니다.';
+        setTimeout(() => currentNotice.remove(), 8000);
+      }, 2500);
     })();
     """#
 
