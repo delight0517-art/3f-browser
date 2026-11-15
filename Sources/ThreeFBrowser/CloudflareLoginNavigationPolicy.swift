@@ -3,7 +3,6 @@ import Foundation
 enum CloudflareLoginNavigationPolicy {
     enum Route: Equatable {
         case continueInThreeF
-        case openInDefaultBrowser
         case blockedByFocusFence
     }
 
@@ -34,10 +33,9 @@ enum CloudflareLoginNavigationPolicy {
         guard let loginURL = loginURL(for: url) else { return .continueInThreeF }
         guard let rules,
               let allowed = ThreeFBrowserControlController.focusFenceAllows(loginURL, rules: rules) else {
-            // A missing/offline policy must not make an explicit user sign-in
-            // action silently fail. A valid explicit block still wins.
-            return .openInDefaultBrowser
+            // Keep login in 3F when FF is offline. A valid explicit block wins.
+            return .continueInThreeF
         }
-        return allowed ? .openInDefaultBrowser : .blockedByFocusFence
+        return allowed ? .continueInThreeF : .blockedByFocusFence
     }
 }

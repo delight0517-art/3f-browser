@@ -242,10 +242,6 @@ struct BrowserWebView: NSViewRepresentable {
 
                 authorizeNavigation(url) { [weak self] decision in
                     guard let self else { return }
-                    if decision.isAllowed, CloudflareLoginNavigationPolicy.loginURL(for: url) != nil {
-                        self.openCloudflareLoginInDefaultBrowser(url)
-                        return
-                    }
                     if decision.isAllowed, GoogleOAuthNavigationPolicy.requiresSystemBrowser(for: url) {
                         self.openOAuthInSystemBrowser(url, sourceURL: webView.url)
                         return
@@ -258,24 +254,6 @@ struct BrowserWebView: NSViewRepresentable {
                     case .newTab(let destination): self.parent.onOpenLinkInNewTab?(destination)
                     case .newWindow(let destination): self.parent.onOpenLinkInNewWindow?(destination)
                     }
-                }
-                return nil
-            }
-
-            if let url = navigationAction.request.url,
-               CloudflareLoginNavigationPolicy.loginURL(for: url) != nil {
-                guard !navigationAction.shouldPerformDownload else { return nil }
-                guard let authorizeNavigation = parent.authorizeNavigation else {
-                    openCloudflareLoginInDefaultBrowser(url)
-                    return nil
-                }
-                authorizeNavigation(url) { [weak self] decision in
-                    guard let self else { return }
-                    guard decision.isAllowed else {
-                        self.parent.onRejectedNavigation?(url, decision)
-                        return
-                    }
-                    self.openCloudflareLoginInDefaultBrowser(url)
                 }
                 return nil
             }
@@ -314,16 +292,6 @@ struct BrowserWebView: NSViewRepresentable {
 
         private func openOAuthInSystemBrowser(_ url: URL, sourceURL: URL?) {
             GoogleOAuthHandoffDiagnostics.shared.handoff(url, sourceURL: sourceURL)
-        }
-
-        private func openCloudflareLoginInDefaultBrowser(_ url: URL) {
-            guard let loginURL = CloudflareLoginNavigationPolicy.loginURL(for: url),
-                  let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "at.studio.AsideBrowser") else { return }
-            NSWorkspace.shared.open(
-                [loginURL],
-                withApplicationAt: appURL,
-                configuration: NSWorkspace.OpenConfiguration()
-            )
         }
 
         @discardableResult
@@ -443,11 +411,6 @@ struct BrowserWebView: NSViewRepresentable {
                 decisionHandler(.cancel)
                 return
             }
-            if CloudflareLoginNavigationPolicy.loginURL(for: url) != nil, parent.authorizeNavigation == nil {
-                decisionHandler(.cancel)
-                openCloudflareLoginInDefaultBrowser(url)
-                return
-            }
             guard let authorize = parent.authorizeNavigation else {
                 let navigationDecision = Self.navigationDecision(isAllowed: nil, shouldDownload: navigationAction.shouldPerformDownload, allowsDownloads: parent.allowsDownloads)
                 if navigationDecision == .allow, GoogleOAuthNavigationPolicy.requiresSystemBrowser(for: url) {
@@ -461,11 +424,6 @@ struct BrowserWebView: NSViewRepresentable {
             authorize(url) { [weak self] decision in
                 if !decision.isAllowed { self?.parent.onRejectedNavigation?(url, decision) }
                 let navigationDecision = Self.navigationDecision(isAllowed: decision.isAllowed, shouldDownload: navigationAction.shouldPerformDownload, allowsDownloads: self?.parent.allowsDownloads ?? false)
-                if decision.isAllowed, CloudflareLoginNavigationPolicy.loginURL(for: url) != nil {
-                    decisionHandler(.cancel)
-                    self?.openCloudflareLoginInDefaultBrowser(url)
-                    return
-                }
                 if navigationDecision == .allow, GoogleOAuthNavigationPolicy.requiresSystemBrowser(for: url) {
                     decisionHandler(.cancel)
                     self?.openOAuthInSystemBrowser(url, sourceURL: webView.url)

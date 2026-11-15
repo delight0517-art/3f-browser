@@ -187,12 +187,12 @@ final class ThreeFBrowserControlController {
         rules data: Data?
     ) -> BrowserNavigationAuthorizationDecision {
         switch CloudflareLoginNavigationPolicy.route(for: url, rules: data) {
-        case .openInDefaultBrowser:
-            return .allowed
         case .blockedByFocusFence:
             return .blocked
         case .continueInThreeF:
-            break
+            if CloudflareLoginNavigationPolicy.loginURL(for: url) != nil {
+                return .allowed
+            }
         }
 
         if FocusFenceSearchResultFilter.isSearchResultsURL(url) {
