@@ -29,6 +29,22 @@ enum CloudflareLoginNavigationPolicy {
         return destination
     }
 
+    static func allowsChallengeFrame(
+        _ url: URL?,
+        topLevelURL: URL?,
+        targetFrameIsMainFrame: Bool?
+    ) -> Bool {
+        guard targetFrameIsMainFrame == false,
+              let url,
+              url.scheme?.lowercased() == "https",
+              url.host?.lowercased() == "challenges.cloudflare.com",
+              url.user == nil,
+              url.password == nil,
+              let topLevelURL,
+              isLoginURL(topLevelURL) else { return false }
+        return true
+    }
+
     static func route(for url: URL, rules: Data?) -> Route {
         guard let loginURL = loginURL(for: url) else { return .continueInThreeF }
         guard let rules,

@@ -416,6 +416,14 @@ struct BrowserWebView: NSViewRepresentable {
             decidePolicyFor navigationAction: WKNavigationAction,
             decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
         ) {
+            if CloudflareLoginNavigationPolicy.allowsChallengeFrame(
+                navigationAction.request.url,
+                topLevelURL: webView.url,
+                targetFrameIsMainFrame: navigationAction.targetFrame?.isMainFrame
+            ) {
+                decisionHandler(.allow)
+                return
+            }
             if ThreeFBackgroundLinkPolicy.isBackgroundLink(
                 navigationType: navigationAction.navigationType,
                 buttonNumber: navigationAction.buttonNumber,
@@ -465,6 +473,14 @@ struct BrowserWebView: NSViewRepresentable {
             decidePolicyFor navigationResponse: WKNavigationResponse,
             decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
         ) {
+            if CloudflareLoginNavigationPolicy.allowsChallengeFrame(
+                navigationResponse.response.url,
+                topLevelURL: webView.url,
+                targetFrameIsMainFrame: navigationResponse.isForMainFrame
+            ) {
+                decisionHandler(.allow)
+                return
+            }
             if Self.allowsEmbeddedAboutDocument(
                 navigationResponse.response.url,
                 targetFrameIsMainFrame: navigationResponse.isForMainFrame

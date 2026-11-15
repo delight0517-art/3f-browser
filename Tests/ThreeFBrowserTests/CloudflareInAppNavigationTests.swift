@@ -22,6 +22,26 @@ final class CloudflareInAppNavigationTests: XCTestCase {
         )
     }
 
+    func testCloudflareChallengeFrameIsAllowedOnlyInsideCloudflareLogin() throws {
+        let challenge = try XCTUnwrap(URL(string: "https://challenges.cloudflare.com/cdn-cgi/challenge-platform/widget"))
+        let login = try XCTUnwrap(URL(string: "https://dash.cloudflare.com/login"))
+        let unrelatedPage = try XCTUnwrap(URL(string: "https://example.com/"))
+
+        XCTAssertTrue(CloudflareLoginNavigationPolicy.allowsChallengeFrame(
+            challenge, topLevelURL: login, targetFrameIsMainFrame: false
+        ))
+        XCTAssertFalse(CloudflareLoginNavigationPolicy.allowsChallengeFrame(
+            challenge, topLevelURL: login, targetFrameIsMainFrame: true
+        ))
+        XCTAssertFalse(CloudflareLoginNavigationPolicy.allowsChallengeFrame(
+            challenge, topLevelURL: unrelatedPage, targetFrameIsMainFrame: false
+        ))
+        XCTAssertFalse(CloudflareLoginNavigationPolicy.allowsChallengeFrame(
+            try XCTUnwrap(URL(string: "https://challenges.cloudflare.com.evil.example/widget")),
+            topLevelURL: login, targetFrameIsMainFrame: false
+        ))
+    }
+
     @MainActor
     func testCloudflareSignupWithoutAuthorizerStaysInThreeF() throws {
         let model = makeModel()
