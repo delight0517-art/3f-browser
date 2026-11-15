@@ -19,6 +19,10 @@ struct GoogleOAuthHandoffEvent: Identifiable, Equatable {
         case cloudflareChallengeRejected = "Cloudflare 검증 프레임 거부"
         case cloudflareLoginState = "Cloudflare 로그인 폼 상태"
         case cloudflareLoginSubmitted = "Cloudflare 로그인 제출"
+        case cloudflareLoginAfterSubmitState = "Cloudflare 제출 후 폼 상태"
+        case cloudflareLoginRuntimeIssue = "Cloudflare 로그인 스크립트/리소스 오류"
+        case cloudflareLoginSecurityPolicy = "Cloudflare 페이지 보안 정책 차단"
+        case cloudflareLoginNavigationAttempted = "Cloudflare 제출 후 페이지 이동 시도"
         case cloudflareExternalBrowserOpened = "Cloudflare 로그인 외부 브라우저에서 열림"
         case cloudflareExternalBrowserUnavailable = "Cloudflare 비교 브라우저를 찾지 못함"
         case cloudflareExternalBrowserFailed = "Cloudflare 외부 브라우저 열기 실패"
@@ -45,6 +49,7 @@ final class BrowserDiagnosticsScriptMessageHandler: NSObject, WKScriptMessageHan
         && /^\/(login|sign-in|signup|sign-up)(\/|$)/i.test(location.pathname);
       let lastLoginState = '';
       let scheduledLoginState = false;
+      let loginAttemptPending = false;
       const visible = element => {
         if (!(element instanceof Element)) return false;
         const style = getComputedStyle(element);
@@ -82,10 +87,10 @@ final class BrowserDiagnosticsScriptMessageHandler: NSObject, WKScriptMessageHan
           validationMessagePresent: String(invalidFieldPresent),
           challengeErrorPresent: String(challengeErrorPresent)
         };
-        const signature = Object.values(values).join('|');
+        const signature = [...Object.values(values), String(loginAttemptPending)].join('|');
         if (signature === lastLoginState) return;
         lastLoginState = signature;
-        post({kind: 'cloudflareLoginState', ...values});
+        post({kind: loginAttemptPending ? 'cloudflareLoginAfterSubmitState' : 'cloudflareLoginState', ...values});
       };
       const scheduleLoginState = () => {
         if (scheduledLoginState) return;
@@ -107,8 +112,30 @@ final class BrowserDiagnosticsScriptMessageHandler: NSObject, WKScriptMessageHan
       document.addEventListener('submit', event => {
         if (!isCloudflareLogin() || !(event.target instanceof HTMLFormElement)
           || !event.target.querySelector('input[type="password"]')) return;
+        loginAttemptPending = true;
         post({kind: 'cloudflareLoginSubmitted'});
+        setTimeout(scheduleLoginState, 500);
+        setTimeout(scheduleLoginState, 2000);
       }, true);
+      window.addEventListener('beforeunload', () => {
+        if (isCloudflareLogin() && loginAttemptPending) post({kind: 'cloudflareLoginNavigationAttempted'});
+      });
+      window.addEventListener('error', event => {
+        if (!isCloudflareLogin()) return;
+        const target = event.target;
+        const resourceType = target instanceof Element
+          ? ({SCRIPT:'script', IFRAME:'frame', LINK:'style', IMG:'image'}[target.tagName] || 'resource')
+          : 'javascript';
+        post({kind: 'cloudflareLoginRuntimeIssue', resourceType});
+      }, true);
+      window.addEventListener('unhandledrejection', () => {
+        if (isCloudflareLogin()) post({kind: 'cloudflareLoginRuntimeIssue', resourceType: 'promise'});
+      });
+      document.addEventListener('securitypolicyviolation', event => {
+        if (!isCloudflareLogin()) return;
+        const directive = String(event.violatedDirective || '').split('-')[0];
+        post({kind: 'cloudflareLoginSecurityPolicy', directive});
+      });
       document.addEventListener('DOMContentLoaded', scheduleLoginState, {once: true});
       window.addEventListener('pageshow', scheduleLoginState);
       if (document.documentElement) {
@@ -130,7 +157,11 @@ final class BrowserDiagnosticsScriptMessageHandler: NSObject, WKScriptMessageHan
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard message.name == Self.name, let body = message.body as? [String: String] else { return }
-        if body["kind"] == "cloudflareLoginState" || body["kind"] == "cloudflareLoginSubmitted" {
+        let cloudflareKinds: Set<String> = [
+            "cloudflareLoginState", "cloudflareLoginSubmitted", "cloudflareLoginAfterSubmitState",
+            "cloudflareLoginRuntimeIssue", "cloudflareLoginSecurityPolicy", "cloudflareLoginNavigationAttempted"
+        ]
+        if let kind = body["kind"], cloudflareKinds.contains(kind) {
             let origin = message.frameInfo.securityOrigin
             guard message.frameInfo.isMainFrame,
                   origin.protocol.lowercased() == "https",
@@ -139,6 +170,14 @@ final class BrowserDiagnosticsScriptMessageHandler: NSObject, WKScriptMessageHan
                 let diagnostics = GoogleOAuthHandoffDiagnostics.shared
                 if body["kind"] == "cloudflareLoginSubmitted" {
                     diagnostics.record(.cloudflareLoginSubmitted, detail: "제출 이벤트 감지 · 입력값은 저장하지 않음", key: "cloudflare-login-submitted")
+                } else if body["kind"] == "cloudflareLoginRuntimeIssue" {
+                    let type = GoogleOAuthHandoffDiagnostics.safeCloudflareDiagnosticCategory(body["resourceType"], allowed: ["script", "frame", "style", "image", "resource", "javascript", "promise"])
+                    diagnostics.record(.cloudflareLoginRuntimeIssue, detail: type.map { "오류 종류 · \($0) · 원문 미수집" } ?? "스크립트/리소스 오류 감지 · 원문 미수집", key: "cloudflare-login-runtime-issue-\(type ?? "unknown")")
+                } else if body["kind"] == "cloudflareLoginSecurityPolicy" {
+                    let directive = GoogleOAuthHandoffDiagnostics.safeCloudflareDiagnosticCategory(body["directive"], allowed: ["script", "frame", "style", "image", "connect", "font", "default", "object", "base", "form"])
+                    diagnostics.record(.cloudflareLoginSecurityPolicy, detail: directive.map { "차단 지시문 · \($0) · URL 미수집" } ?? "보안 정책 위반 감지 · URL 미수집", key: "cloudflare-login-csp-\(directive ?? "unknown")")
+                } else if body["kind"] == "cloudflareLoginNavigationAttempted" {
+                    diagnostics.record(.cloudflareLoginNavigationAttempted, detail: "제출 후 페이지 이동 이벤트 · 성공 여부 아님", key: "cloudflare-login-navigation-attempted")
                 } else {
                     diagnostics.recordCloudflareLoginState(body)
                 }
@@ -235,11 +274,19 @@ final class GoogleOAuthHandoffDiagnostics: ObservableObject {
         let invalid = state("validationMessagePresent", yes: "검증 오류 표시", no: "검증 오류 표시 없음") ?? "검증 오류 미상"
         let challengeError = state("challengeErrorPresent", yes: "Cloudflare 검증 실패 표시", no: "Cloudflare 검증 실패 표시 없음") ?? "Cloudflare 오류 상태 미상"
         let detail = [form, identity, password, submit, challenge, invalid, challengeError].joined(separator: " · ")
-        record(.cloudflareLoginState, detail: detail, key: "cloudflare-login-state-\(detail)")
+        let outcome: GoogleOAuthHandoffEvent.Outcome = body["kind"] == "cloudflareLoginAfterSubmitState" ? .cloudflareLoginAfterSubmitState : .cloudflareLoginState
+        let label = body["kind"] == "cloudflareLoginAfterSubmitState" ? "cloudflare-login-after-submit" : "cloudflare-login-state"
+        record(outcome, detail: detail, key: "\(label)-\(detail)")
     }
 
     nonisolated static func isCloudflareChallengeURL(_ url: URL?) -> Bool {
         url?.host?.lowercased() == "challenges.cloudflare.com"
+    }
+
+    nonisolated static func safeCloudflareDiagnosticCategory(_ value: String?, allowed: [String]) -> String? {
+        guard let value else { return nil }
+        let normalized = value.lowercased()
+        return allowed.contains(normalized) ? normalized : nil
     }
 
     nonisolated static func contextLabel(for url: URL?) -> String {

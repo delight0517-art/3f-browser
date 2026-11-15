@@ -18,4 +18,12 @@ final class GoogleOAuthHandoffDiagnosticsTests: XCTestCase {
         XCTAssertTrue(GoogleOAuthHandoffDiagnostics.isCloudflareChallengeURL(challenge))
         XCTAssertFalse(GoogleOAuthHandoffDiagnostics.isCloudflareChallengeURL(lookalike))
     }
+
+    func testCloudflareDiagnosticCategoriesRejectUntrustedDetails() {
+        let categories = ["script", "frame", "style", "image", "resource", "javascript", "promise"]
+
+        XCTAssertEqual(GoogleOAuthHandoffDiagnostics.safeCloudflareDiagnosticCategory("SCRIPT", allowed: categories), "script")
+        XCTAssertNil(GoogleOAuthHandoffDiagnostics.safeCloudflareDiagnosticCategory("https://dash.cloudflare.com/login?token=secret", allowed: categories))
+        XCTAssertNil(GoogleOAuthHandoffDiagnostics.safeCloudflareDiagnosticCategory("password=private", allowed: categories))
+    }
 }
