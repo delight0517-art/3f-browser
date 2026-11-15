@@ -13,26 +13,45 @@ struct YouTubeUsageDashboardView: View {
     let isShorts: Bool
     let now: Date
 
+    @State private var isExpanded = false
+
     private var isRestricted: Bool {
         summary?.blocked == true || playbackReason != nil
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Label("YouTube 사용량", systemImage: isRestricted ? "pause.circle.fill" : "play.circle")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(YouTubeUsagePalette.ink)
-                Spacer(minLength: 4)
-                Text(isRestricted ? "재생 제한 중" : "시청 가능")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(isRestricted ? Color.orange : YouTubeUsagePalette.muted)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background((isRestricted ? Color.orange : YouTubeUsagePalette.muted).opacity(0.12), in: Capsule())
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.18)) { isExpanded.toggle() }
+            } label: {
+                HStack(spacing: 8) {
+                    Label("YouTube 한도", systemImage: isRestricted ? "pause.circle.fill" : "play.circle")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(YouTubeUsagePalette.ink)
+                    Text(compactUsageText)
+                        .font(.system(size: 10, weight: .medium, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(YouTubeUsagePalette.muted)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer(minLength: 2)
+                    Text(statusLabel)
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(statusColor)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(statusColor.opacity(0.12), in: Capsule())
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(YouTubeUsagePalette.muted)
+                }
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .help(isExpanded ? "YouTube 사용량 상세 접기" : "YouTube 사용량 상세 보기")
+            .accessibilityHint("상세 사용량과 제한 상태를 펼치거나 접습니다.")
 
-            if let summary {
+            if isExpanded, let summary {
                 HStack(alignment: .top, spacing: 18) {
                     usageMeter(
                         title: "오늘",
@@ -76,7 +95,7 @@ struct YouTubeUsageDashboardView: View {
                         .foregroundStyle(YouTubeUsagePalette.muted)
                         .lineLimit(1)
                 }
-            } else {
+            } else if isExpanded {
                 Label(
                     unavailable ? "사용량을 불러오지 못했습니다. FF 연결 상태를 확인해 주세요." : "사용량 정보를 기다리는 중입니다.",
                     systemImage: unavailable ? "exclamationmark.triangle" : "clock"
@@ -88,9 +107,35 @@ struct YouTubeUsageDashboardView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .foregroundStyle(YouTubeUsagePalette.ink)
         .padding(.horizontal, 18)
-        .padding(.vertical, 11)
+        .padding(.vertical, isExpanded ? 9 : 6)
         .background(YouTubeUsagePalette.surface)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
+    }
+
+    private var compactUsageText: String {
+        guard let summary else {
+            return unavailable ? "FF 연결 확인 필요" : "사용량 확인 중"
+        }
+        let dailyCap = summary.dailyCapMinutes > 0 ? "\(summary.dailyCapMinutes)분" : "제한 없음"
+        let hourlyCap: String
+        if let cap = summary.hourlyCapMinutes {
+            hourlyCap = cap > 0 ? "\(cap)분" : "제한 없음"
+        } else {
+            hourlyCap = "확인 불가"
+        }
+        let hourlyUsed = summary.hourlyUsedSeconds.map(FocusFenceYouTubeUsageSummary.duration) ?? "확인 불가"
+        return "오늘 \(FocusFenceYouTubeUsageSummary.duration(summary.todaySeconds))/\(dailyCap) · 1시간 \(hourlyUsed)/\(hourlyCap)"
+    }
+
+    private var statusLabel: String {
+        if unavailable { return "FF 연결 확인" }
+        guard summary != nil else { return "확인 중" }
+        return isRestricted ? "재생 제한 중" : "시청 가능"
+    }
+
+    private var statusColor: Color {
+        if unavailable || summary == nil { return YouTubeUsagePalette.muted }
+        return isRestricted ? .orange : YouTubeUsagePalette.muted
     }
 
     @ViewBuilder
