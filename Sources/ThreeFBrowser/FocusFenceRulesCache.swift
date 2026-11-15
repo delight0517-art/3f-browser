@@ -23,8 +23,25 @@ struct FocusFenceRulesCache {
     }
 
     func load() -> Data? {
-        guard let data = try? Data(contentsOf: rulesURL), Self.isUsable(data) else { return nil }
-        return data
+        guard let data = try? Data(contentsOf: rulesURL) else { return nil }
+        return Self.normalizedCachedRules(data)
+    }
+
+    private static func normalizedCachedRules(_ data: Data) -> Data? {
+        if isUsable(data) { return data }
+        guard var rules = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        let adultKeys = ["adultProtectedDomains", "adultProtectedUrlParts", "adultProtectedKeywords"]
+        // A prior app version persisted this complete policy before the adult-rule
+        // priority fields existed. Preserve that last-known policy while treating
+        // it as the legacy contract; never apply this migration to network writes.
+        guard adultKeys.allSatisfy({ rules[$0] == nil }),
+              rules["blockedDomains"] is [String],
+              rules["blockedUrlParts"] is [String],
+              rules["keywords"] is [String],
+              rules["blockExceptions"] is [String] else { return nil }
+        adultKeys.forEach { rules[$0] = [String]() }
+        guard let normalized = try? JSONSerialization.data(withJSONObject: rules), isUsable(normalized) else { return nil }
+        return normalized
     }
 
     private static func isUsable(_ data: Data) -> Bool {

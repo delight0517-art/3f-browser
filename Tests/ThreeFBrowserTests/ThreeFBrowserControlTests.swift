@@ -100,6 +100,34 @@ final class ThreeFBrowserControlTests: XCTestCase {
         XCTAssertNil(cache.load(), "corrupt storage must not be treated as an allow-all policy")
     }
 
+    func testFocusFenceRulesCacheMigratesCompleteLegacySnapshotWithoutOverwritingIt() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("3f-rules-cache-legacy-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let cache = FocusFenceRulesCache(directory: directory)
+        let legacy = Data(#"{"blockedDomains":["blocked.example"],"blockedUrlParts":["/limit"],"keywords":["hidden"],"blockExceptions":["allowed.example"]}"#.utf8)
+
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try legacy.write(to: cache.rulesURL, options: .atomic)
+
+        let loaded = try XCTUnwrap(cache.load())
+        let rules = try XCTUnwrap(JSONSerialization.jsonObject(with: loaded) as? [String: Any])
+        XCTAssertEqual(rules["blockedDomains"] as? [String], ["blocked.example"])
+        XCTAssertEqual(rules["blockExceptions"] as? [String], ["allowed.example"])
+        XCTAssertEqual(rules["adultProtectedDomains"] as? [String], [])
+        XCTAssertEqual(rules["adultProtectedUrlParts"] as? [String], [])
+        XCTAssertEqual(rules["adultProtectedKeywords"] as? [String], [])
+        XCTAssertEqual(ThreeFBrowserControlController.focusFenceAllows(
+            URL(string: "https://blocked.example/path")!, rules: loaded
+        ), false)
+        XCTAssertEqual(ThreeFBrowserControlController.focusFenceAllows(
+            URL(string: "https://allowed.example/path")!, rules: loaded
+        ), true)
+        XCTAssertFalse(cache.save(legacy), "new network writes must still require the current policy schema")
+        XCTAssertEqual(try Data(contentsOf: cache.rulesURL), legacy,
+                       "reading a legacy cache must not rewrite the durable last-known snapshot")
+    }
+
     @MainActor
     func testFocusFenceRulesAllowUnlistedHostAndBlockDomainAndURLPart() throws {
         let rules = Data(#"{"blockedDomains":["www.blocked.example"],"blockedUrlParts":["disallowed-path"],"adultProtectedDomains":[],"adultProtectedUrlParts":[],"adultProtectedKeywords":[],"keywords":["hiddenword"],"blockExceptions":[]}"#.utf8)
