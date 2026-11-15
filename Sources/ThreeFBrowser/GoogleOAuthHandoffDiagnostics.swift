@@ -65,6 +65,8 @@ final class BrowserDiagnosticsScriptMessageHandler: NSObject, WKScriptMessageHan
         });
         const invalidFieldPresent = !!loginForm
           && [...loginForm.querySelectorAll('input[aria-invalid="true"], [role="alert"]')].some(visible);
+        const pageText = document.body?.innerText || '';
+        const challengeErrorPresent = /there was a problem with verification|verification failed|please reload and try again|인증에 문제가|검증에 실패|다시 로드.*다시 시도/i.test(pageText);
         const values = {
           formPresent: String(passwordFields.length > 0),
           identityFieldPresent: String(identityFields.length > 0),
@@ -74,7 +76,8 @@ final class BrowserDiagnosticsScriptMessageHandler: NSObject, WKScriptMessageHan
           submitPresent: String(submitButtons.length > 0),
           submitEnabled: String(submitButtons.some(button => !button.disabled && button.getAttribute('aria-disabled') !== 'true')),
           challengeFramePresent: String(challengeFramePresent),
-          validationMessagePresent: String(invalidFieldPresent)
+          validationMessagePresent: String(invalidFieldPresent),
+          challengeErrorPresent: String(challengeErrorPresent)
         };
         const signature = Object.values(values).join('|');
         if (signature === lastLoginState) return;
@@ -227,7 +230,8 @@ final class GoogleOAuthHandoffDiagnostics: ObservableObject {
         let form = state("formPresent", yes: "폼 감지", no: "폼 미감지") ?? "폼 상태 미상"
         let challenge = state("challengeFramePresent", yes: "검증 프레임 있음", no: "검증 프레임 없음") ?? "검증 프레임 미상"
         let invalid = state("validationMessagePresent", yes: "검증 오류 표시", no: "검증 오류 표시 없음") ?? "검증 오류 미상"
-        let detail = [form, identity, password, submit, challenge, invalid].joined(separator: " · ")
+        let challengeError = state("challengeErrorPresent", yes: "Cloudflare 검증 실패 표시", no: "Cloudflare 검증 실패 표시 없음") ?? "Cloudflare 오류 상태 미상"
+        let detail = [form, identity, password, submit, challenge, invalid, challengeError].joined(separator: " · ")
         record(.cloudflareLoginState, detail: detail, key: "cloudflare-login-state-\(detail)")
     }
 
