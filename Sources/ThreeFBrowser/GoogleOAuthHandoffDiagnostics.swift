@@ -47,6 +47,9 @@ final class BrowserDiagnosticsScriptMessageHandler: NSObject, WKScriptMessageHan
       const isCloudflareLogin = () => location.protocol === 'https:'
         && location.hostname.toLowerCase() === 'dash.cloudflare.com'
         && /^\/(login|sign-in|signup|sign-up)(\/|$)/i.test(location.pathname);
+      const isCloudflareChallengeFrame = () => location.protocol === 'https:'
+        && location.hostname.toLowerCase() === 'challenges.cloudflare.com';
+      const isCloudflareDiagnosticContext = () => isCloudflareLogin() || isCloudflareChallengeFrame();
       let lastLoginState = '';
       let scheduledLoginState = false;
       let loginAttemptPending = false;
@@ -121,7 +124,7 @@ final class BrowserDiagnosticsScriptMessageHandler: NSObject, WKScriptMessageHan
         if (isCloudflareLogin() && loginAttemptPending) post({kind: 'cloudflareLoginNavigationAttempted'});
       });
       window.addEventListener('error', event => {
-        if (!isCloudflareLogin()) return;
+        if (!isCloudflareDiagnosticContext()) return;
         const target = event.target;
         const resourceType = target instanceof Element
           ? ({SCRIPT:'script', IFRAME:'frame', LINK:'style', IMG:'image'}[target.tagName] || 'resource')
@@ -129,10 +132,10 @@ final class BrowserDiagnosticsScriptMessageHandler: NSObject, WKScriptMessageHan
         post({kind: 'cloudflareLoginRuntimeIssue', resourceType});
       }, true);
       window.addEventListener('unhandledrejection', () => {
-        if (isCloudflareLogin()) post({kind: 'cloudflareLoginRuntimeIssue', resourceType: 'promise'});
+        if (isCloudflareDiagnosticContext()) post({kind: 'cloudflareLoginRuntimeIssue', resourceType: 'promise'});
       });
       document.addEventListener('securitypolicyviolation', event => {
-        if (!isCloudflareLogin()) return;
+        if (!isCloudflareDiagnosticContext()) return;
         const directive = String(event.violatedDirective || '').split('-')[0];
         post({kind: 'cloudflareLoginSecurityPolicy', directive});
       });
@@ -163,9 +166,18 @@ final class BrowserDiagnosticsScriptMessageHandler: NSObject, WKScriptMessageHan
         ]
         if let kind = body["kind"], cloudflareKinds.contains(kind) {
             let origin = message.frameInfo.securityOrigin
-            guard message.frameInfo.isMainFrame,
-                  origin.protocol.lowercased() == "https",
-                  origin.host.lowercased() == "dash.cloudflare.com" else { return }
+            let isHTTPS = origin.protocol.lowercased() == "https"
+            let isMainCloudflareLogin = message.frameInfo.isMainFrame
+                && isHTTPS
+                && origin.host.lowercased() == "dash.cloudflare.com"
+            let mainDocumentURL = message.frameInfo.request.mainDocumentURL
+            let isCloudflareChallengeSubframe = !message.frameInfo.isMainFrame
+                && isHTTPS
+                && origin.host.lowercased() == "challenges.cloudflare.com"
+                && mainDocumentURL?.scheme?.lowercased() == "https"
+                && mainDocumentURL?.host?.lowercased() == "dash.cloudflare.com"
+            let challengeFrameKinds: Set<String> = ["cloudflareLoginRuntimeIssue", "cloudflareLoginSecurityPolicy"]
+            guard isMainCloudflareLogin || (isCloudflareChallengeSubframe && challengeFrameKinds.contains(kind)) else { return }
             Task { @MainActor in
                 let diagnostics = GoogleOAuthHandoffDiagnostics.shared
                 if body["kind"] == "cloudflareLoginSubmitted" {
