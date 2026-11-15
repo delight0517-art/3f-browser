@@ -250,14 +250,14 @@ enum FocusFenceSearchResultFilter {
       if (!root) return;
       root.dataset.threefSearchGate = 'pending';
       const style = document.createElement('style');
-      style.textContent = 'html[data-threef-search-gate="pending"] body > :not(#threef-search-policy-notice), html[data-threef-search-gate="blocked"] body > :not(#threef-search-policy-notice) { visibility: hidden !important; }';
+      style.textContent = 'html[data-threef-search-gate="pending"] #threef-search-policy-notice { pointer-events: none; }';
       (document.head || root).appendChild(style);
       const notice = document.createElement('div');
       notice.id = 'threef-search-policy-notice';
       notice.setAttribute('role', 'status');
       notice.setAttribute('aria-live', 'polite');
       notice.textContent = 'Focus Fence 정책 확인 중…';
-      notice.style.cssText = 'position:fixed;inset:0;z-index:2147483647;display:grid;place-items:center;padding:24px;background:#fff;color:#263244;font:16px system-ui,sans-serif;text-align:center';
+      notice.style.cssText = 'position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:2147483647;max-width:90vw;padding:10px 14px;border-radius:10px;background:#fff7d6;color:#493900;box-shadow:0 2px 12px #0003;font:13px system-ui,sans-serif;text-align:center;pointer-events:none';
       (document.body || root).appendChild(notice);
     })();
     """#
