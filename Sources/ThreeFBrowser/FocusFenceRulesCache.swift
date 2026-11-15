@@ -12,10 +12,10 @@ struct FocusFenceRulesCache {
     var rulesURL: URL { directory.appendingPathComponent("rules-v1.json") }
 
     func save(_ data: Data) -> Bool {
-        guard Self.isUsable(data) else { return false }
+        guard let normalized = Self.normalizedRules(data) else { return false }
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            try data.write(to: rulesURL, options: .atomic)
+            try normalized.write(to: rulesURL, options: .atomic)
             return true
         } catch {
             return false
@@ -28,12 +28,16 @@ struct FocusFenceRulesCache {
     }
 
     private static func normalizedCachedRules(_ data: Data) -> Data? {
+        normalizedRules(data)
+    }
+
+    static func normalizedRules(_ data: Data) -> Data? {
         if isUsable(data) { return data }
         guard var rules = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
         let adultKeys = ["adultProtectedDomains", "adultProtectedUrlParts", "adultProtectedKeywords"]
-        // A prior app version persisted this complete policy before the adult-rule
-        // priority fields existed. Preserve that last-known policy while treating
-        // it as the legacy contract; never apply this migration to network writes.
+        // FF versions can still return the complete legacy policy without these
+        // newer optional protection arrays. Normalize that payload before both
+        // caching and enforcement, while rejecting partial/null/malformed fields.
         guard adultKeys.allSatisfy({ rules[$0] == nil }),
               rules["blockedDomains"] is [String],
               rules["blockedUrlParts"] is [String],

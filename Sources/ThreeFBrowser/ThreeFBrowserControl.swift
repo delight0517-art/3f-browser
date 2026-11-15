@@ -272,9 +272,9 @@ final class ThreeFBrowserControlController {
             request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
             if let (data, response) = try? await session.data(for: request),
                let status = response as? HTTPURLResponse, status.statusCode == 200,
-               usableFocusFenceRules(data) {
-                if !isQA { _ = FocusFenceRulesCache.production.save(data) }
-                return FocusFenceRulesSnapshot(data: data, isCached: false)
+               let normalized = FocusFenceRulesCache.normalizedRules(data) {
+                if !isQA { _ = FocusFenceRulesCache.production.save(normalized) }
+                return FocusFenceRulesSnapshot(data: normalized, isCached: false)
             }
         }
         // QA sessions are isolated; never borrow or overwrite production policy.
@@ -283,12 +283,7 @@ final class ThreeFBrowserControlController {
     }
 
     nonisolated static func usableFocusFenceRules(_ data: Data) -> Bool {
-        guard let rules = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              rules["blockedDomains"] is [String],
-              rules["blockedUrlParts"] is [String],
-              rules["keywords"] is [String],
-              rules["blockExceptions"] is [String] else { return false }
-        return true
+        FocusFenceRulesCache.normalizedRules(data) != nil
     }
 
     nonisolated static func focusFenceAllows(_ url: URL, rules data: Data) -> Bool? {

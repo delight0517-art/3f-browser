@@ -1,0 +1,17 @@
+{
+  "task": "threef-offline-policy-cache-20261115",
+  "title": "3F saves the latest compatible FF policy for offline browser use",
+  "ownerThread": "01a1d294-0253-71a1-8fe8-166a4bfa36c7",
+  "repo": "/Users/rogan/appDev/apps/3f-browser-mac",
+  "state": "active",
+  "startedAt": "2026-11-15T16:34:15+09:00",
+  "lastSubstantiveProgressAt": "2026-11-15T16:34:15+09:00",
+  "rootCause": "Focus Fence /rules?browser=3f returns HTTP 200 but omits the three newer adultProtected arrays. 3F rejects the full policy and continues using its older local cache.",
+  "nextAction": "Normalize only complete legacy payloads before saving and enforcement; retain atomic local cache fallback and verify the updated build/runtime if the guarded disk budget permits.",
+  "evidence": {
+    "sourceHeadBeforeEdit": "5c0fc1903e38f2b08d34678ea15a32a67900d139",
+    "liveRulesResponse": "HTTP 200; blockedDomains/blockedUrlParts/keywords/blockExceptions are present; adultProtectedDomains/adultProtectedUrlParts/adultProtectedKeywords are absent.",
+    "localCache": "rules-v1.json timestamp 2026-11-14T19:12:38Z; valid local policy exists.",
+    "installed": "0.1.0+34; executable SHA-256 240b062ab78bf4cdef3e77e6a0c7cf099963d2e0edd37d4608f9e9f04c58e6fe"
+  }
+}
