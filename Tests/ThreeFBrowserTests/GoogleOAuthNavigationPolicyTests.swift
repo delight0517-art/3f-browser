@@ -3,6 +3,39 @@ import XCTest
 @testable import ThreeFBrowser
 
 final class GoogleOAuthNavigationPolicyTests: XCTestCase {
+    func testGoogleAuthenticationTransportCanOpenWhenFocusFenceIsOffline() throws {
+        let auth = try XCTUnwrap(URL(string: "https://accounts.google.com/signin/oauth"))
+        let page = try XCTUnwrap(URL(string: "https://allowed.example/login"))
+
+        XCTAssertTrue(GoogleOAuthNavigationPolicy.allowsAuthenticationTransport(
+            auth,
+            originatingPage: page,
+            focusFenceRules: nil
+        ))
+    }
+
+    func testExplicitlyBlockedOriginCannotStartGoogleAuthentication() throws {
+        let auth = try XCTUnwrap(URL(string: "https://accounts.google.com/signin/oauth"))
+        let page = try XCTUnwrap(URL(string: "https://blocked.example/login"))
+        let rules = Data(#"{"blockedDomains":["blocked.example"],"blockedUrlParts":[],"adultProtectedDomains":[],"adultProtectedUrlParts":[],"adultProtectedKeywords":[],"keywords":[],"blockExceptions":[]}"#.utf8)
+
+        XCTAssertFalse(GoogleOAuthNavigationPolicy.allowsAuthenticationTransport(
+            auth,
+            originatingPage: page,
+            focusFenceRules: rules
+        ))
+    }
+
+    func testAuthenticationTransportRejectsNonGoogleDestination() throws {
+        let destination = try XCTUnwrap(URL(string: "https://accounts.example/login"))
+
+        XCTAssertFalse(GoogleOAuthNavigationPolicy.allowsAuthenticationTransport(
+            destination,
+            originatingPage: nil,
+            focusFenceRules: nil
+        ))
+    }
+
     func testRequiresSystemBrowserForOAuth2AuthorizationPaths() {
         XCTAssertTrue(GoogleOAuthNavigationPolicy.requiresSystemBrowser(for: URL(string: "https://accounts.google.com/o/oauth2")!))
         XCTAssertTrue(GoogleOAuthNavigationPolicy.requiresSystemBrowser(for: URL(string: "https://accounts.google.com/o/oauth2/auth")!))

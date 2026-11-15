@@ -18,6 +18,7 @@ struct GoogleOAuthHandoffEvent: Identifiable, Equatable {
         case duplicateSuppressed = "반복 팝업 억제"
         case asideUnavailable = "로그인 화면을 3F에서 유지"
         case focusFenceBlocked = "Focus Fence 정책이 인증 사이트를 차단"
+        case authenticationPolicyUnavailable = "Focus Fence 연결 없이 Google 인증 허용"
         case openFailed = "브라우저 진단 이벤트"
         case unsupportedMedia = "지원되지 않는 미디어 형식"
     }
@@ -62,6 +63,7 @@ final class GoogleOAuthHandoffDiagnostics: ObservableObject {
     private let maxFileBytes = 1_048_576
     private var recentKeys: [String: Date] = [:]
     private var recentHandoffKeys: [String: Date] = [:]
+    private var pendingHandoffKeys: Set<String> = []
     private var popupRequestDates: [Date] = []
 
     private var logURL: URL {
@@ -98,26 +100,38 @@ final class GoogleOAuthHandoffDiagnostics: ObservableObject {
             record(.duplicateSuppressed, key: "handoff-\(handoffKey)")
             return
         }
-        recentHandoffKeys[handoffKey] = now
+        guard pendingHandoffKeys.insert(handoffKey).inserted else {
+            record(.duplicateSuppressed, key: "handoff-pending-\(handoffKey)")
+            return
+        }
 
         Task { @MainActor [weak self] in
-            guard OptionalFeatureAvailability.focusFenceEnforcement else {
-                self?.record(.focusFenceBlocked, detail: "정책 어댑터 비활성", key: "google-cef-focus-fence-blocked")
+            guard let self else { return }
+            let rules = OptionalFeatureAvailability.focusFenceEnforcement
+                ? await ThreeFBrowserControlController.fetchFocusFenceRules()
+                : nil
+            guard GoogleOAuthNavigationPolicy.allowsAuthenticationTransport(
+                url,
+                originatingPage: originatingPage,
+                focusFenceRules: rules
+            ) else {
+                self.pendingHandoffKeys.remove(handoffKey)
+                self.record(.focusFenceBlocked, detail: "인증을 시작한 사이트가 차단됨", key: "google-cef-focus-fence-blocked")
                 return
             }
-            guard let rules = await ThreeFBrowserControlController.fetchFocusFenceRules(),
-                  ThreeFBrowserControlController.usableFocusFenceRules(rules),
-                  ThreeFBrowserControlController.focusFenceAllows(url, rules: rules) == true,
-                  originatingPage.map({ ThreeFBrowserControlController.focusFenceAllows($0, rules: rules) == true }) ?? true else {
-                self?.record(.focusFenceBlocked, detail: "정책을 확인할 수 없거나 허용되지 않음", key: "google-cef-focus-fence-blocked")
-                return
+            if OptionalFeatureAvailability.focusFenceEnforcement,
+               rules == nil,
+               originatingPage != nil {
+                self.record(.authenticationPolicyUnavailable, key: "google-auth-policy-unavailable")
             }
-            guard self != nil else { return }
             CEFBrowserRuntime.open(url, originatingPage: originatingPage) { [weak self] result in
                 switch result {
                 case .success:
+                    self?.pendingHandoffKeys.remove(handoffKey)
+                    self?.recentHandoffKeys[handoffKey] = Date()
                     self?.record(.cefBrowserHandoff, key: "google-cef-\(originatingPage?.host ?? "auth-only")")
                 case .failure:
+                    self?.pendingHandoffKeys.remove(handoffKey)
                     self?.record(.cefBrowserUnavailable, key: "google-cef-unavailable")
                 }
             }

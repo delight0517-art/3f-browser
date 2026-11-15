@@ -15,6 +15,24 @@ enum GoogleOAuthNavigationPolicy {
         requiresSystemBrowser(for: url) ? url : nil
     }
 
+    static func allowsAuthenticationTransport(
+        _ authenticationURL: URL,
+        originatingPage: URL?,
+        focusFenceRules: Data?
+    ) -> Bool {
+        guard requiresSystemBrowser(for: authenticationURL) else { return false }
+        guard let originatingPage = safeHTTPSPageURL(originatingPage),
+              let focusFenceRules,
+              let sourceAllowed = ThreeFBrowserControlController.focusFenceAllows(originatingPage, rules: focusFenceRules) else {
+            // Google is the authentication transport. A missing Focus Fence
+            // daemon or policy snapshot must not make a user-initiated login
+            // button silently do nothing; an explicit source-site block still
+            // takes precedence when policy is available.
+            return true
+        }
+        return sourceAllowed
+    }
+
     static func safeHTTPSPageURL(_ url: URL?) -> URL? {
         guard let url,
               url.scheme?.lowercased() == "https",

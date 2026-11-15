@@ -152,6 +152,10 @@ struct ThreeFBrowserApp: App {
         WindowGroup("3F Browser", id: "browser") {
             BrowserView(
                 authorizeNavigation: { url, completion in
+                    if GoogleOAuthNavigationPolicy.requiresSystemBrowser(for: url) {
+                        completion(.allowed)
+                        return
+                    }
                     Task {
                         guard OptionalFeatureAvailability.focusFenceEnforcement else {
                             completion(.allowed)
@@ -173,6 +177,10 @@ struct ThreeFBrowserApp: App {
             BrowserView(
                 aiMode: true,
                 authorizeNavigation: { url, completion in
+                    if GoogleOAuthNavigationPolicy.requiresSystemBrowser(for: url) {
+                        completion(.allowed)
+                        return
+                    }
                     if AIModeNavigationPolicy.isOnlyChatLocalOrigin(url) {
                         completion(.allowed)
                         return
@@ -196,6 +204,10 @@ struct ThreeFBrowserApp: App {
                 BrowserView(
                     installedWebApp: installedApp,
                     authorizeNavigation: { url, completion in
+                        if GoogleOAuthNavigationPolicy.requiresSystemBrowser(for: url) {
+                            completion(.allowed)
+                            return
+                        }
                         Task {
                             guard OptionalFeatureAvailability.focusFenceEnforcement else {
                                 completion(.allowed)
