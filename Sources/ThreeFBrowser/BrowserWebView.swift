@@ -316,6 +316,7 @@ struct BrowserWebView: NSViewRepresentable {
 
         func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
             onMain {
+                GoogleOAuthHandoffDiagnostics.shared.recordNavigation(.navigationCommitted, url: webView.url)
                 self.parent.onNavigationCommitted?(webView.url)
                 // Google search pages can keep WebKit in a loading state while
                 // late resources finish. Release the prepaint policy gate as
@@ -328,6 +329,7 @@ struct BrowserWebView: NSViewRepresentable {
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             onMain {
+                GoogleOAuthHandoffDiagnostics.shared.recordNavigation(.navigationFinished, url: webView.url)
                 if webView.url?.host?.lowercased() == "accounts.google.com" {
                     GoogleOAuthHandoffDiagnostics.shared.record(.opened, key: "google-login")
                 }
@@ -388,6 +390,7 @@ struct BrowserWebView: NSViewRepresentable {
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
             onMain {
+                GoogleOAuthHandoffDiagnostics.shared.recordNavigationFailure(error, url: webView.url)
                 GoogleOAuthHandoffDiagnostics.shared.record(.openFailed, detail: "WebKit error \((error as NSError).code)", key: "navigation-\((error as NSError).code)")
                 self.parent.onLoadingChanged?(webView.isLoading)
                 self.parent.onNavigationFailed?(error)
@@ -397,6 +400,7 @@ struct BrowserWebView: NSViewRepresentable {
 
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
             onMain {
+                GoogleOAuthHandoffDiagnostics.shared.recordNavigationFailure(error, url: webView.url)
                 GoogleOAuthHandoffDiagnostics.shared.record(.openFailed, detail: "WebKit error \((error as NSError).code)", key: "navigation-\((error as NSError).code)")
                 self.parent.onLoadingChanged?(webView.isLoading)
                 self.parent.onNavigationFailed?(error)
@@ -406,6 +410,7 @@ struct BrowserWebView: NSViewRepresentable {
 
         func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
             onMain {
+                GoogleOAuthHandoffDiagnostics.shared.recordNavigation(.navigationStarted, url: webView.url)
                 self.parent.onNavigationStarted?(webView.url)
                 self.parent.onLoadingChanged?(true)
             }
@@ -416,11 +421,17 @@ struct BrowserWebView: NSViewRepresentable {
             decidePolicyFor navigationAction: WKNavigationAction,
             decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
         ) {
-            if CloudflareLoginNavigationPolicy.allowsChallengeFrame(
+            let isCloudflareChallengeFrame = !((navigationAction.targetFrame?.isMainFrame) ?? true)
+                && GoogleOAuthHandoffDiagnostics.isCloudflareChallengeURL(navigationAction.request.url)
+            let allowsCloudflareChallenge = CloudflareLoginNavigationPolicy.allowsChallengeFrame(
                 navigationAction.request.url,
                 topLevelURL: webView.url,
                 targetFrameIsMainFrame: navigationAction.targetFrame?.isMainFrame
-            ) {
+            )
+            if isCloudflareChallengeFrame {
+                GoogleOAuthHandoffDiagnostics.shared.recordCloudflareChallenge(allowed: allowsCloudflareChallenge)
+            }
+            if allowsCloudflareChallenge {
                 decisionHandler(.allow)
                 return
             }
@@ -473,11 +484,20 @@ struct BrowserWebView: NSViewRepresentable {
             decidePolicyFor navigationResponse: WKNavigationResponse,
             decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
         ) {
-            if CloudflareLoginNavigationPolicy.allowsChallengeFrame(
+            GoogleOAuthHandoffDiagnostics.shared.recordHTTPResponse(
+                navigationResponse.response,
+                isMainFrame: navigationResponse.isForMainFrame
+            )
+            let allowsCloudflareChallenge = CloudflareLoginNavigationPolicy.allowsChallengeFrame(
                 navigationResponse.response.url,
                 topLevelURL: webView.url,
                 targetFrameIsMainFrame: navigationResponse.isForMainFrame
-            ) {
+            )
+            if !navigationResponse.isForMainFrame,
+               GoogleOAuthHandoffDiagnostics.isCloudflareChallengeURL(navigationResponse.response.url) {
+                GoogleOAuthHandoffDiagnostics.shared.recordCloudflareChallenge(allowed: allowsCloudflareChallenge)
+            }
+            if allowsCloudflareChallenge {
                 decisionHandler(.allow)
                 return
             }

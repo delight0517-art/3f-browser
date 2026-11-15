@@ -398,33 +398,83 @@ struct BrowserSettingsView: View {
     }
 
     private var diagnosticsPage: some View {
-        settingsCard(title: "3F 브라우저 진단 로그", subtitle: "최근 100건 · 주소, 계정, 토큰, 페이지 내용은 저장하지 않습니다") {
-            HStack {
-                Text("기록 \(oauthDiagnostics.events.count)건 · \(oauthDiagnostics.saveStatus)")
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
-                Spacer()
-                Button("로그 폴더 열기") { oauthDiagnostics.openLogFolder() }
-                    .controlSize(.small)
-                Button("기록 지우기") { oauthDiagnostics.clear() }
-                    .controlSize(.small)
-                    .disabled(oauthDiagnostics.events.isEmpty)
+        VStack(alignment: .leading, spacing: 16) {
+            settingsCard(title: "실시간 브라우저 상태", subtitle: "현재 호스트와 정책 연결 상태를 표시합니다. 전체 URL이나 페이지 내용은 로그에 저장하지 않습니다.") {
+                VStack(spacing: 0) {
+                    statusRow("엔진", value: ExtensionCompatibility.currentEngine.rawValue, symbol: "globe")
+                    Divider()
+                    statusRow("현재 호스트", value: model.currentURL?.host ?? "열린 페이지 없음", symbol: "link")
+                    Divider()
+                    statusRow("페이지 상태", value: model.isLoading ? "불러오는 중" : model.currentURL == nil ? "새 탭" : "대기 중", symbol: model.isLoading ? "arrow.clockwise" : "checkmark.circle")
+                    Divider()
+                    statusRow("Focus Fence 인식", value: focusFence.recognitionStatus, symbol: "macwindow")
+                    Divider()
+                    statusRow("차단 규칙", value: focusFence.rulesStatus, symbol: "list.bullet.rectangle")
+                    Divider()
+                    statusRow("네트워크 필터", value: focusFence.filterStatus, symbol: "network")
+                    if let challenge = oauthDiagnostics.events.first(where: {
+                        $0.outcome == .cloudflareChallengeAllowed || $0.outcome == .cloudflareChallengeRejected
+                    }) {
+                        Divider()
+                        statusRow("최근 Cloudflare 프레임", value: challenge.outcome.rawValue, symbol: "checkmark.shield")
+                    }
+                    if let response = oauthDiagnostics.events.first(where: { $0.outcome == .httpResponse }) {
+                        Divider()
+                        statusRow("최근 HTTP 응답", value: response.detail ?? response.outcome.rawValue, symbol: "network")
+                    }
+                    if let failure = oauthDiagnostics.events.first(where: { $0.outcome == .navigationFailed }) {
+                        Divider()
+                        statusRow("최근 이동 오류", value: failure.detail ?? failure.outcome.rawValue, symbol: "exclamationmark.triangle")
+                    }
+                }
+                HStack {
+                    Text("\(ProcessInfo.processInfo.operatingSystemVersionString) · 3F \(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "버전 미상")")
+                        .font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Focus Fence 상태 새로 확인") { Task { await focusFence.refresh() } }
+                        .controlSize(.small)
+                }
+                .padding(.top, 8)
             }
-            if oauthDiagnostics.events.isEmpty {
-                emptyState("ladybug", "아직 브라우저 진단 이벤트가 없습니다.")
-            } else {
-                ForEach(oauthDiagnostics.events) { event in
-                    HStack(spacing: 10) {
-                        Text(event.date, style: .time)
+
+            settingsCard(title: "상세 이벤트 로그", subtitle: "최근 100건 · 로컬에 자동 저장 · URL, 쿼리, 계정, 쿠키, 토큰, 페이지 내용은 기록하지 않습니다") {
+                HStack {
+                    Text("\(oauthDiagnostics.events.count)건 · \(oauthDiagnostics.saveStatus)")
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("로그 폴더") { oauthDiagnostics.openLogFolder() }
+                        .controlSize(.small)
+                    Button("로그 지우기") { oauthDiagnostics.clear() }
+                        .controlSize(.small)
+                        .disabled(oauthDiagnostics.events.isEmpty)
+                }
+                if oauthDiagnostics.events.isEmpty {
+                    emptyState("ladybug", "아직 브라우저 진단 이벤트가 없습니다.")
+                } else {
+                    ForEach(oauthDiagnostics.events) { event in
+                        DisclosureGroup {
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text(event.date.formatted(date: .abbreviated, time: .standard))
+                                Text("이벤트 ID · \(event.id.uuidString)")
+                                Text("상세 · \(event.detail ?? "추가 정보 없음")")
+                            }
                             .font(.system(size: 10, design: .monospaced))
                             .foregroundStyle(.secondary)
-                        Text(event.outcome.rawValue)
-                            .font(.system(size: 11, weight: .medium))
-                        if let detail = event.detail {
-                            Text(detail).font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 5)
+                        } label: {
+                            HStack(spacing: 10) {
+                                Text(event.date, style: .time)
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                                Text(event.outcome.rawValue)
+                                    .font(.system(size: 11, weight: .medium))
+                                Spacer()
+                            }
+                            .contentShape(Rectangle())
                         }
-                        Spacer()
+                        .padding(.vertical, 3)
                     }
-                    .padding(.vertical, 4)
                 }
             }
         }

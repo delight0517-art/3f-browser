@@ -10,6 +10,13 @@ struct GoogleOAuthHandoffEvent: Identifiable, Equatable {
     let detail: String?
 
     enum Outcome: String {
+        case navigationStarted = "페이지 이동 시작"
+        case navigationCommitted = "페이지 응답 표시 시작"
+        case navigationFinished = "페이지 이동 완료"
+        case navigationFailed = "페이지 이동 실패"
+        case httpResponse = "HTTP 응답"
+        case cloudflareChallengeAllowed = "Cloudflare 검증 프레임 허용"
+        case cloudflareChallengeRejected = "Cloudflare 검증 프레임 거부"
         case opened = "Google 로그인 페이지 열림 · 3F 내부"
         case cefBrowserHandoff = "Google 인증을 3F Chromium 창으로 전달"
         case cefBrowserUnavailable = "3F Chromium 창 열기 실패"
@@ -83,6 +90,57 @@ final class GoogleOAuthHandoffDiagnostics: ObservableObject {
         events.insert(event, at: 0)
         if events.count > capacity { events.removeLast(events.count - capacity) }
         persist(event)
+    }
+
+    func recordNavigation(_ outcome: GoogleOAuthHandoffEvent.Outcome, url: URL?) {
+        guard [.navigationStarted, .navigationCommitted, .navigationFinished].contains(outcome) else { return }
+        let context = Self.contextLabel(for: url)
+        let scheme = url?.scheme?.uppercased() ?? "알 수 없음"
+        record(outcome, detail: "\(context) · \(scheme)", key: "\(outcome.rawValue)-\(UUID().uuidString)")
+    }
+
+    func recordNavigationFailure(_ error: Error, url: URL?) {
+        let webError = error as NSError
+        guard webError.code != NSURLErrorCancelled else { return }
+        let context = Self.contextLabel(for: url)
+        let domain: String
+        switch webError.domain {
+        case NSURLErrorDomain: domain = "URL"
+        case "WebKitErrorDomain": domain = "WebKit"
+        default: domain = "앱"
+        }
+        record(.navigationFailed, detail: "\(context) · \(domain) 오류 코드 \(webError.code)", key: "navigation-failed-\(UUID().uuidString)")
+    }
+
+    func recordHTTPResponse(_ response: URLResponse, isMainFrame: Bool) {
+        guard let http = response as? HTTPURLResponse else { return }
+        let context = Self.contextLabel(for: response.url)
+        guard http.statusCode >= 400 || context == "Cloudflare" else { return }
+        let frame = isMainFrame ? "기본 프레임" : "하위 프레임"
+        record(.httpResponse, detail: "\(context) · \(frame) · HTTP \(http.statusCode)", key: "http-\(context)-\(frame)-\(http.statusCode)")
+    }
+
+    func recordCloudflareChallenge(allowed: Bool) {
+        record(
+            allowed ? .cloudflareChallengeAllowed : .cloudflareChallengeRejected,
+            detail: "Cloudflare 비기본 프레임",
+            key: allowed ? "cloudflare-challenge-allowed" : "cloudflare-challenge-rejected"
+        )
+    }
+
+    nonisolated static func isCloudflareChallengeURL(_ url: URL?) -> Bool {
+        url?.host?.lowercased() == "challenges.cloudflare.com"
+    }
+
+    nonisolated static func contextLabel(for url: URL?) -> String {
+        guard let host = url?.host?.lowercased() else { return "웹페이지" }
+        if host == "dash.cloudflare.com" || host == "cloudflare.com" || host.hasSuffix(".cloudflare.com") {
+            return "Cloudflare"
+        }
+        if host == "accounts.google.com" || host == "consent.google.com" {
+            return "Google 인증"
+        }
+        return "웹페이지"
     }
 
     func handoff(_ url: URL, sourceURL: URL?) {
