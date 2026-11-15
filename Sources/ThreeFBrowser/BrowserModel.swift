@@ -359,7 +359,7 @@ final class BrowserModel: ObservableObject {
             navigationAuthorizationID = nil
             if CloudflareLoginNavigationPolicy.isLoginURL(destination) {
                 isLoading = false
-                if !NSWorkspace.shared.open(destination) {
+                if !openCloudflareLoginInAside(destination) {
                     addressBlockNotice = "기본 브라우저를 열지 못했습니다."
                 }
                 return
@@ -379,7 +379,7 @@ final class BrowserModel: ObservableObject {
             }
             if CloudflareLoginNavigationPolicy.isLoginURL(destination) {
                 self.isLoading = false
-                if !NSWorkspace.shared.open(destination) {
+                if !self.openCloudflareLoginInAside(destination) {
                     self.addressBlockNotice = "기본 브라우저를 열지 못했습니다."
                 }
                 return
@@ -387,6 +387,23 @@ final class BrowserModel: ObservableObject {
             self.currentURL = destination
             self.navigationRequestID += 1
         }
+    }
+
+    private func openCloudflareLoginInAside(_ url: URL) -> Bool {
+        guard let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "at.studio.AsideBrowser") else {
+            return false
+        }
+        NSWorkspace.shared.open(
+            [url],
+            withApplicationAt: appURL,
+            configuration: NSWorkspace.OpenConfiguration()
+        ) { [weak self] _, error in
+            guard error != nil else { return }
+            Task { @MainActor [weak self] in
+                self?.addressBlockNotice = "Aside에서 Cloudflare 로그인을 열지 못했습니다."
+            }
+        }
+        return true
     }
 
     private static func canonicalNavigationDestination(_ destination: URL) -> URL {
