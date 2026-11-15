@@ -8,7 +8,9 @@
   "canonicalRepo": "/Users/rogan/appDev/apps/3f-browser-mac",
   "baseCommit": "2065a8ee4d14c54f8e2395b077439e4b75027657",
   "sourceCommit": "72334646e7634c624cd70f2a68faf5502bdb97d7",
-  "ownedPaths": ["Sources/ThreeFBrowser/YouTubeUsageDashboardView.swift"],
+  "ownedPaths": [
+    "Sources/ThreeFBrowser/YouTubeUsageDashboardView.swift"
+  ],
   "authorization": "User asked to reduce the 3F Browser time-limit UI because it occupies too much screen and harms immersion and convenience.",
   "acceptance": [
     "Show a low-height summary row by default with daily/hourly usage and current restriction/connection state.",
@@ -17,7 +19,8 @@
   ],
   "validation": {
     "syntax": "swiftc -frontend -parse Sources/ThreeFBrowser/YouTubeUsageDashboardView.swift passed",
-    "diff": "git diff --check passed"
+    "diff": "git diff --check passed",
+    "release_build": "swift build --package-path . --build-path .build -c release --product ThreeFBrowser succeeded; executable SHA-256 2566ecf83351767a6b6e503dd5119cf2f054a59c9efa11af0e9587e69bd5dc96"
   },
-  "runtime": "No app build, install, or visible runtime check yet."
+  "runtime": "Compiled release executable is ready. No app bundle was packaged or installed; existing 3F Browser process and active page were preserved, so visual runtime confirmation is pending."
 }
