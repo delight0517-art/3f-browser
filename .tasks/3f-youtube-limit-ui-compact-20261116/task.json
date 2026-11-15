@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "taskKey": "3f-youtube-limit-ui-compact-20261116",
+  "product": "3F Browser",
+  "title": "Compact the YouTube usage limit UI",
+  "state": "active",
+  "ownerThread": "01a1d294-0253-71a1-8fe8-166a4bfa36c7",
+  "canonicalRepo": "/Users/rogan/appDev/apps/3f-browser-mac",
+  "baseCommit": "2065a8ee4d14c54f8e2395b077439e4b75027657",
+  "sourceCommit": "72334646e7634c624cd70f2a68faf5502bdb97d7",
+  "ownedPaths": ["Sources/ThreeFBrowser/YouTubeUsageDashboardView.swift"],
+  "authorization": "User asked to reduce the 3F Browser time-limit UI because it occupies too much screen and harms immersion and convenience.",
+  "acceptance": [
+    "Show a low-height summary row by default with daily/hourly usage and current restriction/connection state.",
+    "Keep the existing detailed meters, resume guidance, and synchronization explanation available behind a user-controlled disclosure.",
+    "Preserve unrelated dirty browser changes and do not change playback/feed limit behavior."
+  ],
+  "validation": {
+    "syntax": "swiftc -frontend -parse Sources/ThreeFBrowser/YouTubeUsageDashboardView.swift passed",
+    "diff": "git diff --check passed"
+  },
+  "runtime": "No app build, install, or visible runtime check yet."
+}
