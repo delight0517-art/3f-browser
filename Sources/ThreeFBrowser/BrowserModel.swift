@@ -1,6 +1,7 @@
 import Combine
 import CryptoKit
 import Foundation
+import AppKit
 import SwiftUI
 
 enum SearchProvider: String, CaseIterable, Identifiable {
@@ -356,6 +357,13 @@ final class BrowserModel: ObservableObject {
         isLoading = true
         guard let authorize else {
             navigationAuthorizationID = nil
+            if CloudflareLoginNavigationPolicy.isLoginURL(destination) {
+                isLoading = false
+                if !NSWorkspace.shared.open(destination) {
+                    addressBlockNotice = "기본 브라우저를 열지 못했습니다."
+                }
+                return
+            }
             currentURL = destination
             navigationRequestID += 1
             return
@@ -367,6 +375,13 @@ final class BrowserModel: ObservableObject {
             self.navigationAuthorizationID = nil
             guard decision.isAllowed else {
                 self.pageDidRejectNavigation(decision, for: destination)
+                return
+            }
+            if CloudflareLoginNavigationPolicy.isLoginURL(destination) {
+                self.isLoading = false
+                if !NSWorkspace.shared.open(destination) {
+                    self.addressBlockNotice = "기본 브라우저를 열지 못했습니다."
+                }
                 return
             }
             self.currentURL = destination
