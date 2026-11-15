@@ -49,6 +49,20 @@ final class YouTubePolicyFeedbackTests: XCTestCase {
     }
 
     @MainActor
+    func testFFRefreshFailureRetainsLastConfirmedYouTubeUsage() throws {
+        let model = BrowserModel()
+        let lastKnown = try summary(["todaySeconds": 480, "blocked": false])
+            .withPolicy(policy(["youtubeQuotaBlocked": false]))
+
+        model.applyYouTubeUsageRefresh(lastKnown)
+        model.applyYouTubeUsageRefresh(nil)
+
+        XCTAssertEqual(model.youtubeUsageSummary, lastKnown)
+        XCTAssertTrue(model.youtubeUsageUnavailable,
+                      "the dashboard must keep the last known values and report the FF disconnect")
+    }
+
+    @MainActor
     func testRejectedYouTubeNavigationStillHasAUsageContextAndNoLoadingSpinner() {
         let model = BrowserModel()
         let url = URL(string: "https://www.youtube.com/shorts/abcdefghijk")!

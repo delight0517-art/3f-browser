@@ -475,7 +475,17 @@ final class BrowserModel: ObservableObject {
         guard let summary = await FocusFenceYouTubeUsageClient.fetch(),
               youtubeContextURL == requestedURL else {
             guard youtubeContextURL == requestedURL else { return }
-            youtubeUsageSummary = nil
+            // Keep the last confirmed snapshot visible while FF is unavailable.
+            // Playback enforcement has its own local policy/usage ledger; dropping
+            // this summary only turns a transient connection failure into a blank UI.
+            youtubeUsageUnavailable = true
+            return
+        }
+        applyYouTubeUsageRefresh(summary)
+    }
+
+    func applyYouTubeUsageRefresh(_ summary: FocusFenceYouTubeUsageSummary?) {
+        guard let summary else {
             youtubeUsageUnavailable = true
             return
         }

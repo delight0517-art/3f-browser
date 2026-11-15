@@ -63,6 +63,13 @@ struct YouTubeUsageDashboardView: View {
                         .monospacedDigit()
                 }
 
+                if unavailable {
+                    Label("FF 연결 끊김 · 마지막 정상 사용량과 설정을 표시 중", systemImage: "wifi.slash")
+                        .font(.system(size: 10))
+                        .foregroundStyle(YouTubeUsagePalette.muted)
+                        .lineLimit(1)
+                }
+
                 if let sync = summary.synchronizationExplanation {
                     Label(sync, systemImage: "arrow.triangle.2.circlepath")
                         .font(.system(size: 10))
