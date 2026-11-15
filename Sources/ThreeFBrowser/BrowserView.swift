@@ -8,6 +8,9 @@ struct BrowserView: View {
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismiss) private var dismiss
     @State private var webView: WKWebView?
+    @State private var tabWebViews: [UUID: WKWebView] = [:]
+    @State private var mountedTabIDs: Set<UUID> = []
+    @State private var tabNavigationRequestIDs: [UUID: Int] = [:]
     @State private var canGoBack = false
     @State private var canGoForward = false
     @State private var tabs: [BrowserSessionTab]
@@ -104,7 +107,13 @@ struct BrowserView: View {
             onPageStateChange?(url)
         }
         .onChange(of: model.navigationRequestID) { _, _ in
+            if let selectedTabID { tabNavigationRequestIDs[selectedTabID] = model.navigationRequestID }
             pulseNavigationFeedback()
+        }
+        .onChange(of: selectedTabID) { _, tabID in
+            guard let tabID else { webView = nil; return }
+            mountedTabIDs.insert(tabID)
+            webView = tabWebViews[tabID]
         }
         .onChange(of: webView) { _, _ in
             attachWebViewIfActive()
@@ -153,38 +162,12 @@ struct BrowserView: View {
 
     private var browserContent: some View {
         ZStack {
-            BrowserWebView(
-                url: $model.currentURL,
-                requestID: $model.navigationRequestID,
-                webView: $webView,
-                authorizeNavigation: authorizeNavigation,
-                onRejectedNavigation: { url, decision in
-                    model.pageDidRejectNavigation(decision, for: url)
-                    onBlockedNavigation?(url)
-                },
-                allowsDownloads: !embedded,
-                onDownloadStatus: { model.downloadStatus = $0 },
-                onWindowAttached: { attachedView in
-                    let viewWindow = attachedView.window
-                    let keyWindow = NSApp.keyWindow
-                    guard ThreeFBrowserWindowRouting.targets(viewWindow, window: keyWindow) else { return }
-                    onWebView?(model, attachedView)
-                },
-                onNavigationStarted: { model.pageDidStartNavigation(to: $0) },
-                onNavigationCommitted: { model.pageDidCommitNavigation(to: $0) },
-                onLoadingChanged: { model.isLoading = $0 },
-                onNavigationFailed: { model.pageDidFailToNavigate($0) },
-                onOpenLinkInNewTab: addTab(for:),
-                onOpenBackgroundTab: addBackgroundTab(for:),
-                onOpenLinkInNewWindow: openLinkInNewWindow,
-                onNavigation: { url, title in
-                    model.pageDidNavigate(to: url, title: title)
-                    updateActiveTab(url: url, title: title)
-                },
-                onNavigationState: { canGoBack = $0; canGoForward = $1 }
-            )
-            .opacity(model.currentURL == nil ? 0 : 1)
-            .allowsHitTesting(model.currentURL != nil)
+            ForEach(tabs.filter { mountedTabIDs.contains($0.id) }) { tab in
+                tabWebContent(for: tab)
+                    .opacity(selectedTabID == tab.id ? 1 : 0)
+                    .allowsHitTesting(selectedTabID == tab.id)
+                    .zIndex(selectedTabID == tab.id ? 1 : 0)
+            }
 
             if model.currentURL == nil { newTabPage }
         }
@@ -199,6 +182,71 @@ struct BrowserView: View {
         } message: {
             Text(readerFailure ?? "페이지 본문을 찾지 못했습니다.")
         }
+    }
+
+    private func tabWebContent(for tab: BrowserSessionTab) -> some View {
+        let tabID = tab.id
+        let url = Binding<URL?>(
+            get: {
+                guard let savedURL = tabs.first(where: { $0.id == tabID })?.url else { return nil }
+                return selectedTabID == tabID ? model.currentURL : savedURL
+            },
+            set: { updateTab(tabID: tabID, url: $0, title: $0?.host) }
+        )
+        let requestID = Binding<Int>(
+            get: { tabNavigationRequestIDs[tabID] ?? 0 },
+            set: { tabNavigationRequestIDs[tabID] = $0 }
+        )
+        let tabWebView = Binding<WKWebView?>(
+            get: { tabWebViews[tabID] },
+            set: { view in
+                tabWebViews[tabID] = view
+                if selectedTabID == tabID { webView = view }
+            }
+        )
+        return BrowserWebView(
+            url: url,
+            requestID: requestID,
+            webView: tabWebView,
+            authorizeNavigation: authorizeNavigation,
+            onRejectedNavigation: { rejectedURL, decision in
+                guard selectedTabID == tabID else { return }
+                model.pageDidRejectNavigation(decision, for: rejectedURL)
+                onBlockedNavigation?(rejectedURL)
+            },
+            allowsDownloads: !embedded,
+            onDownloadStatus: { if selectedTabID == tabID { model.downloadStatus = $0 } },
+            onWindowAttached: { attachedView in
+                guard selectedTabID == tabID else { return }
+                guard ThreeFBrowserWindowRouting.targets(attachedView.window, window: NSApp.keyWindow) else { return }
+                onWebView?(model, attachedView)
+            },
+            onNavigationStarted: { if selectedTabID == tabID { model.pageDidStartNavigation(to: $0) } },
+            onNavigationCommitted: { if selectedTabID == tabID { model.pageDidCommitNavigation(to: $0) } },
+            onLoadingChanged: { if selectedTabID == tabID { model.isLoading = $0 } },
+            onNavigationFailed: { if selectedTabID == tabID { model.pageDidFailToNavigate($0) } },
+            onOpenLinkInNewTab: addTab(for:),
+            onOpenBackgroundTab: addBackgroundTab(for:),
+            onOpenLinkInNewWindow: openLinkInNewWindow,
+            onNavigation: { value, title in
+                updateTab(tabID: tabID, url: value, title: title)
+                if selectedTabID == tabID { model.pageDidNavigate(to: value, title: title) }
+            },
+            onNavigationState: { back, forward in
+                if selectedTabID == tabID { canGoBack = back; canGoForward = forward }
+            }
+        )
+    }
+
+    private func updateTab(tabID: UUID, url: URL?, title: String?) {
+        guard let index = tabs.firstIndex(where: { $0.id == tabID }) else { return }
+        tabs[index].url = url
+        if aiMode, let url, AIModeNavigationPolicy.isOnlyChatLocalOrigin(url) {
+            tabs[index].title = "Only Chat"
+        } else {
+            tabs[index].title = title?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? url?.host ?? "새 탭"
+        }
+        saveSession()
     }
 
     private func consumeExternalURLs() {
@@ -504,13 +552,14 @@ struct BrowserView: View {
     private func addTab(for url: URL) {
         guard let url = ThreeFContextMenuPolicy.safeHTTPURL(url) else { return }
         saveCurrentTab()
-        let tab = BrowserSessionTab(title: url.host ?? "새 탭", url: url)
+        let tab = BrowserSessionTab(title: url.host ?? "새 탭")
         tabs.append(tab)
         selectedTabID = BrowserTabSelectionPolicy.selectedTabID(
             currentSelection: selectedTabID,
             newlyOpenedTabID: tab.id,
             opensInBackground: false
         )
+        tabNavigationRequestIDs[tab.id] = model.navigationRequestID + 1
         model.navigate(to: url, authorize: authorizeNavigation)
         canGoBack = false
         canGoForward = false
@@ -580,10 +629,17 @@ struct BrowserView: View {
         guard selectedTabID != tab.id else { return }
         saveCurrentTab()
         selectedTabID = tab.id
+        mountedTabIDs.insert(tab.id)
+        webView = tabWebViews[tab.id]
         canGoBack = false
         canGoForward = false
-        if let url = tab.url { model.navigate(to: url, authorize: authorizeNavigation) }
-        else { model.showNewTab() }
+        if let url = tab.url {
+            model.currentURL = url
+            model.addressText = url.absoluteString
+            model.isLoading = tabWebViews[tab.id]?.isLoading ?? false
+        } else {
+            model.showNewTab()
+        }
         saveSession()
     }
 
@@ -595,13 +651,23 @@ struct BrowserView: View {
         }
         let wasSelected = selectedTabID == tab.id
         tabs.remove(at: index)
+        mountedTabIDs.remove(tab.id)
+        tabWebViews.removeValue(forKey: tab.id)
+        tabNavigationRequestIDs.removeValue(forKey: tab.id)
         guard wasSelected else { saveSession(); return }
         let replacement = tabs[min(index, tabs.count - 1)]
         selectedTabID = replacement.id
+        mountedTabIDs.insert(replacement.id)
+        webView = tabWebViews[replacement.id]
         canGoBack = false
         canGoForward = false
-        if let url = replacement.url { model.navigate(to: url, authorize: authorizeNavigation) }
-        else { model.showNewTab() }
+        if let url = replacement.url {
+            model.currentURL = url
+            model.addressText = url.absoluteString
+            model.isLoading = tabWebViews[replacement.id]?.isLoading ?? false
+        } else {
+            model.showNewTab()
+        }
         saveSession()
     }
 
@@ -652,25 +718,43 @@ struct BrowserView: View {
     }
 
     private func initializeWindow() {
-        guard !embedded, !didRestoreSession else { return }
+        if embedded {
+            if let selectedTabID { mountedTabIDs.insert(selectedTabID) }
+            return
+        }
+        guard !didRestoreSession else { return }
         didRestoreSession = true
         if let installedWebApp, let destination = installedWebApp.destination {
+            if let selectedTabID {
+                mountedTabIDs.insert(selectedTabID)
+                tabNavigationRequestIDs[selectedTabID] = model.navigationRequestID + 1
+            }
             model.navigate(to: destination, authorize: authorizeNavigation)
             return
         }
         let session = try? BrowserSessionStore.restoreWindow(sessionStorageWindowID, in: sessionStorageDirectory)
         if !aiMode, let destination = ThreeFContextMenuWindowRoute.takeNext() {
+            if let selectedTabID {
+                mountedTabIDs.insert(selectedTabID)
+                tabNavigationRequestIDs[selectedTabID] = model.navigationRequestID + 1
+            }
             model.navigate(to: destination, authorize: authorizeNavigation)
             return
         }
         guard let session else {
-            if aiMode, let url = tabs.first?.url { model.navigate(to: url, authorize: authorizeNavigation) }
+            if let selectedTabID { mountedTabIDs.insert(selectedTabID) }
+            if aiMode, let url = tabs.first?.url {
+                if let selectedTabID { tabNavigationRequestIDs[selectedTabID] = model.navigationRequestID + 1 }
+                model.navigate(to: url, authorize: authorizeNavigation)
+            }
             return
         }
         tabs = session.tabs
         selectedTabID = session.selectedTabID ?? session.tabs.first?.id
+        if let selectedTabID { mountedTabIDs.insert(selectedTabID) }
         if let selectedTabID,
            let restoredURL = tabs.first(where: { $0.id == selectedTabID })?.url {
+            tabNavigationRequestIDs[selectedTabID] = model.navigationRequestID + 1
             model.navigate(to: restoredURL, authorize: authorizeNavigation)
         }
     }
