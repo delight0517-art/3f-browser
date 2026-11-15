@@ -217,6 +217,9 @@ final class BrowserModel: ObservableObject {
                 rules: Self.cachedFocusFenceRules
             )
         }
+        if history.count != savedHistory.count {
+            Self.save(history, forKey: historyKey, preferences: preferences)
+        }
         reloadThemeModule()
     }
 
