@@ -435,6 +435,18 @@ struct BrowserSettingsView: View {
                         statusRow("최근 이동 오류", value: failure.detail ?? failure.outcome.rawValue, symbol: "exclamationmark.triangle")
                     }
                 }
+                Divider().padding(.vertical, 10)
+                HStack {
+                    Button("Firefox에서 Cloudflare 로그인 열기") {
+                        openCloudflareLogin(bundleIdentifier: "org.mozilla.firefox", browserName: "Firefox")
+                    }.controlSize(.small)
+                    Button("Safari에서 Cloudflare 로그인 열기") {
+                        openCloudflareLogin(bundleIdentifier: "com.apple.Safari", browserName: "Safari")
+                    }.controlSize(.small)
+                }
+                Text("임베디드 WebKit과 전체 브라우저의 검증 동작을 비교합니다. 로그인 세션은 3F와 공유되지 않습니다.")
+                    .font(.system(size: 10)).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 HStack {
                     Text("\(ProcessInfo.processInfo.operatingSystemVersionString) · 3F \(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "버전 미상")")
                         .font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
@@ -483,6 +495,29 @@ struct BrowserSettingsView: View {
                         }
                         .padding(.vertical, 3)
                     }
+                }
+            }
+        }
+    }
+
+    private func openCloudflareLogin(bundleIdentifier: String, browserName: String) {
+        guard let url = URL(string: "https://dash.cloudflare.com/login"),
+              let applicationURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) else {
+            oauthDiagnostics.record(.cloudflareExternalBrowserUnavailable, detail: browserName,
+                                    key: "cloudflare-external-browser-unavailable-\(bundleIdentifier)")
+            return
+        }
+        let configuration = NSWorkspace.OpenConfiguration()
+        NSWorkspace.shared.open([url], withApplicationAt: applicationURL, configuration: configuration) { _, error in
+            Task { @MainActor in
+                if let error {
+                    let failure = error as NSError
+                    oauthDiagnostics.record(.cloudflareExternalBrowserFailed,
+                                            detail: "\(browserName) · \(failure.domain) \(failure.code)",
+                                            key: "cloudflare-external-browser-failed-\(bundleIdentifier)")
+                } else {
+                    oauthDiagnostics.record(.cloudflareExternalBrowserOpened, detail: browserName,
+                                            key: "cloudflare-external-browser-opened-\(bundleIdentifier)")
                 }
             }
         }
