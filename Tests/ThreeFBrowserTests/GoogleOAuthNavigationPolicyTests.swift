@@ -14,19 +14,31 @@ final class GoogleOAuthNavigationPolicyTests: XCTestCase {
         ))
     }
 
-    func testOnlyRuntimeVerifiedSafariOrAsideCanReceiveAuthentication() {
-        let safari = Data(#"{"browsers":[{"browser":"safari","bundleID":"com.apple.Safari","extensionReady":true,"blockedByFallback":false,"urlRulesStateKnown":true,"urlRulesProtected":true,"blockedForUnprotectedURLRules":false,"usageCollectionAvailable":true}]}"#.utf8)
-        let aside = Data(#"{"browsers":[{"browser":"aside","bundleID":"at.studio.AsideBrowser","extensionReady":true,"blockedByFallback":false,"urlRulesStateKnown":true,"urlRulesProtected":true,"blockedForUnprotectedURLRules":false,"usageCollectionAvailable":true}]}"#.utf8)
-        let firefoxOnly = Data(#"{"browsers":[{"browser":"firefox","bundleID":"org.mozilla.firefox","extensionReady":true,"blockedByFallback":false,"urlRulesStateKnown":true,"urlRulesProtected":true,"blockedForUnprotectedURLRules":false,"usageCollectionAvailable":true}]}"#.utf8)
-        let unsafe = Data(#"{"browsers":[{"browser":"safari","bundleID":"com.apple.Safari","extensionReady":true,"blockedByFallback":true,"urlRulesStateKnown":false,"urlRulesProtected":false,"blockedForUnprotectedURLRules":true,"usageCollectionAvailable":true}]}"#.utf8)
-        let wrongBundle = Data(#"{"browsers":[{"browser":"safari","bundleID":"evil.browser","extensionReady":true,"blockedByFallback":false,"urlRulesStateKnown":true,"urlRulesProtected":true,"blockedForUnprotectedURLRules":false,"usageCollectionAvailable":true}]}"#.utf8)
+    func testHandoffRequiresVerifiedBrowserAndAllRequestedBlockCategories() {
+        let safariStatus = Data(#"{"browsers":[{"browser":"safari","bundleID":"com.apple.Safari","extensionReady":true,"blockedByFallback":false,"urlRulesStateKnown":true,"urlRulesProtected":true,"blockedForUnprotectedURLRules":false,"usageCollectionAvailable":true},{"browser":"aside","bundleID":"at.studio.AsideBrowser","extensionReady":true,"blockedByFallback":false,"urlRulesStateKnown":true,"urlRulesProtected":true,"blockedForUnprotectedURLRules":false,"usageCollectionAvailable":true}]}"#.utf8)
+        let asideFallbackStatus = Data(#"{"browsers":[{"browser":"safari","bundleID":"com.apple.Safari","extensionReady":false,"blockedByFallback":true,"urlRulesStateKnown":false,"urlRulesProtected":false,"blockedForUnprotectedURLRules":true,"usageCollectionAvailable":true},{"browser":"aside","bundleID":"at.studio.AsideBrowser","extensionReady":true,"blockedByFallback":false,"urlRulesStateKnown":true,"urlRulesProtected":true,"blockedForUnprotectedURLRules":false,"usageCollectionAvailable":true}]}"#.utf8)
+        let validRules = Data(#"{"blockedDomains":["webtoon.naver.com","comic.naver.com","lezhin.com","toomics.com","webtoons.com"],"blockedUrlParts":["google.com/search","series.naver.com/webtoon","ridibooks.com/webtoon"],"youtubeQuotaBlocked":true,"youtubeBlockedByActiveSchedule":false,"blockExceptions":[]}"#.utf8)
+        let youtubeException = Data(#"{"blockedDomains":["webtoon.naver.com","comic.naver.com","lezhin.com","toomics.com","webtoons.com"],"blockedUrlParts":["google.com/search","series.naver.com/webtoon","ridibooks.com/webtoon"],"youtubeQuotaBlocked":true,"youtubeBlockedByActiveSchedule":false,"blockExceptions":["youtube.com"]}"#.utf8)
+        let missingGoogleSearch = Data(#"{"blockedDomains":["webtoon.naver.com","comic.naver.com","lezhin.com","toomics.com","webtoons.com"],"blockedUrlParts":["series.naver.com/webtoon","ridibooks.com/webtoon"],"youtubeQuotaBlocked":true,"blockExceptions":[]}"#.utf8)
 
-        XCTAssertEqual(GoogleOAuthNavigationPolicy.verifiedAuthenticationBrowserBundleID(safari), "com.apple.Safari")
-        XCTAssertEqual(GoogleOAuthNavigationPolicy.verifiedAuthenticationBrowserBundleID(aside), "at.studio.AsideBrowser")
-        XCTAssertNil(GoogleOAuthNavigationPolicy.verifiedAuthenticationBrowserBundleID(firefoxOnly))
-        XCTAssertNil(GoogleOAuthNavigationPolicy.verifiedAuthenticationBrowserBundleID(unsafe))
-        XCTAssertNil(GoogleOAuthNavigationPolicy.verifiedAuthenticationBrowserBundleID(wrongBundle))
-        XCTAssertNil(GoogleOAuthNavigationPolicy.verifiedAuthenticationBrowserBundleID(nil))
+        XCTAssertEqual(GoogleOAuthNavigationPolicy.verifiedAuthenticationBrowserBundleID(
+            safariStatus, safariRulesData: validRules, asideRulesData: validRules
+        ), "com.apple.Safari")
+        XCTAssertEqual(GoogleOAuthNavigationPolicy.verifiedAuthenticationBrowserBundleID(
+            asideFallbackStatus, safariRulesData: validRules, asideRulesData: validRules
+        ), "at.studio.AsideBrowser")
+        XCTAssertNil(GoogleOAuthNavigationPolicy.verifiedAuthenticationBrowserBundleID(
+            safariStatus, safariRulesData: youtubeException, asideRulesData: youtubeException
+        ))
+        XCTAssertNil(GoogleOAuthNavigationPolicy.verifiedAuthenticationBrowserBundleID(
+            safariStatus, safariRulesData: missingGoogleSearch, asideRulesData: missingGoogleSearch
+        ))
+        XCTAssertNil(GoogleOAuthNavigationPolicy.verifiedAuthenticationBrowserBundleID(
+            safariStatus, safariRulesData: nil, asideRulesData: nil
+        ))
+        XCTAssertNil(GoogleOAuthNavigationPolicy.verifiedAuthenticationBrowserBundleID(
+            nil, safariRulesData: validRules, asideRulesData: validRules
+        ))
     }
 
     func testExplicitlyBlockedOriginCannotStartGoogleAuthentication() throws {

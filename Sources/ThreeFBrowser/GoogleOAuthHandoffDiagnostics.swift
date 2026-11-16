@@ -347,12 +347,21 @@ final class GoogleOAuthHandoffDiagnostics: ObservableObject {
                 self.record(.focusFenceBlocked, detail: "인증을 시작한 사이트가 차단됨", key: "google-aside-focus-fence-blocked")
                 return
             }
-            guard let statusData = await Self.fetchBrowserProtectionStatus(),
-                  let browserBundleID = GoogleOAuthNavigationPolicy.verifiedAuthenticationBrowserBundleID(statusData) else {
+            async let statusData = Self.fetchBrowserProtectionStatus()
+            async let safariRulesData = Self.fetchBrowserRules(browser: "safari")
+            async let asideRulesData = Self.fetchBrowserRules(browser: "aside")
+            guard let status = await statusData,
+                  let safariRules = await safariRulesData,
+                  let asideRules = await asideRulesData,
+                  let browserBundleID = GoogleOAuthNavigationPolicy.verifiedAuthenticationBrowserBundleID(
+                    status,
+                    safariRulesData: safariRules,
+                    asideRulesData: asideRules
+                  ) else {
                 self.pendingHandoffKeys.remove(handoffKey)
                 self.record(
                     .browserProtectionUnverified,
-                    detail: "Focus Fence가 Safari와 Aside의 확장·검색·웹툰 차단 상태를 확인하지 못함",
+                    detail: "Focus Fence가 Safari와 Aside의 YouTube·Google 검색·웹툰 차단을 모두 확인하지 못함",
                     key: "google-aside-protection-unverified"
                 )
                 return
@@ -383,7 +392,23 @@ final class GoogleOAuthHandoffDiagnostics: ObservableObject {
     }
 
     private static func fetchBrowserProtectionStatus() async -> Data? {
-        guard let url = URL(string: "http://127.0.0.1:17361/usage/browser-protection") else { return nil }
+        await fetchFocusFenceData(path: "/usage/browser-protection")
+    }
+
+    private static func fetchBrowserRules(browser: String) async -> Data? {
+        guard ["safari", "aside"].contains(browser),
+              var components = URLComponents(string: "http://127.0.0.1:17361/rules") else { return nil }
+        components.queryItems = [URLQueryItem(name: "browser", value: browser)]
+        guard let url = components.url else { return nil }
+        return await fetchFocusFenceData(url: url)
+    }
+
+    private static func fetchFocusFenceData(path: String) async -> Data? {
+        guard let url = URL(string: "http://127.0.0.1:17361\(path)") else { return nil }
+        return await fetchFocusFenceData(url: url)
+    }
+
+    private static func fetchFocusFenceData(url: URL) async -> Data? {
         var request = URLRequest(url: url)
         request.timeoutInterval = 2
         guard let (data, response) = try? await URLSession.shared.data(for: request),
