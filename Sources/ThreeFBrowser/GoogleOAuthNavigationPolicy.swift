@@ -81,7 +81,15 @@ enum GoogleOAuthNavigationPolicy {
             "webtoons.com",
             "ridibooks.com/webtoon"
         ]
-        let youtubeBlocked = domains.contains { $0 == "youtube.com" || $0 == "youtu.be" }
+        let youtubeSiteExcepted = exceptions.contains { exception in
+            let host = exception.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+            return ["youtube.com", "youtu.be"].contains { target in
+                target == host || target.hasSuffix(".\(host)")
+            }
+        }
+        // YouTube's host exception allows browsing to the site; it does not
+        // disable the extension's separate playback quota/schedule overlay.
+        let youtubeBlocked = (!youtubeSiteExcepted && domains.contains { $0 == "youtube.com" || $0 == "youtu.be" })
             || rules["youtubeQuotaBlocked"] as? Bool == true
             || rules["youtubeBlockedByActiveSchedule"] as? Bool == true
         let googleSearchBlocked = parts.contains { $0.contains("google.com/search") }
@@ -89,10 +97,12 @@ enum GoogleOAuthNavigationPolicy {
             domains.contains { $0 == target || $0.hasSuffix(".\(target)") }
                 || parts.contains { $0.contains(target) }
         }
-        let sensitiveTargets = ["youtube.com", "youtu.be", "google.com/search"] + requiredWebtoonTargets
+        let protectedHosts = ["google.com", "www.google.com", "www.google.co.kr"] + requiredWebtoonTargets
+            .filter { !$0.contains("/") }
+            + ["series.naver.com", "ridibooks.com"]
         let hasTargetException = exceptions.contains { exception in
-            let normalized = exception.lowercased()
-            return sensitiveTargets.contains { normalized.contains($0) }
+            let host = exception.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+            return protectedHosts.contains { target in target == host || target.hasSuffix(".\(host)") }
         }
         return youtubeBlocked && googleSearchBlocked && webtoonsBlocked && !hasTargetException
     }

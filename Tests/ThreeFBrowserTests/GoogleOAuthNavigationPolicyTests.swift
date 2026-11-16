@@ -17,8 +17,9 @@ final class GoogleOAuthNavigationPolicyTests: XCTestCase {
     func testHandoffRequiresVerifiedBrowserAndAllRequestedBlockCategories() {
         let safariStatus = Data(#"{"browsers":[{"browser":"safari","bundleID":"com.apple.Safari","extensionReady":true,"blockedByFallback":false,"urlRulesStateKnown":true,"urlRulesProtected":true,"blockedForUnprotectedURLRules":false,"usageCollectionAvailable":true},{"browser":"aside","bundleID":"at.studio.AsideBrowser","extensionReady":true,"blockedByFallback":false,"urlRulesStateKnown":true,"urlRulesProtected":true,"blockedForUnprotectedURLRules":false,"usageCollectionAvailable":true}]}"#.utf8)
         let asideFallbackStatus = Data(#"{"browsers":[{"browser":"safari","bundleID":"com.apple.Safari","extensionReady":false,"blockedByFallback":true,"urlRulesStateKnown":false,"urlRulesProtected":false,"blockedForUnprotectedURLRules":true,"usageCollectionAvailable":true},{"browser":"aside","bundleID":"at.studio.AsideBrowser","extensionReady":true,"blockedByFallback":false,"urlRulesStateKnown":true,"urlRulesProtected":true,"blockedForUnprotectedURLRules":false,"usageCollectionAvailable":true}]}"#.utf8)
-        let validRules = Data(#"{"blockedDomains":["webtoon.naver.com","comic.naver.com","lezhin.com","toomics.com","webtoons.com"],"blockedUrlParts":["google.com/search","series.naver.com/webtoon","ridibooks.com/webtoon"],"youtubeQuotaBlocked":true,"youtubeBlockedByActiveSchedule":false,"blockExceptions":[]}"#.utf8)
-        let youtubeException = Data(#"{"blockedDomains":["webtoon.naver.com","comic.naver.com","lezhin.com","toomics.com","webtoons.com"],"blockedUrlParts":["google.com/search","series.naver.com/webtoon","ridibooks.com/webtoon"],"youtubeQuotaBlocked":true,"youtubeBlockedByActiveSchedule":false,"blockExceptions":["youtube.com"]}"#.utf8)
+        let validRules = Data(#"{"blockedDomains":["webtoon.naver.com","comic.naver.com","lezhin.com","toomics.com","webtoons.com"],"blockedUrlParts":["google.com/search","series.naver.com/webtoon","ridibooks.com/webtoon"],"youtubeQuotaBlocked":true,"youtubeBlockedByActiveSchedule":false,"blockExceptions":["youtube.com"]}"#.utf8)
+        let youtubeExceptionWithoutQuota = Data(#"{"blockedDomains":["webtoon.naver.com","comic.naver.com","lezhin.com","toomics.com","webtoons.com"],"blockedUrlParts":["google.com/search","series.naver.com/webtoon","ridibooks.com/webtoon"],"youtubeQuotaBlocked":false,"youtubeBlockedByActiveSchedule":false,"blockExceptions":["youtube.com"]}"#.utf8)
+        let googleSearchException = Data(#"{"blockedDomains":["webtoon.naver.com","comic.naver.com","lezhin.com","toomics.com","webtoons.com"],"blockedUrlParts":["google.com/search","series.naver.com/webtoon","ridibooks.com/webtoon"],"youtubeQuotaBlocked":true,"youtubeBlockedByActiveSchedule":false,"blockExceptions":["google.com"]}"#.utf8)
         let missingGoogleSearch = Data(#"{"blockedDomains":["webtoon.naver.com","comic.naver.com","lezhin.com","toomics.com","webtoons.com"],"blockedUrlParts":["series.naver.com/webtoon","ridibooks.com/webtoon"],"youtubeQuotaBlocked":true,"blockExceptions":[]}"#.utf8)
 
         XCTAssertEqual(GoogleOAuthNavigationPolicy.verifiedAuthenticationBrowserBundleID(
@@ -28,7 +29,10 @@ final class GoogleOAuthNavigationPolicyTests: XCTestCase {
             asideFallbackStatus, safariRulesData: validRules, asideRulesData: validRules
         ), "at.studio.AsideBrowser")
         XCTAssertNil(GoogleOAuthNavigationPolicy.verifiedAuthenticationBrowserBundleID(
-            safariStatus, safariRulesData: youtubeException, asideRulesData: youtubeException
+            safariStatus, safariRulesData: youtubeExceptionWithoutQuota, asideRulesData: youtubeExceptionWithoutQuota
+        ))
+        XCTAssertNil(GoogleOAuthNavigationPolicy.verifiedAuthenticationBrowserBundleID(
+            safariStatus, safariRulesData: googleSearchException, asideRulesData: googleSearchException
         ))
         XCTAssertNil(GoogleOAuthNavigationPolicy.verifiedAuthenticationBrowserBundleID(
             safariStatus, safariRulesData: missingGoogleSearch, asideRulesData: missingGoogleSearch
