@@ -357,7 +357,7 @@ final class GoogleOAuthHandoffDiagnostics: ObservableObject {
                 return
             }
             let configuration = NSWorkspace.OpenConfiguration()
-            NSWorkspace.shared.open([url], withApplicationAt: asideURL, configuration: configuration) { _, error in
+            NSWorkspace.shared.open([url], withApplicationAt: asideURL, configuration: configuration) { [weak self] _, error in
                 Task { @MainActor [weak self] in
                     guard let self else { return }
                     self.pendingHandoffKeys.remove(handoffKey)
