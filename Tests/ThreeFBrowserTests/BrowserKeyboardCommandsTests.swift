@@ -22,6 +22,15 @@ final class BrowserKeyboardCommandsTests: XCTestCase {
         XCTAssertNil(ThreeFBrowserKeyboardAction.resolve(keyCode: 53, command: false, shift: false, isFullScreen: false))
     }
 
+    func testCommandZoomControls() {
+        XCTAssertEqual(ThreeFBrowserKeyboardAction.resolve(keyCode: 24, command: true, shift: false, isFullScreen: false), .zoomIn)
+        XCTAssertEqual(ThreeFBrowserKeyboardAction.resolve(keyCode: 69, command: true, shift: false, isFullScreen: false), .zoomIn)
+        XCTAssertEqual(ThreeFBrowserKeyboardAction.resolve(keyCode: 27, command: true, shift: false, isFullScreen: false), .zoomOut)
+        XCTAssertEqual(ThreeFBrowserKeyboardAction.resolve(keyCode: 78, command: true, shift: false, isFullScreen: false), .zoomOut)
+        XCTAssertEqual(ThreeFBrowserKeyboardAction.resolve(keyCode: 29, command: true, shift: false, isFullScreen: false), .resetZoom)
+        XCTAssertEqual(ThreeFBrowserKeyboardAction.resolve(keyCode: 82, command: true, shift: false, isFullScreen: false), .resetZoom)
+    }
+
     func testUnrelatedKeysAreLeftForThePage() {
         XCTAssertNil(ThreeFBrowserKeyboardAction.resolve(keyCode: 0, command: false, shift: false, isFullScreen: false))
         XCTAssertNil(ThreeFBrowserKeyboardAction.resolve(keyCode: 96, command: false, shift: true, isFullScreen: false))

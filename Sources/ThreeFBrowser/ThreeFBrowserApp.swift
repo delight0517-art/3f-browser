@@ -45,6 +45,16 @@ final class ThreeFBrowserAppDelegate: NSObject, NSApplicationDelegate {
                 window.threeFBrowserWebView?.reloadFromOrigin()
             case .toggleFullScreen, .exitFullScreen:
                 window.toggleFullScreen(nil)
+            case .zoomIn:
+                if let webView = window.threeFBrowserWebView {
+                    webView.pageZoom = min(webView.pageZoom + 0.1, 3.0)
+                }
+            case .zoomOut:
+                if let webView = window.threeFBrowserWebView {
+                    webView.pageZoom = max(webView.pageZoom - 0.1, 0.5)
+                }
+            case .resetZoom:
+                window.threeFBrowserWebView?.pageZoom = 1.0
             }
             return nil
         }
