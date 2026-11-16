@@ -27,8 +27,8 @@ struct GoogleOAuthHandoffEvent: Identifiable, Equatable {
         case cloudflareExternalBrowserUnavailable = "Cloudflare 비교 브라우저를 찾지 못함"
         case cloudflareExternalBrowserFailed = "Cloudflare 외부 브라우저 열기 실패"
         case opened = "Google 로그인 페이지 열림 · 3F 내부"
-        case cefBrowserHandoff = "Google 인증을 3F Chromium 창으로 전달"
-        case cefBrowserUnavailable = "3F Chromium 창 열기 실패"
+        case asideBrowserHandoff = "Google 인증을 Aside 브라우저로 전달"
+        case asideBrowserUnavailable = "Aside 브라우저 열기 실패"
         case popupOpened = "팝업을 3F 탭으로 열음"
         case popupStormBlocked = "팝업 폭주 차단"
         case duplicateSuppressed = "반복 팝업 억제"
@@ -313,8 +313,8 @@ final class GoogleOAuthHandoffDiagnostics: ObservableObject {
     }
 
     func handoff(_ url: URL, sourceURL: URL?) {
-        // Restart the sign-in from its HTTPS origin in the restricted Chromium
-        // sidecar so the site's state and callback stay in that isolated session.
+        // Google rejects embedded CEF user agents. Route the original HTTPS
+        // authorization URL to Aside instead of launching the CEF sidecar.
         guard GoogleOAuthNavigationPolicy.requiresSystemBrowser(for: url) else {
             record(.openFailed, detail: "인증 주소 검증 실패", key: "google-auth-url-invalid")
             return
@@ -343,7 +343,7 @@ final class GoogleOAuthHandoffDiagnostics: ObservableObject {
                 focusFenceRules: rules
             ) else {
                 self.pendingHandoffKeys.remove(handoffKey)
-                self.record(.focusFenceBlocked, detail: "인증을 시작한 사이트가 차단됨", key: "google-cef-focus-fence-blocked")
+                self.record(.focusFenceBlocked, detail: "인증을 시작한 사이트가 차단됨", key: "google-aside-focus-fence-blocked")
                 return
             }
             if OptionalFeatureAvailability.focusFenceEnforcement,
@@ -351,15 +351,25 @@ final class GoogleOAuthHandoffDiagnostics: ObservableObject {
                originatingPage != nil {
                 self.record(.authenticationPolicyUnavailable, key: "google-auth-policy-unavailable")
             }
-            CEFBrowserRuntime.open(url, originatingPage: originatingPage) { [weak self] result in
-                switch result {
-                case .success:
-                    self?.pendingHandoffKeys.remove(handoffKey)
-                    self?.recentHandoffKeys[handoffKey] = Date()
-                    self?.record(.cefBrowserHandoff, key: "google-cef-\(originatingPage?.host ?? "auth-only")")
-                case .failure:
-                    self?.pendingHandoffKeys.remove(handoffKey)
-                    self?.record(.cefBrowserUnavailable, key: "google-cef-unavailable")
+            guard let asideURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "at.studio.AsideBrowser") else {
+                self.pendingHandoffKeys.remove(handoffKey)
+                self.record(.asideBrowserUnavailable, detail: "Aside 앱을 찾지 못함", key: "google-aside-unavailable")
+                return
+            }
+            let configuration = NSWorkspace.OpenConfiguration()
+            NSWorkspace.shared.open([url], withApplicationAt: asideURL, configuration: configuration) { _, error in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.pendingHandoffKeys.remove(handoffKey)
+                    if let error {
+                        let failure = error as NSError
+                        self.record(.asideBrowserUnavailable,
+                                    detail: "Aside 열기 실패 · \(failure.domain) \(failure.code)",
+                                    key: "google-aside-unavailable")
+                    } else {
+                        self.recentHandoffKeys[handoffKey] = Date()
+                        self.record(.asideBrowserHandoff, key: "google-aside-\(originatingPage?.host ?? "auth-only")")
+                    }
                 }
             }
         }
