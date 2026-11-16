@@ -15,6 +15,15 @@ enum GoogleOAuthNavigationPolicy {
         requiresSystemBrowser(for: url) ? url : nil
     }
 
+    static func allowsProtectedCompatibilityFallback(from pageURL: URL?, focusFenceRules: Data?) -> Bool {
+        guard let pageURL = safeHTTPSPageURL(pageURL),
+              let focusFenceRules,
+              let allowed = ThreeFBrowserControlController.focusFenceAllows(pageURL, rules: focusFenceRules) else {
+            return false
+        }
+        return allowed
+    }
+
     static func allowsAuthenticationTransport(
         _ authenticationURL: URL,
         originatingPage: URL?,

@@ -3,6 +3,23 @@ import XCTest
 @testable import ThreeFBrowser
 
 final class GoogleOAuthNavigationPolicyTests: XCTestCase {
+    func testCompatibilityFallbackRequiresLiveRulesAndAllowedSourceURL() throws {
+        let rules = Data(#"{"blockedDomains":["youtube.com","webtoon.naver.com","comic.naver.com"],"blockedUrlParts":["google.com/search"],"keywords":[],"blockExceptions":[],"adultProtectedDomains":[],"adultProtectedUrlParts":[],"adultProtectedKeywords":[]}"#.utf8)
+        let allowed = try XCTUnwrap(URL(string: "https://example.com/video"))
+        let youtube = try XCTUnwrap(URL(string: "https://www.youtube.com/watch?v=private"))
+        let search = try XCTUnwrap(URL(string: "https://www.google.com/search?q=private"))
+        let webtoon = try XCTUnwrap(URL(string: "https://comic.naver.com/webtoon/list"))
+
+        XCTAssertTrue(GoogleOAuthNavigationPolicy.allowsProtectedCompatibilityFallback(from: allowed, focusFenceRules: rules))
+        // 3F may allow its own YouTube page for quota accounting; the selected
+        // external browser must still pass the separate quota-protection gate.
+        XCTAssertTrue(GoogleOAuthNavigationPolicy.allowsProtectedCompatibilityFallback(from: youtube, focusFenceRules: rules))
+        XCTAssertFalse(GoogleOAuthNavigationPolicy.allowsProtectedCompatibilityFallback(from: search, focusFenceRules: rules))
+        XCTAssertFalse(GoogleOAuthNavigationPolicy.allowsProtectedCompatibilityFallback(from: webtoon, focusFenceRules: rules))
+        XCTAssertFalse(GoogleOAuthNavigationPolicy.allowsProtectedCompatibilityFallback(from: allowed, focusFenceRules: nil))
+        XCTAssertFalse(GoogleOAuthNavigationPolicy.allowsProtectedCompatibilityFallback(from: URL(string: "http://example.com/video"), focusFenceRules: rules))
+    }
+
     func testGoogleAuthenticationTransportFailsClosedWhenFocusFenceIsOffline() throws {
         let auth = try XCTUnwrap(URL(string: "https://accounts.google.com/signin/oauth"))
         let page = try XCTUnwrap(URL(string: "https://allowed.example/login"))

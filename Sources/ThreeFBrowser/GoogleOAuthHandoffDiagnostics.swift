@@ -32,6 +32,8 @@ struct GoogleOAuthHandoffEvent: Identifiable, Equatable {
         case browserProtectionUnverified = "Focus Fence 브라우저 보호 미검증 · 인증 전달 보류"
         case popupOpened = "팝업을 3F 탭으로 열음"
         case popupStormBlocked = "팝업 폭주 차단"
+        case mediaFallbackOpened = "미지원 미디어를 보호 브라우저에서 열음"
+        case mediaFallbackHeld = "미디어 대체 브라우저 보호 미검증 · 열기 보류"
         case duplicateSuppressed = "반복 팝업 억제"
         case asideUnavailable = "로그인 화면을 3F에서 유지"
         case focusFenceBlocked = "Focus Fence 정책이 인증 사이트를 차단"
@@ -201,8 +203,9 @@ final class BrowserDiagnosticsScriptMessageHandler: NSObject, WKScriptMessageHan
         let mime = body["mime"]?.lowercased().filter { $0.isASCII && ($0.isLetter || $0.isNumber || "/-+._".contains($0)) } ?? ""
         let ext = body["ext"]?.lowercased().filter { $0.isASCII && ($0.isLetter || $0.isNumber) } ?? ""
         let suffix = mime.isEmpty ? ext : mime
+        let pageURL = message.frameInfo.request.mainDocumentURL
         Task { @MainActor in
-            GoogleOAuthHandoffDiagnostics.shared.record(.unsupportedMedia, detail: suffix.isEmpty ? nil : suffix, key: "media-\(suffix)")
+            GoogleOAuthHandoffDiagnostics.shared.handleUnsupportedMedia(format: suffix, pageURL: pageURL)
         }
     }
 }
@@ -217,6 +220,8 @@ final class GoogleOAuthHandoffDiagnostics: ObservableObject {
     private var recentKeys: [String: Date] = [:]
     private var recentHandoffKeys: [String: Date] = [:]
     private var pendingHandoffKeys: Set<String> = []
+    private var recentMediaFallbackKeys: [String: Date] = [:]
+    private var pendingMediaFallbackKeys: Set<String> = []
     private var popupRequestDates: [Date] = []
 
     private var logURL: URL {
@@ -385,6 +390,85 @@ final class GoogleOAuthHandoffDiagnostics: ObservableObject {
                         self.recentHandoffKeys[handoffKey] = Date()
                         let browserLabel = browserBundleID == "com.apple.Safari" ? "safari" : "aside"
                         self.record(.protectedBrowserHandoff, key: "google-\(browserLabel)-\(originatingPage?.host ?? "auth-only")")
+                    }
+                }
+            }
+        }
+    }
+
+    func handleUnsupportedMedia(format: String, pageURL: URL?) {
+        let safeFormat = format.filter { $0.isASCII && ($0.isLetter || $0.isNumber || "/-+._".contains($0)) }
+        let safePageURL = GoogleOAuthNavigationPolicy.safeHTTPSPageURL(pageURL)
+        let host = safePageURL?.host?.lowercased() ?? "unknown"
+        let key = "media-fallback-\(host)-\(safeFormat)"
+        record(.unsupportedMedia, detail: safeFormat.isEmpty ? nil : safeFormat, key: "media-\(safeFormat)")
+
+        guard let safePageURL else {
+            record(.mediaFallbackHeld, detail: "안전한 HTTPS 페이지를 확인할 수 없음", key: key)
+            return
+        }
+        let now = Date()
+        recentMediaFallbackKeys = recentMediaFallbackKeys.filter { now.timeIntervalSince($0.value) < 600 }
+        guard recentMediaFallbackKeys[key] == nil,
+              pendingMediaFallbackKeys.insert(key).inserted else {
+            record(.duplicateSuppressed, detail: "같은 미디어 대체 요청 중복 억제", key: key)
+            return
+        }
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let snapshot = await ThreeFBrowserControlController.fetchFocusFenceRulesSnapshot()
+            guard let snapshot, !snapshot.isCached,
+                  GoogleOAuthNavigationPolicy.allowsProtectedCompatibilityFallback(
+                    from: safePageURL,
+                    focusFenceRules: snapshot.data
+                  ) else {
+                self.pendingMediaFallbackKeys.remove(key)
+                self.record(
+                    .mediaFallbackHeld,
+                    detail: "현재 Focus Fence 정책이 원본 페이지를 허용하는지 확인되지 않음",
+                    key: key
+                )
+                return
+            }
+
+            async let statusData = Self.fetchBrowserProtectionStatus()
+            async let safariRulesData = Self.fetchBrowserRules(browser: "safari")
+            async let asideRulesData = Self.fetchBrowserRules(browser: "aside")
+            guard let status = await statusData,
+                  let safariRules = await safariRulesData,
+                  let asideRules = await asideRulesData,
+                  let browserBundleID = GoogleOAuthNavigationPolicy.verifiedAuthenticationBrowserBundleID(
+                    status,
+                    safariRulesData: safariRules,
+                    asideRulesData: asideRules
+                  ),
+                  let browserURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: browserBundleID) else {
+                self.pendingMediaFallbackKeys.remove(key)
+                self.record(
+                    .mediaFallbackHeld,
+                    detail: "Focus Fence가 YouTube·Google 검색·웹툰 차단을 확인한 Safari 또는 Aside가 없음",
+                    key: key
+                )
+                return
+            }
+
+            let configuration = NSWorkspace.OpenConfiguration()
+            NSWorkspace.shared.open([safePageURL], withApplicationAt: browserURL, configuration: configuration) { [weak self] _, error in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.pendingMediaFallbackKeys.remove(key)
+                    if let error {
+                        let failure = error as NSError
+                        self.record(
+                            .mediaFallbackHeld,
+                            detail: "보호 브라우저 열기 실패 · \(failure.domain) \(failure.code)",
+                            key: key
+                        )
+                    } else {
+                        self.recentMediaFallbackKeys[key] = Date()
+                        let browserLabel = browserBundleID == "com.apple.Safari" ? "safari" : "aside"
+                        self.record(.mediaFallbackOpened, detail: "\(browserLabel) · \(safeFormat)", key: key)
                     }
                 }
             }
