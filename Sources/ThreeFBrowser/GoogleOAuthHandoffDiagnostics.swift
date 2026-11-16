@@ -27,9 +27,9 @@ struct GoogleOAuthHandoffEvent: Identifiable, Equatable {
         case cloudflareExternalBrowserUnavailable = "Cloudflare 비교 브라우저를 찾지 못함"
         case cloudflareExternalBrowserFailed = "Cloudflare 외부 브라우저 열기 실패"
         case opened = "Google 로그인 페이지 열림 · 3F 내부"
-        case asideBrowserHandoff = "Google 인증을 Aside 브라우저로 전달"
-        case asideBrowserUnavailable = "Aside 브라우저 열기 실패"
-        case asideProtectionUnverified = "Aside Focus Fence 보호 미검증 · 인증 전달 보류"
+        case protectedBrowserHandoff = "Google 인증을 보호 확인된 브라우저로 전달"
+        case protectedBrowserUnavailable = "보호 확인된 브라우저 열기 실패"
+        case browserProtectionUnverified = "Focus Fence 브라우저 보호 미검증 · 인증 전달 보류"
         case popupOpened = "팝업을 3F 탭으로 열음"
         case popupStormBlocked = "팝업 폭주 차단"
         case duplicateSuppressed = "반복 팝업 억제"
@@ -347,41 +347,42 @@ final class GoogleOAuthHandoffDiagnostics: ObservableObject {
                 self.record(.focusFenceBlocked, detail: "인증을 시작한 사이트가 차단됨", key: "google-aside-focus-fence-blocked")
                 return
             }
-            guard let statusData = await Self.fetchAsideProtectionStatus(),
-                  GoogleOAuthNavigationPolicy.asideProtectionIsVerified(statusData) else {
+            guard let statusData = await Self.fetchBrowserProtectionStatus(),
+                  let browserBundleID = GoogleOAuthNavigationPolicy.verifiedAuthenticationBrowserBundleID(statusData) else {
                 self.pendingHandoffKeys.remove(handoffKey)
                 self.record(
-                    .asideProtectionUnverified,
-                    detail: "Focus Fence가 Aside의 확장·검색·웹툰 차단 상태를 확인하지 못함",
+                    .browserProtectionUnverified,
+                    detail: "Focus Fence가 Safari와 Aside의 확장·검색·웹툰 차단 상태를 확인하지 못함",
                     key: "google-aside-protection-unverified"
                 )
                 return
             }
-            guard let asideURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "at.studio.AsideBrowser") else {
+            guard let protectedBrowserURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: browserBundleID) else {
                 self.pendingHandoffKeys.remove(handoffKey)
-                self.record(.asideBrowserUnavailable, detail: "Aside 앱을 찾지 못함", key: "google-aside-unavailable")
+                self.record(.protectedBrowserUnavailable, detail: "Focus Fence 보호 브라우저 앱을 찾지 못함", key: "google-protected-browser-unavailable")
                 return
             }
             let configuration = NSWorkspace.OpenConfiguration()
-            NSWorkspace.shared.open([url], withApplicationAt: asideURL, configuration: configuration) { [weak self] _, error in
+            NSWorkspace.shared.open([url], withApplicationAt: protectedBrowserURL, configuration: configuration) { [weak self] _, error in
                 Task { @MainActor [weak self] in
                     guard let self else { return }
                     self.pendingHandoffKeys.remove(handoffKey)
                     if let error {
                         let failure = error as NSError
-                        self.record(.asideBrowserUnavailable,
-                                    detail: "Aside 열기 실패 · \(failure.domain) \(failure.code)",
-                                    key: "google-aside-unavailable")
+                        self.record(.protectedBrowserUnavailable,
+                                    detail: "보호 브라우저 열기 실패 · \(failure.domain) \(failure.code)",
+                                    key: "google-protected-browser-unavailable")
                     } else {
                         self.recentHandoffKeys[handoffKey] = Date()
-                        self.record(.asideBrowserHandoff, key: "google-aside-\(originatingPage?.host ?? "auth-only")")
+                        let browserLabel = browserBundleID == "com.apple.Safari" ? "safari" : "aside"
+                        self.record(.protectedBrowserHandoff, key: "google-\(browserLabel)-\(originatingPage?.host ?? "auth-only")")
                     }
                 }
             }
         }
     }
 
-    private static func fetchAsideProtectionStatus() async -> Data? {
+    private static func fetchBrowserProtectionStatus() async -> Data? {
         guard let url = URL(string: "http://127.0.0.1:17361/usage/browser-protection") else { return nil }
         var request = URLRequest(url: url)
         request.timeoutInterval = 2

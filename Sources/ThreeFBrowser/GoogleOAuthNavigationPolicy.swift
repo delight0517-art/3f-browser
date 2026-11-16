@@ -31,19 +31,30 @@ enum GoogleOAuthNavigationPolicy {
         return sourceAllowed
     }
 
-    static func asideProtectionIsVerified(_ statusData: Data?) -> Bool {
+    static func verifiedAuthenticationBrowserBundleID(_ statusData: Data?) -> String? {
         guard let statusData,
               let root = try? JSONSerialization.jsonObject(with: statusData) as? [String: Any],
-              let browsers = root["browsers"] as? [[String: Any]],
-              let aside = browsers.first(where: { $0["browser"] as? String == "aside" }) else {
-            return false
+              let browsers = root["browsers"] as? [[String: Any]] else {
+            return nil
         }
-        return aside["extensionReady"] as? Bool == true
-            && aside["blockedByFallback"] as? Bool == false
-            && aside["urlRulesStateKnown"] as? Bool == true
-            && aside["urlRulesProtected"] as? Bool == true
-            && aside["blockedForUnprotectedURLRules"] as? Bool == false
-            && aside["usageCollectionAvailable"] as? Bool == true
+
+        // Prefer Safari when it has verified enforcement, then use Aside as a
+        // protected fallback. Unknown browsers and mismatched bundle IDs never open.
+        let approved = ["safari": "com.apple.Safari", "aside": "at.studio.AsideBrowser"]
+        for browserName in ["safari", "aside"] {
+            guard let browser = browsers.first(where: { $0["browser"] as? String == browserName }),
+                  browser["bundleID"] as? String == approved[browserName],
+                  browser["extensionReady"] as? Bool == true,
+                  browser["blockedByFallback"] as? Bool == false,
+                  browser["urlRulesStateKnown"] as? Bool == true,
+                  browser["urlRulesProtected"] as? Bool == true,
+                  browser["blockedForUnprotectedURLRules"] as? Bool == false,
+                  browser["usageCollectionAvailable"] as? Bool == true else {
+                continue
+            }
+            return approved[browserName]
+        }
+        return nil
     }
 
     static func safeHTTPSPageURL(_ url: URL?) -> URL? {

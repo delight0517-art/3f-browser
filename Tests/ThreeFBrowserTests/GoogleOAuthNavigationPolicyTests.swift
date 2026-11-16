@@ -14,15 +14,19 @@ final class GoogleOAuthNavigationPolicyTests: XCTestCase {
         ))
     }
 
-    func testAsideHandoffRequiresRuntimeVerifiedFocusFenceProtection() {
-        let verified = Data(#"{"browsers":[{"browser":"aside","extensionReady":true,"blockedByFallback":false,"urlRulesStateKnown":true,"urlRulesProtected":true,"blockedForUnprotectedURLRules":false,"usageCollectionAvailable":true}]}"#.utf8)
-        let missingProfile = Data(#"{"browsers":[{"browser":"aside","extensionReady":false,"blockedByFallback":true,"urlRulesStateKnown":true,"urlRulesProtected":false,"blockedForUnprotectedURLRules":true,"usageCollectionAvailable":true}]}"#.utf8)
-        let unrelatedBrowser = Data(#"{"browsers":[{"browser":"safari","extensionReady":true,"blockedByFallback":false,"urlRulesStateKnown":true,"urlRulesProtected":true,"blockedForUnprotectedURLRules":false,"usageCollectionAvailable":true}]}"#.utf8)
+    func testOnlyRuntimeVerifiedSafariOrAsideCanReceiveAuthentication() {
+        let safari = Data(#"{"browsers":[{"browser":"safari","bundleID":"com.apple.Safari","extensionReady":true,"blockedByFallback":false,"urlRulesStateKnown":true,"urlRulesProtected":true,"blockedForUnprotectedURLRules":false,"usageCollectionAvailable":true}]}"#.utf8)
+        let aside = Data(#"{"browsers":[{"browser":"aside","bundleID":"at.studio.AsideBrowser","extensionReady":true,"blockedByFallback":false,"urlRulesStateKnown":true,"urlRulesProtected":true,"blockedForUnprotectedURLRules":false,"usageCollectionAvailable":true}]}"#.utf8)
+        let firefoxOnly = Data(#"{"browsers":[{"browser":"firefox","bundleID":"org.mozilla.firefox","extensionReady":true,"blockedByFallback":false,"urlRulesStateKnown":true,"urlRulesProtected":true,"blockedForUnprotectedURLRules":false,"usageCollectionAvailable":true}]}"#.utf8)
+        let unsafe = Data(#"{"browsers":[{"browser":"safari","bundleID":"com.apple.Safari","extensionReady":true,"blockedByFallback":true,"urlRulesStateKnown":false,"urlRulesProtected":false,"blockedForUnprotectedURLRules":true,"usageCollectionAvailable":true}]}"#.utf8)
+        let wrongBundle = Data(#"{"browsers":[{"browser":"safari","bundleID":"evil.browser","extensionReady":true,"blockedByFallback":false,"urlRulesStateKnown":true,"urlRulesProtected":true,"blockedForUnprotectedURLRules":false,"usageCollectionAvailable":true}]}"#.utf8)
 
-        XCTAssertTrue(GoogleOAuthNavigationPolicy.asideProtectionIsVerified(verified))
-        XCTAssertFalse(GoogleOAuthNavigationPolicy.asideProtectionIsVerified(missingProfile))
-        XCTAssertFalse(GoogleOAuthNavigationPolicy.asideProtectionIsVerified(unrelatedBrowser))
-        XCTAssertFalse(GoogleOAuthNavigationPolicy.asideProtectionIsVerified(nil))
+        XCTAssertEqual(GoogleOAuthNavigationPolicy.verifiedAuthenticationBrowserBundleID(safari), "com.apple.Safari")
+        XCTAssertEqual(GoogleOAuthNavigationPolicy.verifiedAuthenticationBrowserBundleID(aside), "at.studio.AsideBrowser")
+        XCTAssertNil(GoogleOAuthNavigationPolicy.verifiedAuthenticationBrowserBundleID(firefoxOnly))
+        XCTAssertNil(GoogleOAuthNavigationPolicy.verifiedAuthenticationBrowserBundleID(unsafe))
+        XCTAssertNil(GoogleOAuthNavigationPolicy.verifiedAuthenticationBrowserBundleID(wrongBundle))
+        XCTAssertNil(GoogleOAuthNavigationPolicy.verifiedAuthenticationBrowserBundleID(nil))
     }
 
     func testExplicitlyBlockedOriginCannotStartGoogleAuthentication() throws {
