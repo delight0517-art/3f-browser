@@ -24,6 +24,7 @@ struct BrowserView: View {
     @State private var didRestoreSession = false
     @State private var isWindowClosing = false
     @State private var isAppTerminating = false
+    @FocusState private var isAddressFocused: Bool
     private let embedded: Bool
     private let aiMode: Bool
     private let installedWebApp: InstalledWebApp?
@@ -170,6 +171,20 @@ struct BrowserView: View {
             }
 
             if model.currentURL == nil { newTabPage }
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if !embedded, model.isYouTubeFeedContext {
+                Text(model.youtubeUsageSummary?.compactFeedStatus ?? "피드 사용량 확인 중")
+                    .font(.system(size: 10, weight: .medium, design: .rounded))
+                    .foregroundStyle(ThreeFPalette.ink.opacity(0.82))
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 5)
+                    .background(.regularMaterial, in: Capsule())
+                    .overlay(Capsule().stroke(ThreeFPalette.border.opacity(0.65), lineWidth: 1))
+                    .padding(12)
+                    .allowsHitTesting(false)
+                    .accessibilityLabel("YouTube 피드 사용량 · \(model.youtubeUsageSummary?.compactFeedStatus ?? "사용량 확인 중")")
+            }
         }
         .sheet(item: $readerArticle) { article in
             ReaderModeView(article: article)
@@ -327,11 +342,15 @@ struct BrowserView: View {
                         .transition(.opacity)
                 }
                 TextField("검색 또는 웹 주소 입력", text: $model.addressText, prompt: Text("검색 또는 웹 주소 입력").foregroundColor(ThreeFPalette.muted))
+                    .focused($isAddressFocused)
                     .textFieldStyle(.plain)
                     .foregroundStyle(ThreeFPalette.ink)
                     .tint(model.theme.color)
                     .font(.system(size: 14))
-                    .onSubmit { submitAddressBar() }
+                    .onSubmit {
+                        isAddressFocused = false
+                        submitAddressBar()
+                    }
                 if !model.addressText.isEmpty {
                     Button { model.addressText = "" } label: {
                         Image(systemName: "xmark.circle.fill")
@@ -350,6 +369,53 @@ struct BrowserView: View {
                     : ThreeFPalette.border,
                 lineWidth: model.isLoading ? (navigationFeedbackPulse ? 2.5 : 1.5) : 1
             ))
+            .overlay(alignment: .topLeading) {
+                if isAddressFocused && !model.addressText.isEmpty {
+                    let suggestions = model.autocompleteSuggestions(for: model.addressText)
+                    if !suggestions.isEmpty {
+                        VStack(alignment: .leading, spacing: 0) {
+                            ForEach(Array(suggestions.enumerated()), id: \.element.id) { index, entry in
+                                Button {
+                                    model.addressText = entry.url
+                                    isAddressFocused = false
+                                    submitAddressBar()
+                                } label: {
+                                    HStack(spacing: 8) {
+                                        Image(systemName: "clock.arrow.circlepath")
+                                            .font(.system(size: 11))
+                                            .foregroundStyle(ThreeFPalette.muted)
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(entry.title.isEmpty ? entry.url : entry.title)
+                                                .font(.system(size: 12, weight: .medium))
+                                                .foregroundStyle(ThreeFPalette.ink)
+                                                .lineLimit(1)
+                                            Text(entry.url)
+                                                .font(.system(size: 10))
+                                                .foregroundStyle(ThreeFPalette.muted)
+                                                .lineLimit(1)
+                                        }
+                                        Spacer()
+                                    }
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                if index < suggestions.count - 1 {
+                                    Divider().padding(.horizontal, 6)
+                                }
+                            }
+                        }
+                        .padding(.vertical, 4)
+                        .frame(maxWidth: .infinity)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(ThreeFPalette.border, lineWidth: 1))
+                        .shadow(color: ThreeFPalette.ink.opacity(0.12), radius: 8, y: 4)
+                        .offset(y: 42)
+                        .zIndex(200)
+                    }
+                }
+            }
             .shadow(color: ThreeFPalette.ink.opacity(0.04), radius: 3, y: 1)
             .animation(.easeInOut(duration: 0.18), value: model.isLoading)
             .animation(.easeInOut(duration: 0.14), value: navigationFeedbackPulse)
@@ -900,6 +966,7 @@ struct BrowserView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 ForEach(model.theme.quickLinks) { link in
+                    HStack(spacing: 4) {
                     Button { navigateToQuickLink(link) } label: {
                         HStack(spacing: 6) {
                             Image(systemName: "globe")
@@ -924,6 +991,18 @@ struct BrowserView: View {
                                 Label("\(link.title) 앱으로 설치", systemImage: "square.and.arrow.down")
                             }
                         }
+                    }
+                    if !embedded && installedWebApp == nil {
+                        Button { installQuickLinkAsApp(link) } label: {
+                            Image(systemName: "square.and.arrow.down")
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundStyle(ThreeFPalette.muted)
+                                .frame(width: 24, height: 24)
+                        }
+                        .buttonStyle(.plain)
+                        .help("\(link.title) 앱으로 설치")
+                        .accessibilityLabel("\(link.title) 앱으로 설치")
+                    }
                     }
                 }
                 ForEach(model.installedWebApps) { app in

@@ -111,6 +111,8 @@ struct BrowserWebView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
+        configuration.processPool = ThreeFBrowserProcessPool.shared
+        configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
         if OptionalFeatureAvailability.focusFenceEnforcement {
             configuration.userContentController.addUserScript(WKUserScript(
                 source: FocusFenceSearchResultFilter.prepaintGateScript,

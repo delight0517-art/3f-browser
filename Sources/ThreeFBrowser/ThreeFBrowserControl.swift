@@ -174,6 +174,7 @@ final class ThreeFBrowserControlController {
 
     nonisolated static func focusFencePolicyDecision(for url: URL) async -> Bool? {
         guard OptionalFeatureAvailability.focusFenceEnforcement else { return true }
+        if url.isFileURL { return true }
         let snapshot = await fetchFocusFenceRulesSnapshot()
         switch navigationAuthorizationDecision(for: url, rules: snapshot?.data) {
         case .allowed: return true
@@ -186,10 +187,6 @@ final class ThreeFBrowserControlController {
         for url: URL,
         rules data: Data?
     ) -> BrowserNavigationAuthorizationDecision {
-        if url.isFileURL {
-            return .allowed
-        }
-
         switch CloudflareLoginNavigationPolicy.route(for: url, rules: data) {
         case .blockedByFocusFence:
             return .blocked
@@ -206,6 +203,9 @@ final class ThreeFBrowserControlController {
         }
 
         guard let data else { return .unavailable }
+        if url.isFileURL {
+            return .allowed
+        }
         guard let allowed = focusFenceAllows(url, rules: data) else { return .unavailable }
         if allowed { return .allowed }
 
@@ -220,9 +220,9 @@ final class ThreeFBrowserControlController {
     private nonisolated static func focusFenceAllowsSearchProvider(_ url: URL, rules data: Data) -> Bool? {
         guard let rules = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let blockedDomains = rules["blockedDomains"] as? [String],
-              let adultProtectedDomains = rules["adultProtectedDomains"] as? [String],
               let exceptions = rules["blockExceptions"] as? [String],
               let host = url.host.map({ normalizedDomain($0) }) else { return nil }
+        let adultProtectedDomains = rules["adultProtectedDomains"] as? [String] ?? []
 
         func matches(_ candidate: String, entries: [String]) -> Bool {
             entries.contains { rawEntry in
@@ -295,11 +295,11 @@ final class ThreeFBrowserControlController {
               let host = url.host?.lowercased(), !host.isEmpty,
               let blockedDomains = rules["blockedDomains"] as? [String],
               let blockedURLParts = rules["blockedUrlParts"] as? [String],
-              let adultProtectedDomains = rules["adultProtectedDomains"] as? [String],
-              let adultProtectedURLParts = rules["adultProtectedUrlParts"] as? [String],
-              let adultProtectedKeywords = rules["adultProtectedKeywords"] as? [String],
               let keywords = rules["keywords"] as? [String],
               let blockExceptions = rules["blockExceptions"] as? [String] else { return nil }
+        let adultProtectedDomains = rules["adultProtectedDomains"] as? [String] ?? []
+        let adultProtectedURLParts = rules["adultProtectedUrlParts"] as? [String] ?? []
+        let adultProtectedKeywords = rules["adultProtectedKeywords"] as? [String] ?? []
         func normalizedDomain(_ value: String) -> String {
             var domain = value.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
             if domain.hasPrefix("*.") { domain = String(domain.dropFirst(2)) }

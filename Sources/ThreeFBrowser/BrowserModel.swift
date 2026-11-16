@@ -615,6 +615,14 @@ final class BrowserModel: ObservableObject {
         Self.save(history, forKey: historyKey, preferences: preferenceStore)
     }
 
+    func autocompleteSuggestions(for query: String) -> [BrowserHistoryEntry] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !trimmed.isEmpty else { return [] }
+        return Array(history.filter { entry in
+            entry.url.lowercased().contains(trimmed) || entry.title.lowercased().contains(trimmed)
+        }.prefix(6))
+    }
+
     private func recordVisit(to url: URL, title: String) {
         guard ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
               url.user == nil, url.password == nil else { return }

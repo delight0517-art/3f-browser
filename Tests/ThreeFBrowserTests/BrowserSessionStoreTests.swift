@@ -57,6 +57,20 @@ final class BrowserSessionStoreTests: XCTestCase {
         var outside = environment
         outside["THREEF_BROWSER_QA_PROFILE_DIRECTORY"] = FileManager.default.homeDirectoryForCurrentUser.path
         XCTAssertNil(BrowserSessionStore.isolatedQASessionDirectory(environment: outside, temporaryDirectory: temporaryRoot))
+
+        XCTAssertEqual(
+            BrowserSessionStore.isolatedQASessionDirectory(
+                environment: [:],
+                arguments: ["3F Browser", "--spaceo-agent-session", "--threef-browser-qa-profile=\(profile.path)"],
+                temporaryDirectory: temporaryRoot
+            ),
+            profile.standardizedFileURL.resolvingSymlinksInPath()
+        )
+        XCTAssertNil(BrowserSessionStore.isolatedQASessionDirectory(
+            environment: [:],
+            arguments: ["3F Browser", "--threef-browser-qa-profile=\(profile.path)"],
+            temporaryDirectory: temporaryRoot
+        ))
     }
 
     func testSaveAndLoadRestoresTabsAndSelectedTab() throws {
@@ -79,7 +93,7 @@ final class BrowserSessionStoreTests: XCTestCase {
     func testLoadRejectsInvalidSchemeAndFallsBackForCorruptData() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
-        let invalid = BrowserSessionTab(title: "Unsafe", url: URL(string: "file:///etc/passwd"))
+        let invalid = BrowserSessionTab(title: "Unsafe", url: URL(string: "ftp://example.com/etc/passwd"))
         try BrowserSessionStore.save(BrowserSessionSnapshot(tabs: [invalid], selectedTabID: invalid.id), to: directory)
 
         let restored = try XCTUnwrap(BrowserSessionStore.load(from: directory))
