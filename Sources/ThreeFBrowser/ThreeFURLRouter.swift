@@ -41,16 +41,20 @@ final class ThreeFURLRouter: ObservableObject {
               components.port == nil,
               components.host == "open",
               let target = components.queryItems?.first(where: { $0.name == "url" })?.value.flatMap(URL.init(string:)),
-              target.scheme?.lowercased() == "https",
-              target.host != nil,
+              (target.scheme?.lowercased() == "https" && target.host != nil) || target.isFileURL,
               target.user == nil,
               target.password == nil else { return nil }
         return url
     }
 
     private static func isSafeWebURL(_ url: URL) -> Bool {
-        guard let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme),
-              url.host != nil, url.user == nil, url.password == nil else { return false }
-        return true
+        guard let scheme = url.scheme?.lowercased() else { return false }
+        if ["http", "https"].contains(scheme) {
+            return url.host != nil && url.user == nil && url.password == nil
+        }
+        if scheme == "file" {
+            return url.isFileURL && url.user == nil && url.password == nil
+        }
+        return false
     }
 }

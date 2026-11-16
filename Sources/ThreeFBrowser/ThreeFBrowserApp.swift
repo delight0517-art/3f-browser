@@ -162,7 +162,7 @@ struct ThreeFBrowserApp: App {
         WindowGroup("3F Browser", id: "browser") {
             BrowserView(
                 authorizeNavigation: { url, completion in
-                    if GoogleOAuthNavigationPolicy.requiresSystemBrowser(for: url) {
+                    if url.isFileURL || GoogleOAuthNavigationPolicy.requiresSystemBrowser(for: url) {
                         completion(.allowed)
                         return
                     }
@@ -187,7 +187,7 @@ struct ThreeFBrowserApp: App {
             BrowserView(
                 aiMode: true,
                 authorizeNavigation: { url, completion in
-                    if GoogleOAuthNavigationPolicy.requiresSystemBrowser(for: url) {
+                    if url.isFileURL || GoogleOAuthNavigationPolicy.requiresSystemBrowser(for: url) {
                         completion(.allowed)
                         return
                     }
@@ -214,7 +214,7 @@ struct ThreeFBrowserApp: App {
                 BrowserView(
                     installedWebApp: installedApp,
                     authorizeNavigation: { url, completion in
-                        if GoogleOAuthNavigationPolicy.requiresSystemBrowser(for: url) {
+                        if url.isFileURL || GoogleOAuthNavigationPolicy.requiresSystemBrowser(for: url) {
                             completion(.allowed)
                             return
                         }

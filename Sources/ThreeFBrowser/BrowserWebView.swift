@@ -217,7 +217,11 @@ struct BrowserWebView: NSViewRepresentable {
         }
         guard let url, context.coordinator.lastRequestID != requestID else { return }
         context.coordinator.lastRequestID = requestID
-        view.load(URLRequest(url: url))
+        if url.isFileURL {
+            view.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
+        } else {
+            view.load(URLRequest(url: url))
+        }
     }
 
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate, ThreeFBackgroundLinkDelegate {
@@ -490,7 +494,7 @@ struct BrowserWebView: NSViewRepresentable {
                 return
             }
             guard let url = navigationAction.request.url,
-                  let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme),
+                  let scheme = url.scheme?.lowercased(), ["http", "https", "file"].contains(scheme),
                   url.user == nil, url.password == nil else {
                 decisionHandler(.cancel)
                 return
@@ -551,7 +555,7 @@ struct BrowserWebView: NSViewRepresentable {
             let isAttachment = disposition.contains("attachment")
             let shouldDownload = isAttachment || !navigationResponse.canShowMIMEType
             guard let url = navigationResponse.response.url,
-                  let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme),
+                  let scheme = url.scheme?.lowercased(), ["http", "https", "file"].contains(scheme),
                   url.user == nil, url.password == nil,
                   let authorize = parent.authorizeNavigation else {
                 decisionHandler(Self.webKitResponsePolicy(Self.navigationDecision(isAllowed: nil, shouldDownload: shouldDownload, allowsDownloads: parent.allowsDownloads)))

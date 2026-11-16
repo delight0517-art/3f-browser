@@ -186,6 +186,10 @@ final class ThreeFBrowserControlController {
         for url: URL,
         rules data: Data?
     ) -> BrowserNavigationAuthorizationDecision {
+        if url.isFileURL {
+            return .allowed
+        }
+
         switch CloudflareLoginNavigationPolicy.route(for: url, rules: data) {
         case .blockedByFocusFence:
             return .blocked

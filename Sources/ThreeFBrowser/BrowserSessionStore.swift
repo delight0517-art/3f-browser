@@ -319,7 +319,7 @@ enum BrowserSessionStore {
     private static func normalized(_ snapshot: BrowserSessionSnapshot) -> BrowserSessionSnapshot {
         let savedTabs = Array(snapshot.tabs.prefix(maximumTabs)).map { tab in
             let safeURL = tab.url.flatMap { url in
-                ["http", "https"].contains(url.scheme?.lowercased() ?? "")
+                ["http", "https", "file"].contains(url.scheme?.lowercased() ?? "")
                     && url.user == nil && url.password == nil && url.absoluteString.utf8.count <= 4_096
                     ? url : nil
             }

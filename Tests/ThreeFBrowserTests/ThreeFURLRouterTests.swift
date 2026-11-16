@@ -95,4 +95,27 @@ final class ThreeFURLRouterTests: XCTestCase {
         ])
         XCTAssertEqual(router.takePendingURLs(), [try XCTUnwrap(URL(string: "threef://open?url=https%3A%2F%2Fexample.com%2F"))])
     }
+
+    @MainActor
+    func testDirectFileURLBecomesBrowserDeepLink() throws {
+        let router = ThreeFURLRouter()
+        let fileURL = URL(fileURLWithPath: "/Users/rogan/Desktop/test.html")
+        router.receive([fileURL])
+
+        let pending = router.takePendingURLs()
+        XCTAssertEqual(pending.count, 1)
+        XCTAssertEqual(pending.first?.scheme, "threef")
+        XCTAssertEqual(pending.first?.host, "open")
+        let target = URLComponents(url: try XCTUnwrap(pending.first), resolvingAgainstBaseURL: false)?
+            .queryItems?.first(where: { $0.name == "url" })?.value
+        XCTAssertEqual(target, fileURL.absoluteString)
+    }
+
+    @MainActor
+    func testThreeFFileDeepLinkIsSupported() throws {
+        let router = ThreeFURLRouter()
+        let fileDeepLink = try XCTUnwrap(URL(string: "threef://open?url=file%3A%2F%2F%2FUsers%2Frogan%2FDesktop%2Ftest.html"))
+        router.receive([fileDeepLink])
+        XCTAssertEqual(router.takePendingURLs(), [fileDeepLink])
+    }
 }

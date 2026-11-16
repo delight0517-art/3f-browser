@@ -189,6 +189,15 @@ final class BrowserModel: ObservableObject {
 
     var isYouTubeShortsContext: Bool { youtubeContextURL?.path.hasPrefix("/shorts/") == true }
 
+    var isYouTubeFeedContext: Bool {
+        guard let url = youtubeContextURL, let host = url.host?.lowercased(),
+              (host == "youtube.com" || host.hasSuffix(".youtube.com")), host != "music.youtube.com" else { return false }
+        let path = url.path
+        if ["/watch", "/shorts", "/live", "/embed", "/playlist"].contains(where: { path == $0 || path.hasPrefix($0 + "/") }) { return false }
+        return path == "/" || path == "/results" || path == "/feed" || path.hasPrefix("/feed/") || path.hasPrefix("/@")
+            || path.hasPrefix("/channel/") || path.hasPrefix("/c/") || path.hasPrefix("/user/")
+    }
+
     var youtubePlaybackReason: String? {
         youtubeUsageSummary?.restrictionReason(isShorts: isYouTubeShortsContext)
     }
@@ -306,12 +315,14 @@ final class BrowserModel: ObservableObject {
               deepLink.host?.lowercased() == "open",
               let components = URLComponents(url: deepLink, resolvingAgainstBaseURL: false),
               let value = components.queryItems?.first(where: { $0.name == "url" })?.value,
-              let destination = URLComponents(string: value)?.url,
-              let scheme = destination.scheme?.lowercased(),
-              ["http", "https"].contains(scheme),
-              destination.host != nil,
-              destination.user == nil,
-              destination.password == nil else { return }
+              let destination = URL(string: value) ?? URLComponents(string: value)?.url else { return }
+        let scheme = destination.scheme?.lowercased()
+        if scheme == "file" {
+            guard destination.isFileURL, destination.user == nil, destination.password == nil else { return }
+        } else {
+            guard let scheme, ["http", "https"].contains(scheme),
+                  destination.host != nil, destination.user == nil, destination.password == nil else { return }
+        }
 
         authorizeAndNavigate(destination, authorize: authorize)
     }
@@ -320,8 +331,13 @@ final class BrowserModel: ObservableObject {
         to destination: URL,
         authorize: (((URL, @escaping (BrowserNavigationAuthorizationDecision) -> Void) -> Void))? = nil
     ) {
-        guard let scheme = destination.scheme?.lowercased(), ["http", "https"].contains(scheme),
-              destination.host != nil, destination.user == nil, destination.password == nil else { return }
+        let scheme = destination.scheme?.lowercased()
+        if scheme == "file" {
+            guard destination.isFileURL, destination.user == nil, destination.password == nil else { return }
+        } else {
+            guard let scheme, ["http", "https"].contains(scheme),
+                  destination.host != nil, destination.user == nil, destination.password == nil else { return }
+        }
         authorizeAndNavigate(destination, authorize: authorize)
     }
 
@@ -337,11 +353,18 @@ final class BrowserModel: ObservableObject {
         activeNavigationDidComplete = false
         rejectedNavigationURL = nil
         navigationAuthorizationID = nil
-        if let url,
-           let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme),
-           url.host != nil, url.user == nil, url.password == nil {
-            currentURL = url
-            addressText = url.absoluteString
+        if let url {
+            let scheme = url.scheme?.lowercased()
+            if scheme == "file" {
+                if url.isFileURL, url.user == nil, url.password == nil {
+                    currentURL = url
+                    addressText = url.isFileURL ? url.path : url.absoluteString
+                }
+            } else if let scheme, ["http", "https"].contains(scheme),
+                      url.host != nil, url.user == nil, url.password == nil {
+                currentURL = url
+                addressText = url.absoluteString
+            }
         }
         addressBlockNotice = nil
         isLoading = true
@@ -398,7 +421,7 @@ final class BrowserModel: ObservableObject {
     func pageDidCommitNavigation(to url: URL?) {
         guard let url else { return }
         currentURL = url
-        addressText = url.absoluteString
+        addressText = url.isFileURL ? url.path : url.absoluteString
         addressBlockNotice = nil
         rejectedNavigationURL = nil
         navigationAuthorizationID = nil
@@ -410,12 +433,12 @@ final class BrowserModel: ObservableObject {
         rejectedNavigationURL = nil
         navigationAuthorizationID = nil
         currentURL = url
-        addressText = url.absoluteString
+        addressText = url.isFileURL ? url.path : url.absoluteString
         addressBlockNotice = nil
         isLoading = false
         activeNavigationDidComplete = true
         if !isYouTubePage { clearYouTubeUsage() }
-        recordVisit(to: url, title: title?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? url.host ?? url.absoluteString)
+        recordVisit(to: url, title: title?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? (url.isFileURL ? url.lastPathComponent : url.host) ?? url.absoluteString)
         mediaCandidateCheck?.cancel()
         mediaCandidateCheck = Task { [weak self] in
             await self?.considerMediaSiteCandidate(at: url)

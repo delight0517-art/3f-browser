@@ -14,9 +14,19 @@ enum AddressBarNavigationRequest {
             return components.url
         }
 
-        // Explicit web URLs must not silently become search queries when malformed
+        if let url = URL(string: text), url.isFileURL, url.user == nil, url.password == nil {
+            return url
+        }
+
+        if (text.hasPrefix("/") || text.hasPrefix("~/")),
+           let path = (text as NSString).expandingTildeInPath as String?,
+           FileManager.default.fileExists(atPath: path) {
+            return URL(fileURLWithPath: path)
+        }
+
+        // Explicit web or file URLs must not silently become search queries when malformed
         // or when they contain credentials.
-        if text.range(of: #"^https?://"#, options: [.regularExpression, .caseInsensitive]) != nil {
+        if text.range(of: #"^(https?|file)://"#, options: [.regularExpression, .caseInsensitive]) != nil {
             return nil
         }
 

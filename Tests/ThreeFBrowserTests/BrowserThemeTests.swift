@@ -152,6 +152,9 @@ final class BrowserThemeTests: XCTestCase {
                        "https://example.com")
         XCTAssertEqual(AddressBarNavigationRequest.resolve("https://example.com/path", searchProvider: .google)?.host,
                        "example.com")
+        let fileURL = try XCTUnwrap(AddressBarNavigationRequest.resolve("file:///Users/rogan/Desktop/test.html", searchProvider: .google))
+        XCTAssertTrue(fileURL.isFileURL)
+        XCTAssertEqual(fileURL.path, "/Users/rogan/Desktop/test.html")
     }
 
     func testCurrentEngineDoesNotClaimChromeExtensionSupport() {
