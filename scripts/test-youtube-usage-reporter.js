@@ -55,8 +55,10 @@ async function run(host, quotaBlocked = true, {
   deferPolicy = false, pagePath = '/watch'
 } = {}) {
   let paused = 0;
+  let playCalls = 0;
   let now = 1;
   let timer;
+  let feedTimer;
   let currentQuotaBlocked = quotaBlocked;
   let currentRemainingSeconds = remainingSeconds;
   let videoPresent = videoAtStart;
@@ -76,7 +78,9 @@ async function run(host, quotaBlocked = true, {
   let leaseReportAttempts = 0;
   let idCounter = 0;
   let releasePolicy;
-  const policyResult = () => ({ youtubeQuotaBlocked: currentQuotaBlocked || youtubeSiteBlocked, remainingSeconds: currentRemainingSeconds, blockShorts: shortsBlocked });
+  const policyResult = () => ({ youtubeQuotaBlocked: currentQuotaBlocked || youtubeSiteBlocked, youtubeSiteBlocked,
+    youtubeBlockedByActiveSchedule: false, youtubeFeedQuotaBlocked: false,
+    remainingSeconds: currentRemainingSeconds, blockShorts: shortsBlocked });
   const bridge = {
     async postMessage(message) {
       if (message.type === 'policy') {
@@ -136,10 +140,12 @@ async function run(host, quotaBlocked = true, {
     tagName: 'VIDEO', currentTime: 4, currentSrc: 'test-video', paused: !videoAtStart, ended: false,
     seeking: false, readyState: 4, playbackRate,
     pause() { this.paused = true; paused += 1; },
-    play() { this.paused = false; return Promise.resolve(); }
+    play() { playCalls += 1; this.paused = false; return Promise.resolve(); }
   };
   const document = {
     visibilityState: 'visible',
+    getElementById() { return null; },
+    querySelector() { return null; },
     querySelectorAll(selector) { return selector === 'video' && videoPresent ? [video] : []; },
     addEventListener(name, handler) { listeners[name] = handler; }
   };
@@ -149,12 +155,13 @@ async function run(host, quotaBlocked = true, {
     HTMLElement: class HTMLElement {},
     performance: { now: () => now },
     Date: { now: () => epoch + now },
-    setInterval(callback) { timer = callback; }, addEventListener() {}, crypto: { randomUUID: () => `test-report-${++idCounter}` }
+    setInterval(callback) { if (!timer) timer = callback; else feedTimer = callback; }, addEventListener() {}, crypto: { randomUUID: () => `test-report-${++idCounter}` }
   };
   vm.runInNewContext(match[1], context);
   await new Promise(resolve => setImmediate(resolve));
   return {
     video, listeners, payloads, leaseRequests, leaseReports, fallbackReports,
+    get playCalls() { return playCalls; },
     async reportProgress(seconds = 2) { now += seconds * 1000; video.currentTime += seconds * video.playbackRate; await timer(); },
     async reportProgressWithSourceChange(seconds = 2) { now += seconds * 1000; video.currentTime += seconds * video.playbackRate; video.currentSrc = `test-video-${now}`; await timer(); },
     async advancePlayback(ms) { now += ms; video.currentTime += ms / 1000 * video.playbackRate; await timer(); },
@@ -168,7 +175,7 @@ async function run(host, quotaBlocked = true, {
       video.paused = true;
       await listeners.pause?.({ target: video });
     },
-    async advance(ms) { now += ms; await timer(); },
+    async advance(ms) { now += ms; await timer(); await feedTimer?.(); },
     setQuotaBlocked(value) { currentQuotaBlocked = value; },
     releasePolicy() { releasePolicy?.(); },
     setPath(value) { context.location.pathname = value; context.location.href = `https://${host}${value}`; },
@@ -284,6 +291,8 @@ async function run(host, quotaBlocked = true, {
   assert.equal(usage.payloads.length, 0, 'a short active interval is retained until playback pauses');
   await usage.pausePlayback();
   assert.equal(usage.payloads.length, 1, 'observed YouTube playback is reported');
+  assert.equal(usage.video.paused, true, 'a quota lease fallback must not restart a video the user paused');
+  assert.equal(usage.playCalls, 0, 'quota accounting never calls play() without a user action');
   assert.deepEqual(Object.keys(usage.payloads[0]).sort(),
     ['browser', 'host', 'playing', 'reportId', 'seconds', 'watchSeconds'].sort(),
     'usage telemetry contains aggregate playback fields only');

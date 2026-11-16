@@ -166,7 +166,6 @@ enum YouTubeUsageReporter {
         if (leaseRequestPending || blocked || !isYouTubeHost(location.hostname)) return;
         leaseRequestPending = true;
         lastLeaseAttemptAt = performance.now();
-        document.querySelectorAll('video').forEach(v => { if (!v.paused) v.pause(); });
         const requestedAt = performance.now();
         try {
           const requestId = crypto.randomUUID();
@@ -203,9 +202,6 @@ enum YouTubeUsageReporter {
         } finally {
           leaseRequestPending = false;
           enforcePolicy();
-          if (!blocked && (leaseMode === 'local' || accountLease)) {
-            document.querySelectorAll('video').forEach(v => { if (v.paused) v.play().catch(() => {}); });
-          }
         }
       };
       const sendAccountReport = async () => {
