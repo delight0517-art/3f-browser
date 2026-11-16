@@ -29,6 +29,7 @@ struct GoogleOAuthHandoffEvent: Identifiable, Equatable {
         case opened = "Google 로그인 페이지 열림 · 3F 내부"
         case asideBrowserHandoff = "Google 인증을 Aside 브라우저로 전달"
         case asideBrowserUnavailable = "Aside 브라우저 열기 실패"
+        case asideProtectionUnverified = "Aside Focus Fence 보호 미검증 · 인증 전달 보류"
         case popupOpened = "팝업을 3F 탭으로 열음"
         case popupStormBlocked = "팝업 폭주 차단"
         case duplicateSuppressed = "반복 팝업 억제"
@@ -346,10 +347,15 @@ final class GoogleOAuthHandoffDiagnostics: ObservableObject {
                 self.record(.focusFenceBlocked, detail: "인증을 시작한 사이트가 차단됨", key: "google-aside-focus-fence-blocked")
                 return
             }
-            if OptionalFeatureAvailability.focusFenceEnforcement,
-               rules == nil,
-               originatingPage != nil {
-                self.record(.authenticationPolicyUnavailable, key: "google-auth-policy-unavailable")
+            guard let statusData = await Self.fetchAsideProtectionStatus(),
+                  GoogleOAuthNavigationPolicy.asideProtectionIsVerified(statusData) else {
+                self.pendingHandoffKeys.remove(handoffKey)
+                self.record(
+                    .asideProtectionUnverified,
+                    detail: "Focus Fence가 Aside의 확장·검색·웹툰 차단 상태를 확인하지 못함",
+                    key: "google-aside-protection-unverified"
+                )
+                return
             }
             guard let asideURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "at.studio.AsideBrowser") else {
                 self.pendingHandoffKeys.remove(handoffKey)
@@ -373,6 +379,16 @@ final class GoogleOAuthHandoffDiagnostics: ObservableObject {
                 }
             }
         }
+    }
+
+    private static func fetchAsideProtectionStatus() async -> Data? {
+        guard let url = URL(string: "http://127.0.0.1:17361/usage/browser-protection") else { return nil }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 2
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              let http = response as? HTTPURLResponse,
+              http.statusCode == 200 else { return nil }
+        return data
     }
 
     func allowPopup() -> Bool {

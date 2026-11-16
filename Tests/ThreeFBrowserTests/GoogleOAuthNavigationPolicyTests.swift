@@ -3,15 +3,26 @@ import XCTest
 @testable import ThreeFBrowser
 
 final class GoogleOAuthNavigationPolicyTests: XCTestCase {
-    func testGoogleAuthenticationTransportCanOpenWhenFocusFenceIsOffline() throws {
+    func testGoogleAuthenticationTransportFailsClosedWhenFocusFenceIsOffline() throws {
         let auth = try XCTUnwrap(URL(string: "https://accounts.google.com/signin/oauth"))
         let page = try XCTUnwrap(URL(string: "https://allowed.example/login"))
 
-        XCTAssertTrue(GoogleOAuthNavigationPolicy.allowsAuthenticationTransport(
+        XCTAssertFalse(GoogleOAuthNavigationPolicy.allowsAuthenticationTransport(
             auth,
             originatingPage: page,
             focusFenceRules: nil
         ))
+    }
+
+    func testAsideHandoffRequiresRuntimeVerifiedFocusFenceProtection() {
+        let verified = Data(#"{"browsers":[{"browser":"aside","extensionReady":true,"blockedByFallback":false,"urlRulesStateKnown":true,"urlRulesProtected":true,"blockedForUnprotectedURLRules":false,"usageCollectionAvailable":true}]}"#.utf8)
+        let missingProfile = Data(#"{"browsers":[{"browser":"aside","extensionReady":false,"blockedByFallback":true,"urlRulesStateKnown":true,"urlRulesProtected":false,"blockedForUnprotectedURLRules":true,"usageCollectionAvailable":true}]}"#.utf8)
+        let unrelatedBrowser = Data(#"{"browsers":[{"browser":"safari","extensionReady":true,"blockedByFallback":false,"urlRulesStateKnown":true,"urlRulesProtected":true,"blockedForUnprotectedURLRules":false,"usageCollectionAvailable":true}]}"#.utf8)
+
+        XCTAssertTrue(GoogleOAuthNavigationPolicy.asideProtectionIsVerified(verified))
+        XCTAssertFalse(GoogleOAuthNavigationPolicy.asideProtectionIsVerified(missingProfile))
+        XCTAssertFalse(GoogleOAuthNavigationPolicy.asideProtectionIsVerified(unrelatedBrowser))
+        XCTAssertFalse(GoogleOAuthNavigationPolicy.asideProtectionIsVerified(nil))
     }
 
     func testExplicitlyBlockedOriginCannotStartGoogleAuthentication() throws {

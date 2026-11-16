@@ -24,13 +24,26 @@ enum GoogleOAuthNavigationPolicy {
         guard let originatingPage = safeHTTPSPageURL(originatingPage),
               let focusFenceRules,
               let sourceAllowed = ThreeFBrowserControlController.focusFenceAllows(originatingPage, rules: focusFenceRules) else {
-            // Google is the authentication transport. A missing Focus Fence
-            // daemon or policy snapshot must not make a user-initiated login
-            // button silently do nothing; an explicit source-site block still
-            // takes precedence when policy is available.
-            return true
+            // Do not open an unrestricted browser when the source page cannot
+            // be checked against Focus Fence's current policy.
+            return false
         }
         return sourceAllowed
+    }
+
+    static func asideProtectionIsVerified(_ statusData: Data?) -> Bool {
+        guard let statusData,
+              let root = try? JSONSerialization.jsonObject(with: statusData) as? [String: Any],
+              let browsers = root["browsers"] as? [[String: Any]],
+              let aside = browsers.first(where: { $0["browser"] as? String == "aside" }) else {
+            return false
+        }
+        return aside["extensionReady"] as? Bool == true
+            && aside["blockedByFallback"] as? Bool == false
+            && aside["urlRulesStateKnown"] as? Bool == true
+            && aside["urlRulesProtected"] as? Bool == true
+            && aside["blockedForUnprotectedURLRules"] as? Bool == false
+            && aside["usageCollectionAvailable"] as? Bool == true
     }
 
     static func safeHTTPSPageURL(_ url: URL?) -> URL? {
