@@ -19,3 +19,11 @@
 - Existing receipt `work/3f-webkit-video-webgl-installed-runtime-20261107.md`: installed 0.1.0 build 18 showed a 5-second MP4 reaching 00:05/00:05, but no seek action was exercised; get.webgl.org showed WebGL support and a visible spinning cube. This is historical short smoke, not current-session verification.
 - Required fresh installed-app video playback + seek and actual 3D/WebGL preview remain outstanding. The current embedded UI route is policy-closed; do not bypass Focus Fence. Retry only after the embedded controller can verify policy. No runtime success is inferred from `/health`, `/rules`, source tests, or the prior smoke.
 - Next: obtain controller-side policy-status contract/log evidence through the authorized embedding implementation/support path; then, only if its policy check succeeds, perform installed-app playback and seek plus actual visible 3D/WebGL preview. Continue other 3F TODOs independently; this task is not complete.
+
+
+## Broader TODO source checks (2026-11-07)
+
+- Read all unchecked TODO headings and `integration-backlog list --repo /Users/rogan/appDev/apps/3f-browser-mac`. Remaining work includes policy-gated installed UI checks (fresh video seek/WebGL, stale banner, default-browser runtime, YouTube preview, snooze runtime), product/receiver decisions or Windows runtime parity, and broader CEF migration. These cannot all be closed by source-only changes.
+- `swift test --filter BrowserNavigationFeedbackTests` passed 25/25, including late failure after successful navigation, current-navigation failure behavior, Focus Fence unavailable ordinary HTTP allowance, and policy-fail-closed distinctions. The TODO now explicitly keeps installed stale-banner verification pending because no policy-authorized UI route is available.
+- `swift test --filter MediaSiteSnoozeStoreTests` passed 2/2, covering store-instance persistence, subdomain matching, exact 24-hour expiry, and expired-entry removal. TODO now records this fresh source evidence while leaving normal installed relaunch/re-prompt verification unchecked.
+- These are source-level checks, not installed-app proof. No files under Sources or Tests were modified in this continuation; existing dirty paths were preserved.

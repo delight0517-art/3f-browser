@@ -78,6 +78,11 @@ struct FocusFenceYouTubeUsageSummary: Decodable, Equatable, Sendable {
     let hourlyUsedSeconds: Int?
     let hourlyRemainingSeconds: Int?
     let blocked: Bool
+    let feedTodaySeconds: Int?
+    let feedDailyCapMinutes: Int?
+    let feedHourlyUsedSeconds: Int?
+    let feedHourlyCapMinutes: Int?
+    let feedBlocked: Bool?
     private let cloudSignedIn: Bool?
     private let accountBudget: FocusFenceAccountBudgetStatus?
     private let localOnly: Bool?
@@ -87,6 +92,7 @@ struct FocusFenceYouTubeUsageSummary: Decodable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case todaySeconds, dailyCapMinutes, hourlyCapMinutes, hourlyUsedSeconds, hourlyRemainingSeconds
         case blocked, cloudSignedIn, accountBudget, localOnly
+        case feedTodaySeconds, feedDailyCapMinutes, feedHourlyUsedSeconds, feedHourlyCapMinutes, feedBlocked
     }
 
     func withPolicy(_ policy: FocusFenceYouTubePlaybackPolicy?, observedAt: Date = Date()) -> Self {
@@ -184,6 +190,14 @@ struct FocusFenceYouTubeUsageSummary: Decodable, Equatable, Sendable {
             hourly = nil
         }
         return ([compactAccountSyncStatus, daily, hourly, blocked ? "재생 제한 중" : nil].compactMap { $0 }).joined(separator: " · ")
+    }
+
+    var compactFeedStatus: String {
+        let daily = Self.duration(feedTodaySeconds ?? 0)
+        let dailyCap = feedDailyCapMinutes ?? 40
+        let hourly = Self.duration(feedHourlyUsedSeconds ?? 0)
+        let hourlyCap = feedHourlyCapMinutes ?? 5
+        return "피드 오늘 \(daily)/\(dailyCap)분 · 1시간 \(hourly)/\(hourlyCap)분"
     }
 
     static func duration(_ seconds: Int) -> String {

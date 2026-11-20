@@ -24,8 +24,8 @@ enum BrowserPolicyPlugin: String, CaseIterable, Identifiable {
         switch self {
         case .focusFence:
             OptionalFeatureAvailability.focusFenceEnforcement
-                ? "정책 플러그인 적용 · 실시간 규칙 연결 여부는 브라우저 상태에서 확인"
-                : "정책 플러그인 비활성"
+                ? "Focus Fence 정책 어댑터 사용 · 연결 상태는 브라우저 상태에서 확인"
+                : "Focus Fence 정책 어댑터 비활성"
         }
     }
 }
