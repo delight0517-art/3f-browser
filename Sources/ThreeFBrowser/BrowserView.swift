@@ -21,6 +21,8 @@ struct BrowserView: View {
     @State private var isExtractingReaderArticle = false
     @State private var isShowingHistoryPopover = false
     @State private var historySearchQuery = ""
+    @State private var googleSuggestions: [String] = []
+    @State private var suggestionFetchTask: Task<Void, Never>?
     @State private var isShowingAISidePanel = false
     @State private var aiSidePanelWebView: WKWebView?
     @State private var aiSidePanelURL: URL? = AIModeNavigationPolicy.onlyChatURL
@@ -383,12 +385,15 @@ struct BrowserView: View {
                     : ThreeFPalette.border,
                 lineWidth: model.isLoading ? (navigationFeedbackPulse ? 2.5 : 1.5) : 1
             ))
+            .onChange(of: model.addressText) { _, newValue in
+                fetchGoogleSuggestions(for: newValue)
+            }
             .overlay(alignment: .topLeading) {
                 if isAddressFocused && !model.addressText.isEmpty {
-                    let suggestions = model.autocompleteSuggestions(for: model.addressText)
-                    if !suggestions.isEmpty {
+                    let recentSuggestions = model.autocompleteSuggestions(for: model.addressText)
+                    if !recentSuggestions.isEmpty || !googleSuggestions.isEmpty {
                         VStack(alignment: .leading, spacing: 0) {
-                            ForEach(Array(suggestions.enumerated()), id: \.element.id) { index, entry in
+                            ForEach(Array(recentSuggestions.enumerated()), id: \.element.id) { index, entry in
                                 Button {
                                     model.addressText = entry.url
                                     isAddressFocused = false
@@ -415,7 +420,32 @@ struct BrowserView: View {
                                     .contentShape(Rectangle())
                                 }
                                 .buttonStyle(.plain)
-                                if index < suggestions.count - 1 {
+                                if index < recentSuggestions.count - 1 || !googleSuggestions.isEmpty {
+                                    Divider().padding(.horizontal, 6)
+                                }
+                            }
+                            ForEach(Array(googleSuggestions.enumerated()), id: \.offset) { index, suggestion in
+                                Button {
+                                    model.addressText = suggestion
+                                    isAddressFocused = false
+                                    submitAddressBar()
+                                } label: {
+                                    HStack(spacing: 8) {
+                                        Image(systemName: "magnifyingglass")
+                                            .font(.system(size: 11))
+                                            .foregroundStyle(ThreeFPalette.muted)
+                                        Text(suggestion)
+                                            .font(.system(size: 12))
+                                            .foregroundStyle(ThreeFPalette.ink)
+                                            .lineLimit(1)
+                                        Spacer()
+                                    }
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                if index < googleSuggestions.count - 1 {
                                     Divider().padding(.horizontal, 6)
                                 }
                             }
@@ -880,6 +910,36 @@ struct BrowserView: View {
     private func openLinkInNewWindow(_ url: URL) {
         guard ThreeFContextMenuWindowRoute.enqueue(url) else { return }
         openWindow(id: "browser")
+    }
+
+    private func fetchGoogleSuggestions(for query: String) {
+        suggestionFetchTask?.cancel()
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              !trimmed.contains("://"),
+              let encoded = trimmed.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let url = URL(string: "https://suggestqueries.google.com/complete/search?client=firefox&q=\(encoded)") else {
+            googleSuggestions = []
+            return
+        }
+        suggestionFetchTask = Task {
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            guard !Task.isCancelled else { return }
+            do {
+                let (data, _) = try await URLSession.shared.data(from: url)
+                guard !Task.isCancelled,
+                      let json = try JSONSerialization.jsonObject(with: data) as? [Any],
+                      json.count > 1,
+                      let items = json[1] as? [String] else { return }
+                await MainActor.run {
+                    googleSuggestions = Array(items.prefix(5))
+                }
+            } catch {
+                if !Task.isCancelled {
+                    await MainActor.run { googleSuggestions = [] }
+                }
+            }
+        }
     }
 
     private func submitAddressBar() {
