@@ -64,6 +64,7 @@ enum FocusFenceSearchResultFilter {
     function threefShouldHideImageSearchQuery(query, ruleIndex) {
       const normalized = String(query || '').normalize('NFKC').toLocaleLowerCase().replace(/\s+/gu, ' ').trim();
       if (!normalized) return false;
+      if (/^(?:네이버\s*밴드|naver\s*band|band\.us)(?:\s|$)/u.test(normalized)) return false;
       if (threefTitleMatchesSensitiveKeyword(normalized, ruleIndex)) return true;
       const blockedURLPartQuery = ruleIndex.blockedUrlParts.some(rawPart => {
         const part = String(rawPart || '').toLocaleLowerCase().trim();
