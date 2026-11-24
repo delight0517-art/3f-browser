@@ -109,8 +109,29 @@ struct BrowserWebView: NSViewRepresentable {
         Coordinator(parent: self)
     }
 
-    func makeNSView(context: Context) -> WKWebView {
+    static func standardWebKitApplicationNameForUserAgent(safariShortVersion: String? = nil) -> String {
+        let rawVersion = safariShortVersion ?? installedSafariShortVersion()
+        let sanitized = rawVersion?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let validVersion = !sanitized.isEmpty
+            && sanitized.allSatisfy({ $0.isASCII && ($0.isNumber || $0 == ".") })
+            && sanitized.first?.isNumber == true
+            && sanitized.last?.isNumber == true
+        let version = validVersion ? sanitized : "18.0"
+        return "Version/\(version) Safari/605.1.15"
+    }
+
+    private static func installedSafariShortVersion() -> String? {
+        let safariURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Safari")
+            ?? URL(fileURLWithPath: "/Applications/Safari.app", isDirectory: true)
+        return Bundle(url: safariURL)?.infoDictionary?["CFBundleShortVersionString"] as? String
+    }
+
+    @MainActor
+    static func makeWebViewConfiguration(
+        backgroundLinkDelegate: ThreeFBackgroundLinkDelegate? = nil
+    ) -> WKWebViewConfiguration {
         let configuration = WKWebViewConfiguration()
+        configuration.applicationNameForUserAgent = standardWebKitApplicationNameForUserAgent()
         configuration.processPool = ThreeFBrowserProcessPool.shared
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
         if OptionalFeatureAvailability.focusFenceEnforcement {
@@ -129,16 +150,17 @@ struct BrowserWebView: NSViewRepresentable {
         if BrowserSessionStore.isolatedQAProfileEnabled {
             configuration.websiteDataStore = .nonPersistent()
         }
-        let coordinator = context.coordinator
         if OptionalFeatureAvailability.youtubeUsageReporting {
             configuration.userContentController.add(
                 YouTubeKeywordSelectionScriptMessageHandler(),
+                contentWorld: .defaultClient,
                 name: YouTubeTitleExemptionScripts.selectionMessageName
             )
             configuration.userContentController.addUserScript(WKUserScript(
                 source: YouTubeTitleExemptionScripts.selection,
                 injectionTime: .atDocumentStart,
-                forMainFrameOnly: true
+                forMainFrameOnly: true,
+                in: .defaultClient
             ))
         }
         configuration.userContentController.add(
@@ -152,9 +174,9 @@ struct BrowserWebView: NSViewRepresentable {
             forMainFrameOnly: false,
             in: .defaultClient
         ))
-        if onOpenBackgroundTab != nil {
+        if let backgroundLinkDelegate {
             let handler = ThreeFBackgroundLinkScriptMessageHandler()
-            handler.delegate = coordinator
+            handler.delegate = backgroundLinkDelegate
             configuration.userContentController.add(
                 handler,
                 contentWorld: ThreeFBackgroundLinkPolicy.contentWorld,
@@ -201,7 +223,16 @@ struct BrowserWebView: NSViewRepresentable {
                 in: .defaultClient
             ))
         }
+        return configuration
+    }
+
+    func makeNSView(context: Context) -> WKWebView {
+        let coordinator = context.coordinator
+        let configuration = Self.makeWebViewConfiguration(
+            backgroundLinkDelegate: onOpenBackgroundTab != nil ? coordinator : nil
+        )
         let view = ThreeFWindowAwareWebView(frame: .zero, configuration: configuration)
+        view.customUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Safari/605.1.15"
         context.coordinator.parent = self
         view.navigationDelegate = context.coordinator
         view.uiDelegate = coordinator
@@ -235,6 +266,7 @@ struct BrowserWebView: NSViewRepresentable {
 
         var parent: BrowserWebView
         var lastRequestID = -1
+        private var activePopups: [ObjectIdentifier: ThreeFManagedPopupWindowController] = [:]
 
         init(parent: BrowserWebView) {
             self.parent = parent
@@ -324,13 +356,29 @@ struct BrowserWebView: NSViewRepresentable {
                 }
                 authorizeNavigation(url) { [weak self] decision in
                     guard let self else { return }
-                    guard decision.isAllowed else {
-                        self.parent.onRejectedNavigation?(url, decision)
-                        return
+                    self.onMain {
+                        guard decision.isAllowed else {
+                            self.parent.onRejectedNavigation?(url, decision)
+                            return
+                        }
+                        self.openOAuthInSystemBrowser(url, sourceURL: webView.url)
                     }
-                    self.openOAuthInSystemBrowser(url, sourceURL: webView.url)
                 }
                 return nil
+            }
+            let hasExplicitSize = windowFeatures.width != nil || windowFeatures.height != nil
+            if navigationAction.targetFrame == nil,
+               Self.shouldOpenManagedPopup(
+                   navigationType: navigationAction.navigationType,
+                   url: navigationAction.request.url,
+                   hasExplicitWindowSize: hasExplicitSize
+               ),
+               GoogleOAuthHandoffDiagnostics.shared.allowPopup() {
+                return openManagedPopup(
+                    configuration: configuration,
+                    openerURL: GoogleOAuthNavigationPolicy.safeHTTPSPageURL(webView.url),
+                    windowFeatures: windowFeatures
+                )
             }
             Self.routePopup(
                 targetFrameIsAbsent: navigationAction.targetFrame == nil,
@@ -338,6 +386,83 @@ struct BrowserWebView: NSViewRepresentable {
                 openInNewTab: parent.onOpenLinkInNewTab
             )
             return nil
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            runJavaScriptAlertPanelWithMessage message: String,
+            initiatedByFrame frame: WKFrameInfo,
+            completionHandler: @escaping () -> Void
+        ) {
+            onMain {
+                ThreeFWebKitDialogPresenter.runAlert(on: webView, message: message, frame: frame, completionHandler: completionHandler)
+            }
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            runJavaScriptConfirmPanelWithMessage message: String,
+            initiatedByFrame frame: WKFrameInfo,
+            completionHandler: @escaping (Bool) -> Void
+        ) {
+            onMain {
+                ThreeFWebKitDialogPresenter.runConfirm(on: webView, message: message, frame: frame, completionHandler: completionHandler)
+            }
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            runJavaScriptTextInputPanelWithPrompt prompt: String,
+            defaultText: String?,
+            initiatedByFrame frame: WKFrameInfo,
+            completionHandler: @escaping (String?) -> Void
+        ) {
+            onMain {
+                ThreeFWebKitDialogPresenter.runPrompt(
+                    on: webView,
+                    prompt: prompt,
+                    defaultText: defaultText,
+                    frame: frame,
+                    completionHandler: completionHandler
+                )
+            }
+        }
+
+        static func shouldOpenManagedPopup(
+            navigationType: WKNavigationType,
+            url: URL?,
+            hasExplicitWindowSize: Bool
+        ) -> Bool {
+            guard navigationType != .linkActivated else { return false }
+            if hasExplicitWindowSize { return true }
+            guard let url else { return true }
+            return url.scheme?.lowercased() == "about"
+        }
+
+        @MainActor
+        private func openManagedPopup(
+            configuration: WKWebViewConfiguration,
+            openerURL: URL?,
+            windowFeatures: WKWindowFeatures
+        ) -> WKWebView {
+            let controller = ThreeFManagedPopupWindowController(
+                configuration: configuration,
+                windowFeatures: windowFeatures,
+                openerURL: openerURL,
+                authorizeNavigation: parent.authorizeNavigation,
+                onRejectedNavigation: parent.onRejectedNavigation,
+                allowsDownloads: parent.allowsDownloads,
+                openOAuthInSystemBrowser: { [weak self] url, sourceURL in
+                    self?.openOAuthInSystemBrowser(url, sourceURL: sourceURL)
+                },
+                openLinkInNewTab: parent.onOpenLinkInNewTab,
+                onClose: { [weak self] identifier in
+                    self?.activePopups.removeValue(forKey: identifier)
+                }
+            )
+            activePopups[ObjectIdentifier(controller)] = controller
+            controller.show()
+            return controller.popupWebView
         }
 
         private func openOAuthInSystemBrowser(_ url: URL, sourceURL: URL?) {
@@ -465,20 +590,6 @@ struct BrowserWebView: NSViewRepresentable {
             decidePolicyFor navigationAction: WKNavigationAction,
             decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
         ) {
-            let isCloudflareChallengeFrame = !((navigationAction.targetFrame?.isMainFrame) ?? true)
-                && GoogleOAuthHandoffDiagnostics.isCloudflareChallengeURL(navigationAction.request.url)
-            let allowsCloudflareChallenge = CloudflareLoginNavigationPolicy.allowsChallengeFrame(
-                navigationAction.request.url,
-                topLevelURL: webView.url,
-                targetFrameIsMainFrame: navigationAction.targetFrame?.isMainFrame
-            )
-            if isCloudflareChallengeFrame {
-                GoogleOAuthHandoffDiagnostics.shared.recordCloudflareChallenge(allowed: allowsCloudflareChallenge)
-            }
-            if allowsCloudflareChallenge {
-                decisionHandler(.allow)
-                return
-            }
             if ThreeFBackgroundLinkPolicy.isBackgroundLink(
                 navigationType: navigationAction.navigationType,
                 buttonNumber: navigationAction.buttonNumber,
@@ -488,44 +599,133 @@ struct BrowserWebView: NSViewRepresentable {
                 openBackgroundLink(destination)
                 return
             }
-            if Self.allowsEmbeddedAboutDocument(
+            Self.handleNavigationActionPolicy(
+                navigationAction,
+                webViewURL: webView.url,
+                allowMainFrameBlankAbout: false,
+                authorizeNavigation: parent.authorizeNavigation,
+                allowsDownloads: parent.allowsDownloads,
+                onRejectedNavigation: parent.onRejectedNavigation,
+                onSystemBrowserOAuth: { [weak self] url, sourceURL in
+                    self?.openOAuthInSystemBrowser(url, sourceURL: sourceURL)
+                },
+                decisionHandler: decisionHandler
+            )
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            decidePolicyFor navigationResponse: WKNavigationResponse,
+            decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
+        ) {
+            Self.handleNavigationResponsePolicy(
+                navigationResponse,
+                webViewURL: webView.url,
+                authorizeNavigation: parent.authorizeNavigation,
+                allowsDownloads: parent.allowsDownloads,
+                onRejectedNavigation: parent.onRejectedNavigation,
+                decisionHandler: decisionHandler
+            )
+        }
+
+        @MainActor
+        static func handleNavigationActionPolicy(
+            _ navigationAction: WKNavigationAction,
+            webViewURL: URL?,
+            allowMainFrameBlankAbout: Bool,
+            authorizeNavigation: ((URL, @escaping (BrowserNavigationAuthorizationDecision) -> Void) -> Void)?,
+            allowsDownloads: Bool,
+            onRejectedNavigation: ((URL, BrowserNavigationAuthorizationDecision) -> Void)?,
+            onSystemBrowserOAuth: @escaping (URL, URL?) -> Void,
+            decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+        ) {
+            let targetFrameIsMainFrame = navigationAction.targetFrame?.isMainFrame
+            let isCloudflareChallengeFrame = !(targetFrameIsMainFrame ?? true)
+                && GoogleOAuthHandoffDiagnostics.isCloudflareChallengeURL(navigationAction.request.url)
+            let allowsCloudflareChallenge = CloudflareLoginNavigationPolicy.allowsChallengeFrame(
                 navigationAction.request.url,
-                targetFrameIsMainFrame: navigationAction.targetFrame?.isMainFrame
+                topLevelURL: webViewURL,
+                targetFrameIsMainFrame: targetFrameIsMainFrame
+            )
+            if isCloudflareChallengeFrame {
+                GoogleOAuthHandoffDiagnostics.shared.recordCloudflareChallenge(allowed: allowsCloudflareChallenge)
+            }
+            if allowsCloudflareChallenge {
+                decisionHandler(.allow)
+                return
+            }
+            if allowsEmbeddedSubframeDocument(
+                navigationAction.request.url,
+                targetFrameIsMainFrame: targetFrameIsMainFrame
             ) {
+                decisionHandler(.allow)
+                return
+            }
+            if allowMainFrameBlankAbout,
+               targetFrameIsMainFrame == true,
+               isBlankAboutDocument(navigationAction.request.url) {
                 decisionHandler(.allow)
                 return
             }
             guard let url = navigationAction.request.url,
                   let scheme = url.scheme?.lowercased(), ["http", "https", "file"].contains(scheme),
                   url.user == nil, url.password == nil else {
+                recordCloudflareSubframeCancelIfNeeded(
+                    url: navigationAction.request.url,
+                    topLevelURL: webViewURL,
+                    targetFrameIsMainFrame: targetFrameIsMainFrame
+                )
                 decisionHandler(.cancel)
                 return
             }
-            guard let authorize = parent.authorizeNavigation else {
-                let navigationDecision = Self.navigationDecision(isAllowed: nil, shouldDownload: navigationAction.shouldPerformDownload, allowsDownloads: parent.allowsDownloads)
-                if navigationDecision == .allow, GoogleOAuthNavigationPolicy.requiresSystemBrowser(for: url) {
-                    decisionHandler(.cancel)
-                    openOAuthInSystemBrowser(url, sourceURL: webView.url)
-                    return
+            guard let authorize = authorizeNavigation else {
+                let decision = navigationDecision(
+                    isAllowed: nil,
+                    shouldDownload: navigationAction.shouldPerformDownload,
+                    allowsDownloads: allowsDownloads
+                )
+                if decision == .cancel {
+                    recordCloudflareSubframeCancelIfNeeded(
+                        url: url,
+                        topLevelURL: webViewURL,
+                        targetFrameIsMainFrame: targetFrameIsMainFrame
+                    )
                 }
-                decisionHandler(Self.webKitActionPolicy(navigationDecision))
+                decisionHandler(webKitActionPolicy(decision))
                 return
             }
-            authorize(url) { [weak self] decision in
-                if !decision.isAllowed { self?.parent.onRejectedNavigation?(url, decision) }
-                let navigationDecision = Self.navigationDecision(isAllowed: decision.isAllowed, shouldDownload: navigationAction.shouldPerformDownload, allowsDownloads: self?.parent.allowsDownloads ?? false)
-                if navigationDecision == .allow, GoogleOAuthNavigationPolicy.requiresSystemBrowser(for: url) {
-                    decisionHandler(.cancel)
-                    self?.openOAuthInSystemBrowser(url, sourceURL: webView.url)
-                    return
+            authorize(url) { decision in
+                runOnMain {
+                    if !decision.isAllowed { onRejectedNavigation?(url, decision) }
+                    let navigationDecision = navigationDecision(
+                        isAllowed: decision.isAllowed,
+                        shouldDownload: navigationAction.shouldPerformDownload,
+                        allowsDownloads: allowsDownloads
+                    )
+                    if navigationDecision == .allow, GoogleOAuthNavigationPolicy.requiresSystemBrowser(for: url) {
+                        decisionHandler(.cancel)
+                        onSystemBrowserOAuth(url, webViewURL)
+                        return
+                    }
+                    if navigationDecision == .cancel {
+                        recordCloudflareSubframeCancelIfNeeded(
+                            url: url,
+                            topLevelURL: webViewURL,
+                            targetFrameIsMainFrame: targetFrameIsMainFrame
+                        )
+                    }
+                    decisionHandler(webKitActionPolicy(navigationDecision))
                 }
-                decisionHandler(Self.webKitActionPolicy(navigationDecision))
             }
         }
 
-        func webView(
-            _ webView: WKWebView,
-            decidePolicyFor navigationResponse: WKNavigationResponse,
+        @MainActor
+        static func handleNavigationResponsePolicy(
+            _ navigationResponse: WKNavigationResponse,
+            webViewURL: URL?,
+            authorizeNavigation: ((URL, @escaping (BrowserNavigationAuthorizationDecision) -> Void) -> Void)?,
+            allowsDownloads: Bool,
+            onRejectedNavigation: ((URL, BrowserNavigationAuthorizationDecision) -> Void)?,
             decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
         ) {
             GoogleOAuthHandoffDiagnostics.shared.recordHTTPResponse(
@@ -534,7 +734,7 @@ struct BrowserWebView: NSViewRepresentable {
             )
             let allowsCloudflareChallenge = CloudflareLoginNavigationPolicy.allowsChallengeFrame(
                 navigationResponse.response.url,
-                topLevelURL: webView.url,
+                topLevelURL: webViewURL,
                 targetFrameIsMainFrame: navigationResponse.isForMainFrame
             )
             if !navigationResponse.isForMainFrame,
@@ -545,7 +745,7 @@ struct BrowserWebView: NSViewRepresentable {
                 decisionHandler(.allow)
                 return
             }
-            if Self.allowsEmbeddedAboutDocument(
+            if allowsEmbeddedSubframeDocument(
                 navigationResponse.response.url,
                 targetFrameIsMainFrame: navigationResponse.isForMainFrame
             ) {
@@ -559,13 +759,23 @@ struct BrowserWebView: NSViewRepresentable {
             guard let url = navigationResponse.response.url,
                   let scheme = url.scheme?.lowercased(), ["http", "https", "file"].contains(scheme),
                   url.user == nil, url.password == nil,
-                  let authorize = parent.authorizeNavigation else {
-                decisionHandler(Self.webKitResponsePolicy(Self.navigationDecision(isAllowed: nil, shouldDownload: shouldDownload, allowsDownloads: parent.allowsDownloads)))
+                  let authorize = authorizeNavigation else {
+                decisionHandler(webKitResponsePolicy(navigationDecision(
+                    isAllowed: nil,
+                    shouldDownload: shouldDownload,
+                    allowsDownloads: allowsDownloads
+                )))
                 return
             }
-            authorize(url) { [weak self] decision in
-                if !decision.isAllowed { self?.parent.onRejectedNavigation?(url, decision) }
-                decisionHandler(Self.webKitResponsePolicy(Self.navigationDecision(isAllowed: decision.isAllowed, shouldDownload: shouldDownload, allowsDownloads: self?.parent.allowsDownloads ?? false)))
+            authorize(url) { decision in
+                runOnMain {
+                    if !decision.isAllowed { onRejectedNavigation?(url, decision) }
+                    decisionHandler(webKitResponsePolicy(navigationDecision(
+                        isAllowed: decision.isAllowed,
+                        shouldDownload: shouldDownload,
+                        allowsDownloads: allowsDownloads
+                    )))
+                }
             }
         }
 
@@ -627,10 +837,55 @@ struct BrowserWebView: NSViewRepresentable {
             guard targetFrameIsMainFrame == false,
                   let url,
                   url.scheme?.lowercased() == "about",
-                  url.host == nil,
-                  url.query == nil,
-                  url.fragment == nil else { return false }
+                  url.host == nil || url.host?.isEmpty == true else { return false }
             return ["blank", "srcdoc"].contains(url.path.lowercased())
+        }
+
+        static func isBlankAboutDocument(_ url: URL?) -> Bool {
+            guard let url,
+                  url.scheme?.lowercased() == "about",
+                  url.host == nil || url.host?.isEmpty == true else { return false }
+            return url.path.lowercased() == "blank"
+        }
+
+        static func allowsEmbeddedSubframeDocument(_ url: URL?, targetFrameIsMainFrame: Bool?) -> Bool {
+            if allowsEmbeddedAboutDocument(url, targetFrameIsMainFrame: targetFrameIsMainFrame) {
+                return true
+            }
+            guard targetFrameIsMainFrame == false,
+                  let url,
+                  let scheme = url.scheme?.lowercased() else { return false }
+            if scheme == "blob" {
+                let raw = url.absoluteString
+                guard raw.lowercased().hasPrefix("blob:"),
+                      let inner = URL(string: String(raw.dropFirst(5))),
+                      inner.scheme?.lowercased() == "https",
+                      let innerHost = inner.host, !innerHost.isEmpty,
+                      inner.user == nil, inner.password == nil else { return false }
+                return true
+            }
+            if scheme == "data" {
+                return url.host == nil || url.host?.isEmpty == true
+            }
+            return false
+        }
+
+        @MainActor
+        static func recordCloudflareSubframeCancelIfNeeded(
+            url: URL?,
+            topLevelURL: URL?,
+            targetFrameIsMainFrame: Bool?
+        ) {
+            guard targetFrameIsMainFrame == false,
+                  topLevelURL?.host?.lowercased() == "dash.cloudflare.com" else { return }
+            let rawScheme = url?.scheme?.lowercased() ?? "none"
+            let sanitized = rawScheme.filter { $0.isASCII && ($0.isLetter || $0.isNumber) }
+            let schemeLabel = sanitized.isEmpty ? "unknown" : sanitized
+            GoogleOAuthHandoffDiagnostics.shared.record(
+                .openFailed,
+                detail: "Cloudflare 하위 프레임 차단 · \(schemeLabel)",
+                key: "cf-subframe-cancel-\(schemeLabel)"
+            )
         }
 
         private static func webKitActionPolicy(_ decision: NavigationDecision) -> WKNavigationActionPolicy {
@@ -664,12 +919,281 @@ struct BrowserWebView: NSViewRepresentable {
             }
         }
 
-        private func onMain(_ action: @escaping () -> Void) {
+        private static func runOnMain(_ action: @escaping @MainActor () -> Void) {
             if Thread.isMainThread {
-                action()
+                MainActor.assumeIsolated(action)
             } else {
-                DispatchQueue.main.async(execute: action)
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated(action)
+                }
             }
         }
+
+        private func onMain(_ action: @escaping @MainActor () -> Void) {
+            Self.runOnMain(action)
+        }
+    }
+}
+
+@MainActor
+private enum ThreeFWebKitDialogPresenter {
+    static func runAlert(on webView: WKWebView, message: String, frame: WKFrameInfo, completionHandler: @escaping () -> Void) {
+        let alert = makeAlert(title: frameTitle(for: frame), message: message)
+        alert.addButton(withTitle: "확인")
+        present(alert, on: webView, onResponse: { _ in completionHandler() }, fallback: completionHandler)
+    }
+
+    static func runConfirm(on webView: WKWebView, message: String, frame: WKFrameInfo, completionHandler: @escaping (Bool) -> Void) {
+        let alert = makeAlert(title: frameTitle(for: frame), message: message)
+        alert.addButton(withTitle: "확인")
+        alert.addButton(withTitle: "취소")
+        present(alert, on: webView, onResponse: { completionHandler($0 == .alertFirstButtonReturn) }, fallback: { completionHandler(false) })
+    }
+
+    static func runPrompt(
+        on webView: WKWebView,
+        prompt: String,
+        defaultText: String?,
+        frame: WKFrameInfo,
+        completionHandler: @escaping (String?) -> Void
+    ) {
+        let alert = makeAlert(title: frameTitle(for: frame), message: prompt)
+        alert.addButton(withTitle: "확인")
+        alert.addButton(withTitle: "취소")
+        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        input.stringValue = defaultText ?? ""
+        alert.accessoryView = input
+        alert.window.initialFirstResponder = input
+        present(alert, on: webView, onResponse: { response in
+            completionHandler(response == .alertFirstButtonReturn ? input.stringValue : nil)
+        }, fallback: { completionHandler(nil) })
+    }
+
+    private static func frameTitle(for frame: WKFrameInfo) -> String {
+        let host = frame.securityOrigin.host
+        return host.isEmpty ? "3F Browser" : host
+    }
+
+    private static func makeAlert(title: String, message: String) -> NSAlert {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        return alert
+    }
+
+    private static func present(
+        _ alert: NSAlert,
+        on webView: WKWebView,
+        onResponse: @escaping (NSApplication.ModalResponse) -> Void,
+        fallback: @escaping () -> Void
+    ) {
+        guard let window = webView.window else {
+            fallback()
+            return
+        }
+        if window.attachedSheet == nil {
+            alert.beginSheetModal(for: window, completionHandler: onResponse)
+        } else {
+            onResponse(alert.runModal())
+        }
+    }
+}
+
+@MainActor
+private final class ThreeFManagedPopupWindowController: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate {
+    private let window: NSWindow
+    private let webView: WKWebView
+    private let openerURL: URL?
+    private let authorizeNavigation: ((URL, @escaping (BrowserNavigationAuthorizationDecision) -> Void) -> Void)?
+    private let onRejectedNavigation: ((URL, BrowserNavigationAuthorizationDecision) -> Void)?
+    private let allowsDownloads: Bool
+    private let openOAuthInSystemBrowser: (URL, URL?) -> Void
+    private let openLinkInNewTab: ((URL) -> Void)?
+    private let onClose: (ObjectIdentifier) -> Void
+    private var isClosed = false
+
+    init(
+        configuration: WKWebViewConfiguration,
+        windowFeatures: WKWindowFeatures,
+        openerURL: URL?,
+        authorizeNavigation: ((URL, @escaping (BrowserNavigationAuthorizationDecision) -> Void) -> Void)?,
+        onRejectedNavigation: ((URL, BrowserNavigationAuthorizationDecision) -> Void)?,
+        allowsDownloads: Bool,
+        openOAuthInSystemBrowser: @escaping (URL, URL?) -> Void,
+        openLinkInNewTab: ((URL) -> Void)?,
+        onClose: @escaping (ObjectIdentifier) -> Void
+    ) {
+        self.openerURL = openerURL
+        self.authorizeNavigation = authorizeNavigation
+        self.onRejectedNavigation = onRejectedNavigation
+        self.allowsDownloads = allowsDownloads
+        self.openOAuthInSystemBrowser = openOAuthInSystemBrowser
+        self.openLinkInNewTab = openLinkInNewTab
+        self.onClose = onClose
+
+        let requestedWidth = CGFloat(windowFeatures.width?.doubleValue ?? 560)
+        let requestedHeight = CGFloat(windowFeatures.height?.doubleValue ?? 680)
+        let width = min(max(requestedWidth, 420), 1000)
+        let height = min(max(requestedHeight, 480), 860)
+        let contentRect = NSRect(x: 0, y: 0, width: width, height: height)
+
+        let window = NSWindow(
+            contentRect: contentRect,
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "로그인 · 3F Browser"
+        window.isReleasedWhenClosed = false
+        window.center()
+
+        let webView = WKWebView(frame: contentRect, configuration: configuration)
+        webView.autoresizingMask = [.width, .height]
+        window.contentView = webView
+
+        self.window = window
+        self.webView = webView
+        super.init()
+
+        window.delegate = self
+        webView.navigationDelegate = self
+        webView.uiDelegate = self
+    }
+
+    var popupWebView: WKWebView { webView }
+
+    func show() {
+        window.makeKeyAndOrderFront(nil)
+    }
+
+    private func closePopup() {
+        guard !isClosed else { return }
+        isClosed = true
+        window.close()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        isClosed = true
+        webView.stopLoading()
+        webView.navigationDelegate = nil
+        webView.uiDelegate = nil
+        onClose(ObjectIdentifier(self))
+    }
+
+    func webViewDidClose(_ webView: WKWebView) {
+        closePopup()
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        let title = webView.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        window.title = title.isEmpty ? (webView.url?.host ?? "로그인 · 3F Browser") : title
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        createWebViewWith configuration: WKWebViewConfiguration,
+        for navigationAction: WKNavigationAction,
+        windowFeatures: WKWindowFeatures
+    ) -> WKWebView? {
+        guard let url = navigationAction.request.url else { return nil }
+        let sourceURL = GoogleOAuthNavigationPolicy.safeHTTPSPageURL(webView.url) ?? openerURL
+        if GoogleOAuthNavigationPolicy.requiresSystemBrowser(for: url) {
+            guard let authorizeNavigation else { return nil }
+            authorizeNavigation(url) { [weak self] decision in
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    guard decision.isAllowed else {
+                        self.onRejectedNavigation?(url, decision)
+                        return
+                    }
+                    self.openOAuthInSystemBrowser(url, sourceURL)
+                }
+            }
+            return nil
+        }
+        BrowserWebView.Coordinator.routePopup(
+            targetFrameIsAbsent: navigationAction.targetFrame == nil,
+            url: url,
+            openInNewTab: openLinkInNewTab
+        )
+        return nil
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationAction: WKNavigationAction,
+        decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+    ) {
+        BrowserWebView.Coordinator.handleNavigationActionPolicy(
+            navigationAction,
+            webViewURL: webView.url,
+            allowMainFrameBlankAbout: true,
+            authorizeNavigation: authorizeNavigation,
+            allowsDownloads: allowsDownloads,
+            onRejectedNavigation: { [weak self] url, decision in
+                self?.onRejectedNavigation?(url, decision)
+                if webView.url == nil || BrowserWebView.Coordinator.isBlankAboutDocument(webView.url) {
+                    self?.closePopup()
+                }
+            },
+            onSystemBrowserOAuth: { [weak self] url, currentURL in
+                guard let self else { return }
+                let sourceURL = GoogleOAuthNavigationPolicy.safeHTTPSPageURL(currentURL) ?? self.openerURL
+                self.openOAuthInSystemBrowser(url, sourceURL)
+                if currentURL == nil || BrowserWebView.Coordinator.isBlankAboutDocument(currentURL) {
+                    self.closePopup()
+                }
+            },
+            decisionHandler: decisionHandler
+        )
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationResponse: WKNavigationResponse,
+        decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
+    ) {
+        BrowserWebView.Coordinator.handleNavigationResponsePolicy(
+            navigationResponse,
+            webViewURL: webView.url,
+            authorizeNavigation: authorizeNavigation,
+            allowsDownloads: allowsDownloads,
+            onRejectedNavigation: onRejectedNavigation,
+            decisionHandler: decisionHandler
+        )
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        runJavaScriptAlertPanelWithMessage message: String,
+        initiatedByFrame frame: WKFrameInfo,
+        completionHandler: @escaping () -> Void
+    ) {
+        ThreeFWebKitDialogPresenter.runAlert(on: webView, message: message, frame: frame, completionHandler: completionHandler)
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        runJavaScriptConfirmPanelWithMessage message: String,
+        initiatedByFrame frame: WKFrameInfo,
+        completionHandler: @escaping (Bool) -> Void
+    ) {
+        ThreeFWebKitDialogPresenter.runConfirm(on: webView, message: message, frame: frame, completionHandler: completionHandler)
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        runJavaScriptTextInputPanelWithPrompt prompt: String,
+        defaultText: String?,
+        initiatedByFrame frame: WKFrameInfo,
+        completionHandler: @escaping (String?) -> Void
+    ) {
+        ThreeFWebKitDialogPresenter.runPrompt(
+            on: webView,
+            prompt: prompt,
+            defaultText: defaultText,
+            frame: frame,
+            completionHandler: completionHandler
+        )
     }
 }

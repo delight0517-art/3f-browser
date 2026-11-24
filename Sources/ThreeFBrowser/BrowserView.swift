@@ -19,6 +19,12 @@ struct BrowserView: View {
     @State private var readerArticle: ReaderArticle?
     @State private var readerFailure: String?
     @State private var isExtractingReaderArticle = false
+    @State private var isShowingHistoryPopover = false
+    @State private var historySearchQuery = ""
+    @State private var isShowingAISidePanel = false
+    @State private var aiSidePanelWebView: WKWebView?
+    @State private var aiSidePanelURL: URL? = AIModeNavigationPolicy.onlyChatURL
+    @State private var aiSidePanelRequestID = 1
     @SceneStorage("threef.browser.session-window-id") private var sessionWindowID = UUID().uuidString
     @SceneStorage("threef.ai-mode.session-window-id") private var aiModeSessionWindowID = UUID().uuidString
     @State private var didRestoreSession = false
@@ -81,7 +87,14 @@ struct BrowserView: View {
                 .background(ThreeFPalette.canvas)
             }
             if !embedded && installedWebApp == nil && model.shouldShowYouTubeUsage { youtubePolicyStatus }
-            browserContent
+            HStack(spacing: 0) {
+                browserContent
+                if !aiMode && !embedded && installedWebApp == nil && isShowingAISidePanel {
+                    Divider()
+                    aiSidePanel
+                        .frame(width: 420)
+                }
+            }
             if !embedded && installedWebApp == nil { statusBar }
         }
         .padding(.top, (embedded || aiMode || installedWebApp != nil) ? 0 : 28)
@@ -433,11 +446,229 @@ struct BrowserView: View {
             chromeButton("text.alignleft", help: "읽기 모드", disabled: model.currentURL == nil || isExtractingReaderArticle) {
                 openReaderMode()
             }
+            chromeButton("clock.arrow.circlepath", help: "방문 기록") {
+                isShowingHistoryPopover.toggle()
+            }
+            .popover(isPresented: $isShowingHistoryPopover, arrowEdge: .bottom) {
+                historyPopover
+            }
             chromeButton("gearshape", help: "설정") { model.isShowingSettings = true }
-            chromeButton("sparkles", help: "AI Mod 열기", prominent: true) { openWindow(id: "ai-mode") }
+            chromeButton("sparkles", help: isShowingAISidePanel ? "AI 사이드 패널 닫기" : "AI 사이드 패널 열기", prominent: true) {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    isShowingAISidePanel.toggle()
+                }
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+    }
+
+    private var historyPopover: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(model.theme.color)
+                Text("방문 기록")
+                    .font(.system(size: 13, weight: .semibold))
+                Spacer()
+                if !model.history.isEmpty {
+                    Button("전체 삭제", role: .destructive) {
+                        model.clearHistory()
+                    }
+                    .buttonStyle(.borderless)
+                    .font(.system(size: 11))
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            Divider()
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 11))
+                    .foregroundStyle(ThreeFPalette.muted)
+                TextField("방문 기록 검색 (제목 또는 URL)", text: $historySearchQuery)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12))
+                if !historySearchQuery.isEmpty {
+                    Button { historySearchQuery = "" } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 11))
+                            .foregroundStyle(ThreeFPalette.muted)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(ThreeFPalette.raised)
+            Divider()
+            let filteredHistory = model.history.filter { entry in
+                let q = historySearchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !q.isEmpty else { return true }
+                return entry.title.localizedCaseInsensitiveContains(q) || entry.url.localizedCaseInsensitiveContains(q)
+            }
+            if filteredHistory.isEmpty {
+                VStack(spacing: 6) {
+                    Text(model.history.isEmpty ? "방문 기록이 없습니다." : "검색 결과가 없습니다.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(ThreeFPalette.muted)
+                }
+                .frame(maxWidth: .infinity, minHeight: 160)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 2) {
+                        ForEach(filteredHistory) { entry in
+                            HStack(spacing: 8) {
+                                Button {
+                                    if let url = URL(string: entry.url) {
+                                        model.navigate(to: url, authorize: authorizeNavigation)
+                                        isShowingHistoryPopover = false
+                                    }
+                                } label: {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(entry.title.isEmpty ? entry.url : entry.title)
+                                            .font(.system(size: 12, weight: .medium))
+                                            .lineLimit(1)
+                                            .foregroundStyle(ThreeFPalette.ink)
+                                        Text(entry.url)
+                                            .font(.system(size: 10))
+                                            .lineLimit(1)
+                                            .foregroundStyle(ThreeFPalette.muted)
+                                    }
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                Button {
+                                    if let url = URL(string: entry.url) {
+                                        addTab(for: url)
+                                        isShowingHistoryPopover = false
+                                    }
+                                } label: {
+                                    Image(systemName: "plus.square.on.square")
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(ThreeFPalette.muted)
+                                }
+                                .buttonStyle(.plain)
+                                .help("새 탭에서 열기")
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(RoundedRectangle(cornerRadius: 6).fill(Color.clear))
+                        }
+                    }
+                    .padding(6)
+                }
+                .frame(maxHeight: 340)
+            }
+        }
+        .frame(width: 360)
+        .background(ThreeFPalette.canvas)
+    }
+
+    private var aiSidePanel: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(model.theme.color)
+                Text("AI 사이드 패널")
+                    .font(.system(size: 12, weight: .semibold))
+                Spacer(minLength: 0)
+                Button("Only Chat") {
+                    aiSidePanelURL = AIModeNavigationPolicy.onlyChatURL
+                    aiSidePanelRequestID += 1
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+                Button("Gemini") {
+                    aiSidePanelURL = URL(string: "https://gemini.google.com")
+                    aiSidePanelRequestID += 1
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+                Button {
+                    sendCurrentPageContextToAISidePanel()
+                } label: {
+                    Image(systemName: "doc.text.magnifyingglass")
+                }
+                .buttonStyle(.borderless)
+                .help("현재 페이지 내용을 AI 입력창/클립보드로 전달")
+                .disabled(model.currentURL == nil)
+                Button {
+                    aiSidePanelWebView?.reload()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .buttonStyle(.borderless)
+                .help("새로고침")
+                Button {
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        isShowingAISidePanel = false
+                    }
+                } label: {
+                    Image(systemName: "xmark")
+                }
+                .buttonStyle(.borderless)
+                .help("사이드 패널 닫기")
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(ThreeFPalette.canvas)
+            Divider()
+            BrowserWebView(
+                url: $aiSidePanelURL,
+                requestID: $aiSidePanelRequestID,
+                webView: $aiSidePanelWebView,
+                authorizeNavigation: authorizeNavigation,
+                onNavigation: { url, title in
+                    if let url { aiSidePanelURL = url }
+                    _ = title
+                },
+                onNavigationState: { _, _ in }
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .background(ThreeFPalette.canvas)
+    }
+
+    private func sendCurrentPageContextToAISidePanel() {
+        guard let currentWebView = webView else { return }
+        let script = """
+        (() => {
+            const title = document.title || '';
+            const url = location.href || '';
+            const sel = (window.getSelection()?.toString() || '').trim();
+            const bodyText = (document.body?.innerText || '').trim().slice(0, 3000);
+            const content = sel ? `[선택 텍스트]\\n${sel}` : `[본문 요약용 발췌]\\n${bodyText}`;
+            return `현재 페이지 분석 요청:\\n제목: ${title}\\nURL: ${url}\\n\\n${content}`;
+        })();
+        """
+        currentWebView.evaluateJavaScript(script) { result, _ in
+            guard let text = result as? String, !text.isEmpty else { return }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+            let encoded = (try? JSONSerialization.data(withJSONObject: [text]))
+                .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
+            let injectScript = """
+            (() => {
+                const text = \(encoded)[0];
+                const el = document.querySelector('textarea, [contenteditable="true"], input[type="text"]');
+                if (!el) return false;
+                el.focus();
+                if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') {
+                    el.value = text;
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                } else {
+                    el.innerText = text;
+                    el.dispatchEvent(new InputEvent('input', { bubbles: true }));
+                }
+                return true;
+            })();
+            """
+            aiSidePanelWebView?.evaluateJavaScript(injectScript, completionHandler: nil)
+        }
     }
 
     private var aiModeSidebar: some View {
@@ -678,6 +909,11 @@ struct BrowserView: View {
         openWindow(value: app)
     }
 
+    func installedApp(for link: BrowserQuickLink) -> InstalledWebApp? {
+        guard let destination = link.destination else { return nil }
+        return model.installedWebApps.first { $0.destination == destination }
+    }
+
     private func pulseNavigationFeedback() {
         let requestID = model.navigationRequestID
         navigationFeedbackPulse = false
@@ -890,23 +1126,55 @@ struct BrowserView: View {
                             ScrollView(.horizontal, showsIndicators: false) {
                                 HStack(spacing: 8) {
                                     ForEach(model.theme.quickLinks) { link in
-                                        Button { navigateToQuickLink(link) } label: {
-                                            Label(link.title, systemImage: "globe")
-                                                .font(.system(size: 11, weight: .medium))
-                                                .foregroundStyle(ThreeFPalette.ink)
-                                                .padding(.horizontal, 11)
-                                                .padding(.vertical, 8)
-                                                .background(ThreeFPalette.surface, in: Capsule())
-                                                .overlay(Capsule().stroke(ThreeFPalette.border, lineWidth: 1))
-                                        }
-                                        .buttonStyle(.plain)
-                                        .help("\(link.title) · 주소를 입력하고 Enter를 누른 것처럼 바로 엽니다")
-                                        .accessibilityLabel(link.title)
-                                        .accessibilityHint("주소창에 입력 후 Enter를 누른 것처럼 바로 페이지를 엽니다.")
-                                        .contextMenu {
-                                            if !embedded {
-                                                Button { installQuickLinkAsApp(link) } label: {
-                                                    Label("\(link.title) 앱으로 설치", systemImage: "square.and.arrow.down")
+                                        let matchingApp = installedApp(for: link)
+                                        HStack(spacing: 4) {
+                                            Button { navigateToQuickLink(link) } label: {
+                                                Label(link.title, systemImage: "globe")
+                                                    .font(.system(size: 11, weight: .medium))
+                                                    .foregroundStyle(ThreeFPalette.ink)
+                                                    .padding(.horizontal, 11)
+                                                    .padding(.vertical, 8)
+                                                    .background(ThreeFPalette.surface, in: Capsule())
+                                                    .overlay(Capsule().stroke(ThreeFPalette.border, lineWidth: 1))
+                                            }
+                                            .buttonStyle(.plain)
+                                            .help("\(link.title) · 주소를 입력하고 Enter를 누른 것처럼 바로 엽니다")
+                                            .accessibilityLabel(link.title)
+                                            .accessibilityHint("주소창에 입력 후 Enter를 누른 것처럼 바로 페이지를 엽니다.")
+                                            .contextMenu {
+                                                if !embedded {
+                                                    if let app = matchingApp {
+                                                        Button { openInstalledWebApp(app) } label: {
+                                                            Label("\(link.title) 앱 창 열기", systemImage: "macwindow")
+                                                        }
+                                                    } else {
+                                                        Button { installQuickLinkAsApp(link) } label: {
+                                                            Label("\(link.title) 앱으로 설치", systemImage: "square.and.arrow.down")
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            if !embedded && installedWebApp == nil {
+                                                if let app = matchingApp {
+                                                    Button { openInstalledWebApp(app) } label: {
+                                                        Image(systemName: "macwindow")
+                                                            .font(.system(size: 10, weight: .medium))
+                                                            .foregroundStyle(model.theme.color)
+                                                            .frame(width: 24, height: 24)
+                                                    }
+                                                    .buttonStyle(.plain)
+                                                    .help("\(link.title) 앱 창 열기")
+                                                    .accessibilityLabel("\(link.title) 앱 창 열기")
+                                                } else {
+                                                    Button { installQuickLinkAsApp(link) } label: {
+                                                        Image(systemName: "square.and.arrow.down")
+                                                            .font(.system(size: 10, weight: .medium))
+                                                            .foregroundStyle(ThreeFPalette.muted)
+                                                            .frame(width: 24, height: 24)
+                                                    }
+                                                    .buttonStyle(.plain)
+                                                    .help("\(link.title) 앱으로 설치")
+                                                    .accessibilityLabel("\(link.title) 앱으로 설치")
                                                 }
                                             }
                                         }
@@ -916,32 +1184,77 @@ struct BrowserView: View {
                         } else {
                             LazyVGrid(columns: [GridItem(.adaptive(minimum: 118), spacing: 10)], spacing: 10) {
                                 ForEach(model.theme.quickLinks) { link in
-                                    Button { navigateToQuickLink(link) } label: {
-                                        VStack(alignment: .leading, spacing: 7) {
-                                            Image(systemName: "globe")
-                                                .font(.system(size: 15, weight: .semibold))
-                                                .foregroundStyle(model.theme.color)
-                                            Text(link.title)
-                                                .font(.system(size: 12, weight: .medium))
-                                                .foregroundStyle(ThreeFPalette.ink)
-                                                .lineLimit(1)
+                                    let matchingApp = installedApp(for: link)
+                                    VStack(alignment: .leading, spacing: 7) {
+                                        Button { navigateToQuickLink(link) } label: {
+                                            VStack(alignment: .leading, spacing: 7) {
+                                                Image(systemName: "globe")
+                                                    .font(.system(size: 15, weight: .semibold))
+                                                    .foregroundStyle(model.theme.color)
+                                                Text(link.title)
+                                                    .font(.system(size: 12, weight: .medium))
+                                                    .foregroundStyle(ThreeFPalette.ink)
+                                                    .lineLimit(1)
+                                            }
+                                            .frame(maxWidth: .infinity, alignment: .leading)
                                         }
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .padding(12)
-                                        .background(ThreeFPalette.surface, in: RoundedRectangle(cornerRadius: 12))
-                                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(ThreeFPalette.border.opacity(0.8)))
-                                    }
-                                    .buttonStyle(.plain)
-                                    .help("\(link.title) · 주소를 입력하고 Enter를 누른 것처럼 바로 엽니다")
-                                    .accessibilityLabel(link.title)
-                                    .accessibilityHint("주소창에 입력 후 Enter를 누른 것처럼 바로 페이지를 엽니다.")
-                                    .contextMenu {
-                                        if !embedded {
-                                            Button { installQuickLinkAsApp(link) } label: {
-                                                Label("\(link.title) 앱으로 설치", systemImage: "square.and.arrow.down")
+                                        .buttonStyle(.plain)
+                                        .help("\(link.title) · 주소를 입력하고 Enter를 누른 것처럼 바로 엽니다")
+                                        .accessibilityLabel(link.title)
+                                        .accessibilityHint("주소창에 입력 후 Enter를 누른 것처럼 바로 페이지를 엽니다.")
+                                        .contextMenu {
+                                            if !embedded {
+                                                if let app = matchingApp {
+                                                    Button { openInstalledWebApp(app) } label: {
+                                                        Label("\(link.title) 앱 창 열기", systemImage: "macwindow")
+                                                    }
+                                                } else {
+                                                    Button { installQuickLinkAsApp(link) } label: {
+                                                        Label("\(link.title) 앱으로 설치", systemImage: "square.and.arrow.down")
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        if !embedded && installedWebApp == nil {
+                                            if let app = matchingApp {
+                                                Button { openInstalledWebApp(app) } label: {
+                                                    HStack(spacing: 4) {
+                                                        Image(systemName: "macwindow")
+                                                            .font(.system(size: 9, weight: .semibold))
+                                                        Text("앱 열기")
+                                                            .font(.system(size: 10, weight: .medium))
+                                                    }
+                                                    .foregroundStyle(model.theme.color)
+                                                    .padding(.horizontal, 6)
+                                                    .padding(.vertical, 3)
+                                                    .background(model.theme.color.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
+                                                }
+                                                .buttonStyle(.plain)
+                                                .help("\(link.title) 앱 창 열기")
+                                                .accessibilityLabel("\(link.title) 앱 창 열기")
+                                            } else {
+                                                Button { installQuickLinkAsApp(link) } label: {
+                                                    HStack(spacing: 4) {
+                                                        Image(systemName: "square.and.arrow.down")
+                                                            .font(.system(size: 9, weight: .medium))
+                                                        Text("앱 설치")
+                                                            .font(.system(size: 10, weight: .medium))
+                                                    }
+                                                    .foregroundStyle(ThreeFPalette.muted)
+                                                    .padding(.horizontal, 6)
+                                                    .padding(.vertical, 3)
+                                                    .background(ThreeFPalette.border.opacity(0.4), in: RoundedRectangle(cornerRadius: 6))
+                                                }
+                                                .buttonStyle(.plain)
+                                                .help("\(link.title) 앱으로 설치")
+                                                .accessibilityLabel("\(link.title) 앱으로 설치")
                                             }
                                         }
                                     }
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(12)
+                                    .background(ThreeFPalette.surface, in: RoundedRectangle(cornerRadius: 12))
+                                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(ThreeFPalette.border.opacity(0.8)))
                                 }
                             }
                         }
@@ -966,6 +1279,7 @@ struct BrowserView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 ForEach(model.theme.quickLinks) { link in
+                    let matchingApp = installedApp(for: link)
                     HStack(spacing: 4) {
                     Button { navigateToQuickLink(link) } label: {
                         HStack(spacing: 6) {
@@ -987,21 +1301,39 @@ struct BrowserView: View {
                     .accessibilityHint("주소창에 입력 후 Enter를 누른 것처럼 바로 페이지를 엽니다.")
                     .contextMenu {
                         if !embedded {
-                            Button { installQuickLinkAsApp(link) } label: {
-                                Label("\(link.title) 앱으로 설치", systemImage: "square.and.arrow.down")
+                            if let app = matchingApp {
+                                Button { openInstalledWebApp(app) } label: {
+                                    Label("\(link.title) 앱 창 열기", systemImage: "macwindow")
+                                }
+                            } else {
+                                Button { installQuickLinkAsApp(link) } label: {
+                                    Label("\(link.title) 앱으로 설치", systemImage: "square.and.arrow.down")
+                                }
                             }
                         }
                     }
                     if !embedded && installedWebApp == nil {
-                        Button { installQuickLinkAsApp(link) } label: {
-                            Image(systemName: "square.and.arrow.down")
-                                .font(.system(size: 10, weight: .medium))
-                                .foregroundStyle(ThreeFPalette.muted)
-                                .frame(width: 24, height: 24)
+                        if let app = matchingApp {
+                            Button { openInstalledWebApp(app) } label: {
+                                Image(systemName: "macwindow")
+                                    .font(.system(size: 10, weight: .medium))
+                                    .foregroundStyle(model.theme.color)
+                                    .frame(width: 24, height: 24)
+                            }
+                            .buttonStyle(.plain)
+                            .help("\(link.title) 앱 창 열기")
+                            .accessibilityLabel("\(link.title) 앱 창 열기")
+                        } else {
+                            Button { installQuickLinkAsApp(link) } label: {
+                                Image(systemName: "square.and.arrow.down")
+                                    .font(.system(size: 10, weight: .medium))
+                                    .foregroundStyle(ThreeFPalette.muted)
+                                    .frame(width: 24, height: 24)
+                            }
+                            .buttonStyle(.plain)
+                            .help("\(link.title) 앱으로 설치")
+                            .accessibilityLabel("\(link.title) 앱으로 설치")
                         }
-                        .buttonStyle(.plain)
-                        .help("\(link.title) 앱으로 설치")
-                        .accessibilityLabel("\(link.title) 앱으로 설치")
                     }
                     }
                 }
