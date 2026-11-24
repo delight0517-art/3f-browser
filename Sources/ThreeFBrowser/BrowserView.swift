@@ -27,8 +27,8 @@ struct BrowserView: View {
     @State private var aiSidePanelWebView: WKWebView?
     @State private var aiSidePanelURL: URL? = AIModeNavigationPolicy.onlyChatURL
     @State private var aiSidePanelRequestID = 1
-    @SceneStorage("threef.browser.session-window-id") private var sessionWindowID = UUID().uuidString
-    @SceneStorage("threef.ai-mode.session-window-id") private var aiModeSessionWindowID = UUID().uuidString
+    @AppStorage("threef.browser.primary-session-window-id") private var sessionWindowID = "primary-browser-window"
+    @AppStorage("threef.ai-mode.primary-session-window-id") private var aiModeSessionWindowID = "primary-ai-mode-window"
     @State private var didRestoreSession = false
     @State private var isWindowClosing = false
     @State private var isAppTerminating = false
