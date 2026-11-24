@@ -82,6 +82,7 @@ struct BrowserView: View {
                 VStack(spacing: 0) {
                     tabStrip
                     addressBar
+                        .zIndex(100)
                     if !model.theme.quickLinks.isEmpty || !model.installedWebApps.isEmpty { quickLinksBar }
                 }
                 .background(ThreeFPalette.canvas)
