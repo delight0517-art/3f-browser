@@ -1,14 +1,23 @@
 import Foundation
 
 enum GoogleOAuthNavigationPolicy {
+    private static let googleAuthHosts: Set<String> = [
+        "accounts.google.com",
+        "accounts.google.co.kr",
+        "accounts.youtube.com",
+        "apis.google.com",
+        "oauth2.googleapis.com",
+        "ssl.gstatic.com"
+    ]
+
     static func isGoogleAuthURL(_ url: URL) -> Bool {
         guard url.scheme?.lowercased() == "https",
               let host = url.host?.lowercased() else { return false }
-        return host == "accounts.google.com"
+        return googleAuthHosts.contains(host)
     }
 
     static func requiresSystemBrowser(for url: URL) -> Bool {
-        isGoogleAuthURL(url)
+        false
     }
 
     static func authenticationStartURL(for url: URL) -> URL? {

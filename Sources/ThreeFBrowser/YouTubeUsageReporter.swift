@@ -62,7 +62,12 @@ enum YouTubeUsageReporter {
       const policyRefreshIntervalMs = 2000;
       let feedBlocked = true, feedStart = null, feedStartPerf = performance.now(), feedLastPerf = performance.now();
       let feedReportPending = [];
+      const isYouTubeHost = value => {
+        const host = value.toLowerCase().replace(/^\.+|\.+$/g, '');
+        return host === 'youtu.be' || ((host === 'youtube.com' || host.endsWith('.youtube.com')) && host !== 'music.youtube.com');
+      };
       const isFeedRoute = () => {
+        if (!isYouTubeHost(location.hostname)) return false;
         const path = location.pathname || '/';
         if (/^\/(?:watch|shorts|live|embed|playlist)(?:\/|$)/i.test(path)) return false;
         return path === '/' || /^\/(?:feed(?:\/|$)|results$|@[^/]+(?:\/|$)|channel\/[^/]+|c\/[^/]+|user\/[^/]+)/i.test(path);
@@ -108,10 +113,6 @@ enum YouTubeUsageReporter {
       };
       let policyRefreshInFlight = null;
       let lastLeaseAttemptAt = -Infinity;
-      const isYouTubeHost = value => {
-        const host = value.toLowerCase().replace(/^\.+|\.+$/g, '');
-        return host === 'youtu.be' || ((host === 'youtube.com' || host.endsWith('.youtube.com')) && host !== 'music.youtube.com');
-      };
       const snapshot = () => new Map([...document.querySelectorAll('video')].map(v => [v, {
         t: v.currentTime, src: v.currentSrc, playing: !v.paused && !v.ended && !v.seeking && v.readyState >= 2, rate: v.playbackRate
       }]));
@@ -126,13 +127,14 @@ enum YouTubeUsageReporter {
         if (blocked) stop();
       };
       document.addEventListener('keydown', event => {
-        if (!blocked || !['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+        if (!isYouTubeHost(location.hostname) || !blocked || !['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
         const target = event.target;
         if (target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
         event.preventDefault();
         event.stopImmediatePropagation();
       }, true);
       const refreshQuota = async (force = false) => {
+        if (!isYouTubeHost(location.hostname)) return;
         const now = performance.now();
         if (policyRefreshInFlight) return policyRefreshInFlight;
         if (!force && now - lastPolicyAt < policyRefreshIntervalMs) return;

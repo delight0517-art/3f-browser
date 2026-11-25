@@ -20,6 +20,7 @@ struct BrowserView: View {
     @State private var readerFailure: String?
     @State private var isExtractingReaderArticle = false
     @State private var isShowingHistoryPopover = false
+    @State private var isShowingWildcardBlockSheet = false
     @State private var historySearchQuery = ""
     @State private var googleSuggestions: [String] = []
     @State private var suggestionFetchTask: Task<Void, Never>?
@@ -27,8 +28,7 @@ struct BrowserView: View {
     @State private var aiSidePanelWebView: WKWebView?
     @State private var aiSidePanelURL: URL? = AIModeNavigationPolicy.onlyChatURL
     @State private var aiSidePanelRequestID = 1
-    @AppStorage("threef.browser.primary-session-window-id") private var sessionWindowID = "primary-browser-window"
-    @AppStorage("threef.ai-mode.primary-session-window-id") private var aiModeSessionWindowID = "primary-ai-mode-window"
+    @State private var assignedWindowID: String?
     @State private var didRestoreSession = false
     @State private var isWindowClosing = false
     @State private var isAppTerminating = false
@@ -41,7 +41,9 @@ struct BrowserView: View {
     private let onPageStateChange: ((URL?) -> Void)?
     private let onBlockedNavigation: ((URL) -> Void)?
 
-    private var sessionStorageWindowID: String { aiMode ? aiModeSessionWindowID : sessionWindowID }
+    private var sessionStorageWindowID: String {
+        assignedWindowID ?? (aiMode ? "primary-ai-mode-window" : "primary-browser-window")
+    }
     private var sessionStorageDirectory: URL {
         aiMode ? BrowserSessionStore.defaultDirectory.appendingPathComponent("ai-mode-sessions", isDirectory: true) : BrowserSessionStore.defaultDirectory
     }
@@ -204,6 +206,19 @@ struct BrowserView: View {
         }
         .sheet(item: $readerArticle) { article in
             ReaderModeView(article: article)
+        }
+        .sheet(isPresented: $isShowingWildcardBlockSheet) {
+            WildcardBlockSheet(currentURL: model.currentURL) { pattern, hideTitle, blockUrl in
+                if blockUrl, let current = model.currentURL,
+                   WildcardBlockStore.shared.matchesBlockedUrl(current) {
+                    webView?.load(URLRequest(url: URL(string: "about:blank")!))
+                    model.currentURL = nil
+                    if let selectedTabID { updateTab(tabID: selectedTabID, url: nil, title: "새 탭") }
+                } else if hideTitle || blockUrl {
+                    webView?.reload()
+                }
+                Task { await WildcardBlockStore.shared.syncWithBlueCloud() }
+            }
         }
         .alert("읽기 모드를 열 수 없습니다.", isPresented: Binding(
             get: { readerFailure != nil },
@@ -468,6 +483,9 @@ struct BrowserView: View {
             }
 
             chromeButton("plus", help: "새 탭", prominent: true) { addTab() }
+            chromeButton("hand.raised.slash", help: "와일드카드 차단하기") {
+                isShowingWildcardBlockSheet = true
+            }
             chromeButton("star", help: "북마크 추가", disabled: model.currentURL == nil) {
                 model.addBookmarkForCurrentPage()
             }
@@ -1036,20 +1054,22 @@ struct BrowserView: View {
 
     private func closeCurrentWindow() {
         guard !embedded, !isWindowClosing else { return }
+        saveCurrentTab()
         isWindowClosing = true
-        if installedWebApp == nil { try? BrowserSessionStore.remove(windowID: sessionStorageWindowID, from: sessionStorageDirectory) }
+        if !isAppTerminating, installedWebApp == nil {
+            try? BrowserSessionStore.remove(windowID: sessionStorageWindowID, from: sessionStorageDirectory)
+        }
         dismiss()
     }
 
     private func handleBrowserWindowWillClose(_ notification: Notification) {
         guard !embedded, installedWebApp == nil, !isWindowClosing,
               ThreeFBrowserWindowRouting.targets(notification.object as? NSWindow, window: webView?.window) else { return }
-        if isAppTerminating {
-            saveCurrentTab()
-            return
+        saveCurrentTab()
+        if !isAppTerminating {
+            isWindowClosing = true
+            try? BrowserSessionStore.remove(windowID: sessionStorageWindowID, from: sessionStorageDirectory)
         }
-        isWindowClosing = true
-        try? BrowserSessionStore.remove(windowID: sessionStorageWindowID, from: sessionStorageDirectory)
     }
 
     private func saveCurrentTab() {
@@ -1095,7 +1115,16 @@ struct BrowserView: View {
             model.navigate(to: destination, authorize: authorizeNavigation)
             return
         }
-        let session = try? BrowserSessionStore.restoreWindow(sessionStorageWindowID, in: sessionStorageDirectory)
+        let windowID = assignedWindowID ?? BrowserWindowSessionCoordinator.shared.claimWindowID(aiMode: aiMode)
+        assignedWindowID = windowID
+        let session = try? BrowserSessionStore.restoreWindow(windowID, in: sessionStorageDirectory)
+        let extraWindowCount = BrowserWindowSessionCoordinator.shared.consumePendingRestoreSpawnCount(aiMode: aiMode)
+        for _ in 0..<extraWindowCount {
+            openWindow(id: aiMode ? "ai-mode" : "browser")
+        }
+        if !aiMode, BrowserWindowSessionCoordinator.shared.consumeShouldOpenInitialAIModeWindow() {
+            openWindow(id: "ai-mode")
+        }
         if !aiMode, let destination = ThreeFContextMenuWindowRoute.takeNext() {
             if let selectedTabID {
                 mountedTabIDs.insert(selectedTabID)
@@ -1505,4 +1534,92 @@ private enum ThreeFPalette {
     static let ink = Color(red: 0.125, green: 0.090, blue: 0.173) // #20172C
     static let muted = Color(red: 0.467, green: 0.439, blue: 0.510) // #777082
     static let border = Color(red: 0.851, green: 0.816, blue: 0.898) // #D9D0E5
+}
+
+private struct WildcardBlockSheet: View {
+    let currentURL: URL?
+    let onSaved: (_ pattern: String, _ hideTitle: Bool, _ blockUrl: Bool) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var patternText = ""
+    @State private var hideTitleInSearch = true
+    @State private var blockUrlContains = true
+    @State private var focusFenceConnected: Bool?
+
+    private var normalizedPattern: String {
+        patternText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private var canConfirm: Bool {
+        normalizedPattern.count >= 2 && (hideTitleInSearch || blockUrlContains)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("와일드카드 차단하기")
+                .font(.title3.bold())
+
+            if let currentURL {
+                Text("현재 URL: \(currentURL.absoluteString)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+
+            TextField("차단할 URL 일부 또는 키워드 (예: yandong, stripchat)", text: $patternText)
+                .textFieldStyle(.roundedBorder)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Toggle("1. 제목(Title)에 포함 시 검색 결과에서 숨기기", isOn: $hideTitleInSearch)
+                    .toggleStyle(.checkbox)
+                Toggle("2. URL에 포함 시 차단", isOn: $blockUrlContains)
+                    .toggleStyle(.checkbox)
+            }
+
+            if !(hideTitleInSearch || blockUrlContains) {
+                Text("최소 1개 이상 옵션을 선택해 주세요.")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+
+            Divider()
+
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(focusFenceConnected == true ? Color.green : Color.secondary.opacity(0.6))
+                    .frame(width: 7, height: 7)
+                Text(
+                    focusFenceConnected == true
+                        ? "Focus Fence(FF) 자동 연동됨 · 별도 로그인 없이 Detox/BlueCloud와 자동 공유"
+                        : "Focus Fence(FF) 연결 확인 중 · 로컬 저장 후 FF 실행 시 자동 동기화"
+                )
+                .font(.caption)
+                .foregroundStyle(focusFenceConnected == true ? .green : .secondary)
+            }
+            .task {
+                focusFenceConnected = await WildcardBlockStore.shared.checkFocusFenceConnection()
+            }
+
+            HStack {
+                Spacer()
+                Button("취소") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button("확인") {
+                    guard canConfirm else { return }
+                    let p = normalizedPattern
+                    _ = WildcardBlockStore.shared.addRule(
+                        pattern: p,
+                        hideTitle: hideTitleInSearch,
+                        blockUrl: blockUrlContains
+                    )
+                    onSaved(p, hideTitleInSearch, blockUrlContains)
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(!canConfirm)
+            }
+        }
+        .padding(20)
+        .frame(width: 460)
+    }
 }

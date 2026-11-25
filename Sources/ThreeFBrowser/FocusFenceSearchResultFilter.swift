@@ -83,14 +83,31 @@ enum FocusFenceSearchResultFilter {
     }
     """#
 
-    static func youtubeTitleFilterScript(rules: Data?) -> String {
-        let rulesJSON: String
+    private static func mergingWildcardRules(into rules: Data?) -> String {
+        var obj: [String: Any] = [:]
         if let rules, ThreeFBrowserControlController.usableFocusFenceRules(rules),
-           let serialized = String(data: rules, encoding: .utf8) {
-            rulesJSON = serialized
-        } else {
-            rulesJSON = "{}"
+           let parsed = try? JSONSerialization.jsonObject(with: rules) as? [String: Any] {
+            obj = parsed
         }
+        let extraKeywords = WildcardBlockStore.shared.hiddenTitleKeywords()
+        let extraUrlParts = WildcardBlockStore.shared.blockedUrlPatterns()
+        if !extraKeywords.isEmpty {
+            let existing = obj["keywords"] as? [String] ?? []
+            obj["keywords"] = Array(Set(existing + extraKeywords)).sorted()
+        }
+        if !extraUrlParts.isEmpty {
+            let existing = obj["blockedUrlParts"] as? [String] ?? []
+            obj["blockedUrlParts"] = Array(Set(existing + extraUrlParts)).sorted()
+        }
+        guard let encoded = try? JSONSerialization.data(withJSONObject: obj),
+              let jsonString = String(data: encoded, encoding: .utf8) else {
+            return "{}"
+        }
+        return jsonString
+    }
+
+    static func youtubeTitleFilterScript(rules: Data?) -> String {
+        let rulesJSON = mergingWildcardRules(into: rules)
         return #"""
         (() => {
           const rules = \#(rulesJSON);
@@ -277,8 +294,8 @@ enum FocusFenceSearchResultFilter {
 
     static func script(for url: URL, rules: Data) -> String? {
         guard isSearchResultsURL(url),
-              ThreeFBrowserControlController.usableFocusFenceRules(rules),
-              let json = String(data: rules, encoding: .utf8) else { return nil }
+              ThreeFBrowserControlController.usableFocusFenceRules(rules) else { return nil }
+        let json = mergingWildcardRules(into: rules)
         return #"""
         (() => {
           const rules = \#(json);

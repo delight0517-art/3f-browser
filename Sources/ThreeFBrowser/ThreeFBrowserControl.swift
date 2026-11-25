@@ -187,6 +187,9 @@ final class ThreeFBrowserControlController {
         for url: URL,
         rules data: Data?
     ) -> BrowserNavigationAuthorizationDecision {
+        if WildcardBlockStore.shared.matchesBlockedUrl(url) {
+            return .blocked
+        }
         switch CloudflareLoginNavigationPolicy.route(for: url, rules: data) {
         case .blockedByFocusFence:
             return .blocked

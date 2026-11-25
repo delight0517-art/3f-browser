@@ -108,6 +108,8 @@ enum YouTubeTitleExemptionScripts {
 
     static let selection = #"""
     (() => {
+      const host = location.hostname.toLowerCase().replace(/^\.+|\.+$/g, '');
+      if (!(host === 'youtu.be' || ((host === 'youtube.com' || host.endsWith('.youtube.com')) && host !== 'music.youtube.com'))) return;
       const bridge = window.webkit?.messageHandlers?.threefYouTubeKeywordSelection;
       if (!bridge?.postMessage || window.__threefKeywordSelectionReporter) return;
       window.__threefKeywordSelectionReporter = true;
@@ -126,6 +128,8 @@ enum YouTubeTitleExemptionScripts {
 
     static let overlay = #"""
     (() => {
+      const host = location.hostname.toLowerCase().replace(/^\.+|\.+$/g, '');
+      if (!(host === 'youtu.be' || ((host === 'youtube.com' || host.endsWith('.youtube.com')) && host !== 'music.youtube.com'))) return;
       const bridge = window.webkit?.messageHandlers?.threefYouTubeUsage;
       if (!bridge?.postMessage || window.__threefKeywordExemptionOverlay) return;
       window.__threefKeywordExemptionOverlay = true;

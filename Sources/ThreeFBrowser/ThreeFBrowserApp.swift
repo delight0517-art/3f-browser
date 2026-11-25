@@ -63,6 +63,7 @@ final class ThreeFBrowserAppDelegate: NSObject, NSApplicationDelegate {
         let server = ThreeFBrowserControlServer(descriptorURL: descriptorURL)
         controlServer = server
         server.start()
+        Task { await WildcardBlockStore.shared.syncWithBlueCloud() }
         focusFenceContactTask = Task {
             while !Task.isCancelled {
                 guard OptionalFeatureAvailability.focusFenceEnforcement else { return }
@@ -162,7 +163,7 @@ struct ThreeFBrowserApp: App {
         WindowGroup("3F Browser", id: "browser") {
             BrowserView(
                 authorizeNavigation: { url, completion in
-                    if url.isFileURL || GoogleOAuthNavigationPolicy.requiresSystemBrowser(for: url) {
+                    if url.isFileURL || GoogleOAuthNavigationPolicy.isGoogleAuthURL(url) {
                         completion(.allowed)
                         return
                     }
@@ -187,7 +188,7 @@ struct ThreeFBrowserApp: App {
             BrowserView(
                 aiMode: true,
                 authorizeNavigation: { url, completion in
-                    if url.isFileURL || GoogleOAuthNavigationPolicy.requiresSystemBrowser(for: url) {
+                    if url.isFileURL || GoogleOAuthNavigationPolicy.isGoogleAuthURL(url) {
                         completion(.allowed)
                         return
                     }
@@ -214,7 +215,7 @@ struct ThreeFBrowserApp: App {
                 BrowserView(
                     installedWebApp: installedApp,
                     authorizeNavigation: { url, completion in
-                        if url.isFileURL || GoogleOAuthNavigationPolicy.requiresSystemBrowser(for: url) {
+                        if url.isFileURL || GoogleOAuthNavigationPolicy.isGoogleAuthURL(url) {
                             completion(.allowed)
                             return
                         }

@@ -87,6 +87,7 @@ final class ThreeFWindowAwareWebView: WKWebView {
 }
 
 struct BrowserWebView: NSViewRepresentable {
+    static let standardSafariUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Safari/605.1.15"
     @Binding var url: URL?
     @Binding var requestID: Int
     @Binding var webView: WKWebView?
@@ -134,6 +135,7 @@ struct BrowserWebView: NSViewRepresentable {
         configuration.applicationNameForUserAgent = standardWebKitApplicationNameForUserAgent()
         configuration.processPool = ThreeFBrowserProcessPool.shared
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
+        configuration.preferences.isElementFullscreenEnabled = true
         if OptionalFeatureAvailability.focusFenceEnforcement {
             configuration.userContentController.addUserScript(WKUserScript(
                 source: FocusFenceSearchResultFilter.prepaintGateScript,
@@ -232,7 +234,7 @@ struct BrowserWebView: NSViewRepresentable {
             backgroundLinkDelegate: onOpenBackgroundTab != nil ? coordinator : nil
         )
         let view = ThreeFWindowAwareWebView(frame: .zero, configuration: configuration)
-        view.customUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Safari/605.1.15"
+        view.customUserAgent = Self.standardSafariUserAgent
         context.coordinator.parent = self
         view.navigationDelegate = context.coordinator
         view.uiDelegate = coordinator
@@ -433,6 +435,7 @@ struct BrowserWebView: NSViewRepresentable {
             url: URL?,
             hasExplicitWindowSize: Bool
         ) -> Bool {
+            if let url, GoogleOAuthNavigationPolicy.isGoogleAuthURL(url) { return true }
             guard navigationType != .linkActivated else { return false }
             if hasExplicitWindowSize { return true }
             guard let url else { return true }
@@ -702,11 +705,6 @@ struct BrowserWebView: NSViewRepresentable {
                         shouldDownload: navigationAction.shouldPerformDownload,
                         allowsDownloads: allowsDownloads
                     )
-                    if navigationDecision == .allow, GoogleOAuthNavigationPolicy.requiresSystemBrowser(for: url) {
-                        decisionHandler(.cancel)
-                        onSystemBrowserOAuth(url, webViewURL)
-                        return
-                    }
                     if navigationDecision == .cancel {
                         recordCloudflareSubframeCancelIfNeeded(
                             url: url,
@@ -1048,6 +1046,7 @@ private final class ThreeFManagedPopupWindowController: NSObject, NSWindowDelega
         window.center()
 
         let webView = WKWebView(frame: contentRect, configuration: configuration)
+        webView.customUserAgent = BrowserWebView.standardSafariUserAgent
         webView.autoresizingMask = [.width, .height]
         window.contentView = webView
 

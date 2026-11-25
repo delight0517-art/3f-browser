@@ -340,4 +340,39 @@ final class BrowserSessionStoreTests: XCTestCase {
             windowID: "../../unsafe"
         ))
     }
+
+    @MainActor
+    func testWindowSessionCoordinatorClaimsAllPersistedWindowsAfterForceQuit() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let aiRoot = root.appendingPathComponent("ai-mode-sessions", isDirectory: true)
+        try FileManager.default.createDirectory(at: aiRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let w1 = UUID().uuidString.lowercased()
+        let w2 = UUID().uuidString.lowercased()
+        let w3 = UUID().uuidString.lowercased()
+        let ai1 = UUID().uuidString.lowercased()
+
+        try BrowserSessionStore.saveManifest(
+            BrowserSessionManifest(windows: [w1, w2, w3], activeWindowID: w2),
+            to: root
+        )
+        try BrowserSessionStore.saveManifest(
+            BrowserSessionManifest(windows: [ai1], activeWindowID: ai1),
+            to: aiRoot
+        )
+
+        let coordinator = BrowserWindowSessionCoordinator(browserDirectory: root, aiModeDirectory: aiRoot)
+        XCTAssertEqual(coordinator.claimWindowID(aiMode: false), w1)
+        XCTAssertEqual(coordinator.consumePendingRestoreSpawnCount(aiMode: false), 2)
+        XCTAssertEqual(coordinator.consumePendingRestoreSpawnCount(aiMode: false), 0)
+        XCTAssertTrue(coordinator.consumeShouldOpenInitialAIModeWindow())
+        XCTAssertFalse(coordinator.consumeShouldOpenInitialAIModeWindow())
+        XCTAssertEqual(coordinator.claimWindowID(aiMode: false), w2)
+        XCTAssertEqual(coordinator.claimWindowID(aiMode: false), w3)
+        XCTAssertEqual(coordinator.claimWindowID(aiMode: true), ai1)
+        XCTAssertEqual(coordinator.consumePendingRestoreSpawnCount(aiMode: true), 0)
+        let freshID = coordinator.claimWindowID(aiMode: false)
+        XCTAssertFalse([w1, w2, w3].contains(freshID))
+    }
 }

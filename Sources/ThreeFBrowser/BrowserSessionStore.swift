@@ -405,3 +405,66 @@ struct BrowserPreferenceStore {
         BrowserSessionStore.savePreferences(preferences, to: directory)
     }
 }
+
+@MainActor
+final class BrowserWindowSessionCoordinator {
+    static let shared = BrowserWindowSessionCoordinator()
+
+    private let browserDirectory: URL
+    private let aiModeDirectory: URL
+    private var browserInitialized = false
+    private var aiModeInitialized = false
+    private var pendingBrowserWindowIDs: [String] = []
+    private var pendingAIModeWindowIDs: [String] = []
+    private var didSpawnBrowserRestores = false
+    private var didSpawnAIModeRestores = false
+    private var didTriggerAIModeLaunch = false
+
+    init(
+        browserDirectory: URL = BrowserSessionStore.defaultDirectory,
+        aiModeDirectory: URL = BrowserSessionStore.defaultDirectory.appendingPathComponent("ai-mode-sessions", isDirectory: true)
+    ) {
+        self.browserDirectory = browserDirectory
+        self.aiModeDirectory = aiModeDirectory
+    }
+
+    func claimWindowID(aiMode: Bool) -> String {
+        if aiMode {
+            if !aiModeInitialized {
+                aiModeInitialized = true
+                pendingAIModeWindowIDs = BrowserSessionStore.loadManifest(from: aiModeDirectory)?.windows ?? []
+            }
+            if !pendingAIModeWindowIDs.isEmpty {
+                return pendingAIModeWindowIDs.removeFirst()
+            }
+            return UUID().uuidString.lowercased()
+        }
+
+        if !browserInitialized {
+            browserInitialized = true
+            pendingBrowserWindowIDs = BrowserSessionStore.loadManifest(from: browserDirectory)?.windows ?? []
+        }
+        if !pendingBrowserWindowIDs.isEmpty {
+            return pendingBrowserWindowIDs.removeFirst()
+        }
+        return UUID().uuidString.lowercased()
+    }
+
+    func consumePendingRestoreSpawnCount(aiMode: Bool) -> Int {
+        if aiMode {
+            guard !didSpawnAIModeRestores else { return 0 }
+            didSpawnAIModeRestores = true
+            return pendingAIModeWindowIDs.count
+        }
+        guard !didSpawnBrowserRestores else { return 0 }
+        didSpawnBrowserRestores = true
+        return pendingBrowserWindowIDs.count
+    }
+
+    func consumeShouldOpenInitialAIModeWindow() -> Bool {
+        guard !didTriggerAIModeLaunch, !aiModeInitialized else { return false }
+        didTriggerAIModeLaunch = true
+        let windows = BrowserSessionStore.loadManifest(from: aiModeDirectory)?.windows ?? []
+        return !windows.isEmpty
+    }
+}

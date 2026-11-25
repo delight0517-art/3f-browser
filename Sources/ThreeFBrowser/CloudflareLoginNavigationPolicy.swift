@@ -12,7 +12,7 @@ enum CloudflareLoginNavigationPolicy {
               url.user == nil,
               url.password == nil else { return false }
         let path = url.path.lowercased()
-        return path == "/" || ["/login", "/sign-up", "/signup"].contains {
+        return path == "/" || ["/login", "/sign-in", "/sign-up", "/signup", "/sso"].contains {
             path == $0 || path.hasPrefix($0 + "/")
         }
     }

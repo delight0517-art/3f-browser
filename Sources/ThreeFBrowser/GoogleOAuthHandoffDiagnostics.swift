@@ -113,19 +113,6 @@ final class BrowserDiagnosticsScriptMessageHandler: NSObject, WKScriptMessageHan
           window.webkit?.messageHandlers?.threeFDiagnostics?.postMessage({kind:'unsupportedMedia', mime:mime.slice(0,80), ext:ext.slice(0,12)});
         }
       }, true);
-      document.addEventListener('input', scheduleLoginState, true);
-      document.addEventListener('change', scheduleLoginState, true);
-      document.addEventListener('submit', event => {
-        if (!isCloudflareLogin() || !(event.target instanceof HTMLFormElement)
-          || !event.target.querySelector('input[type="password"]')) return;
-        loginAttemptPending = true;
-        post({kind: 'cloudflareLoginSubmitted'});
-        setTimeout(scheduleLoginState, 500);
-        setTimeout(scheduleLoginState, 2000);
-      }, true);
-      window.addEventListener('beforeunload', () => {
-        if (isCloudflareLogin() && loginAttemptPending) post({kind: 'cloudflareLoginNavigationAttempted'});
-      });
       window.addEventListener('error', event => {
         if (!isCloudflareDiagnosticContext()) return;
         const target = event.target;
@@ -142,22 +129,37 @@ final class BrowserDiagnosticsScriptMessageHandler: NSObject, WKScriptMessageHan
         const directive = String(event.violatedDirective || '').split('-')[0];
         post({kind: 'cloudflareLoginSecurityPolicy', directive});
       });
-      document.addEventListener('DOMContentLoaded', scheduleLoginState, {once: true});
-      window.addEventListener('pageshow', scheduleLoginState);
-      if (document.documentElement) {
-        new MutationObserver(scheduleLoginState).observe(document.documentElement, {
-          subtree: true, childList: true, attributes: true,
-          attributeFilter: ['disabled', 'aria-disabled', 'aria-invalid', 'src', 'style', 'class']
+      if (isCloudflareLogin()) {
+        document.addEventListener('input', scheduleLoginState, true);
+        document.addEventListener('change', scheduleLoginState, true);
+        document.addEventListener('submit', event => {
+          if (!(event.target instanceof HTMLFormElement)
+            || !event.target.querySelector('input[type="password"]')) return;
+          loginAttemptPending = true;
+          post({kind: 'cloudflareLoginSubmitted'});
+          setTimeout(scheduleLoginState, 500);
+          setTimeout(scheduleLoginState, 2000);
+        }, true);
+        window.addEventListener('beforeunload', () => {
+          if (loginAttemptPending) post({kind: 'cloudflareLoginNavigationAttempted'});
         });
-      } else {
-        document.addEventListener('DOMContentLoaded', () => {
-          if (document.documentElement) new MutationObserver(scheduleLoginState).observe(document.documentElement, {
+        document.addEventListener('DOMContentLoaded', scheduleLoginState, {once: true});
+        window.addEventListener('pageshow', scheduleLoginState);
+        if (document.documentElement) {
+          new MutationObserver(scheduleLoginState).observe(document.documentElement, {
             subtree: true, childList: true, attributes: true,
             attributeFilter: ['disabled', 'aria-disabled', 'aria-invalid', 'src', 'style', 'class']
           });
-        }, {once: true});
+        } else {
+          document.addEventListener('DOMContentLoaded', () => {
+            if (document.documentElement) new MutationObserver(scheduleLoginState).observe(document.documentElement, {
+              subtree: true, childList: true, attributes: true,
+              attributeFilter: ['disabled', 'aria-disabled', 'aria-invalid', 'src', 'style', 'class']
+            });
+          }, {once: true});
+        }
+        scheduleLoginState();
       }
-      scheduleLoginState();
     })();
     """#
 
