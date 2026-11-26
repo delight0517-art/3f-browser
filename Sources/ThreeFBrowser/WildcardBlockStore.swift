@@ -11,6 +11,20 @@ struct WildcardBlockRule: Codable, Equatable, Sendable {
 final class WildcardBlockStore: @unchecked Sendable {
     static let shared = WildcardBlockStore()
 
+    static func storageDirectory(
+        applicationSupportDirectory: URL,
+        qaProfileDirectory: URL?,
+        isQASession: Bool
+    ) -> URL {
+        if isQASession {
+            let profileDirectory = qaProfileDirectory
+                ?? FileManager.default.temporaryDirectory
+                    .appendingPathComponent("threef-invalid-qa-\(UUID().uuidString)", isDirectory: true)
+            return profileDirectory.appendingPathComponent("BlueCloud", isDirectory: true)
+        }
+        return applicationSupportDirectory.appendingPathComponent("BlueCloud", isDirectory: true)
+    }
+
     static func shouldSyncWithRemoteServices(isQASession: Bool) -> Bool {
         !isQASession
     }
@@ -23,8 +37,16 @@ final class WildcardBlockStore: @unchecked Sendable {
     private var cachedRules: [WildcardBlockRule] = []
 
     init(directory: URL? = nil) {
-        let baseDir = directory ?? fileManager.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/BlueCloud", isDirectory: true)
+        let applicationSupportDirectory = fileManager.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support", isDirectory: true)
+        let qaProfileDirectory = BrowserSessionStore.isolatedQAProfileEnabled
+            ? BrowserSessionStore.defaultDirectory
+            : nil
+        let baseDir = directory ?? Self.storageDirectory(
+            applicationSupportDirectory: applicationSupportDirectory,
+            qaProfileDirectory: qaProfileDirectory,
+            isQASession: FocusFenceQARouting.isQARequested()
+        )
         self.rulesFileURL = baseDir.appendingPathComponent("wildcard_blocks.json")
         self.authFileURL = baseDir.appendingPathComponent("auth.json")
         self.cachedRules = Self.readRulesFromDisk(url: self.rulesFileURL)

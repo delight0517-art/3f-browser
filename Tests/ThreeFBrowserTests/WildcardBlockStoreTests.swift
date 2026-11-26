@@ -7,6 +7,28 @@ final class WildcardBlockStoreTests: XCTestCase {
         XCTAssertFalse(WildcardBlockStore.shouldSyncWithRemoteServices(isQASession: true))
     }
 
+    func testQAStorageUsesTheIsolatedProfileDirectory() {
+        let support = URL(fileURLWithPath: "/Users/test/Library/Application Support", isDirectory: true)
+        let qa = URL(fileURLWithPath: "/tmp/threef-qa-profile", isDirectory: true)
+
+        XCTAssertEqual(
+            WildcardBlockStore.storageDirectory(
+                applicationSupportDirectory: support,
+                qaProfileDirectory: qa,
+                isQASession: true
+            ),
+            qa.appendingPathComponent("BlueCloud", isDirectory: true)
+        )
+        XCTAssertEqual(
+            WildcardBlockStore.storageDirectory(
+                applicationSupportDirectory: support,
+                qaProfileDirectory: qa,
+                isQASession: false
+            ),
+            support.appendingPathComponent("BlueCloud", isDirectory: true)
+        )
+    }
+
     func testWildcardBlockStoreSavesAndMatchesUrlAndTitle() throws {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("threef-wildcard-\(UUID().uuidString)", isDirectory: true)
