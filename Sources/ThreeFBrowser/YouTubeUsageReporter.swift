@@ -260,9 +260,10 @@ enum YouTubeUsageReporter {
         const onYouTube = isYouTubeHost(host);
         const now = performance.now(), elapsed = now - lastAt, current = snapshot();
         let watchedMs = 0;
-        // WebKit can coalesce background timers; count only a bounded gap with matching media progress.
-        const maxElapsedMs = document.visibilityState === 'hidden' ? 120000 : 15000;
-        if (!blocked && !titleTimeExempt && onYouTube && elapsed > 0 && elapsed <= maxElapsedMs) {
+        // YouTube playback outside the foreground page does not consume the viewing allowance.
+        // Keep a short bound for timer jitter while the page is actually visible and focused.
+        const foreground = document.visibilityState === 'visible' && document.hasFocus();
+        if (!blocked && !titleTimeExempt && onYouTube && foreground && elapsed > 0 && elapsed <= 15000) {
           for (const [video, next] of current) {
             const prev = samples.get(video);
             if (!prev?.playing || !(prev.rate > 0)) continue;
@@ -348,12 +349,22 @@ enum YouTubeUsageReporter {
       for (const eventName of ['pause', 'ended']) {
         document.addEventListener(eventName, () => { showFeedGate(); tick(true); }, true);
       }
-      document.addEventListener('visibilitychange', () => tick(true), true);
+      const resetPlaybackBaseline = () => { lastAt = performance.now(); samples = snapshot(); };
+      document.addEventListener('visibilitychange', () => {
+        resetPlaybackBaseline();
+        void tick(true);
+      }, true);
       addEventListener('blur', () => {
+        resetPlaybackBaseline();
+        void tick(true);
         if (feedStart && Date.now() > feedStart && Date.now() - feedStart <= 6000) feedReportPending.push([feedStart, Date.now()]);
         feedStart = null; feedStartPerf = performance.now(); feedLastPerf = performance.now(); void flushFeed();
       }, true);
-      addEventListener('focus', () => { feedStart = null; feedStartPerf = performance.now(); feedLastPerf = performance.now(); }, true);
+      addEventListener('focus', () => {
+        resetPlaybackBaseline();
+        void tick(true);
+        feedStart = null; feedStartPerf = performance.now(); feedLastPerf = performance.now();
+      }, true);
       refreshQuota(true);
       setInterval(tick, 1000);
       setInterval(feedTick, 1000);

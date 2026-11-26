@@ -70,6 +70,8 @@ async function run(host, quotaBlocked = true, {
   let rulesReads = 0;
   const epoch = 1_800_000_000_000;
   const listeners = {};
+  const windowListeners = {};
+  let focused = true;
   const payloads = [];
   const leaseRequests = [];
   const leaseReports = [];
@@ -144,6 +146,7 @@ async function run(host, quotaBlocked = true, {
   };
   const document = {
     visibilityState: 'visible',
+    hasFocus() { return focused; },
     getElementById() { return null; },
     querySelector() { return null; },
     querySelectorAll(selector) { return selector === 'video' && videoPresent ? [video] : []; },
@@ -155,7 +158,7 @@ async function run(host, quotaBlocked = true, {
     HTMLElement: class HTMLElement {},
     performance: { now: () => now },
     Date: { now: () => epoch + now },
-    setInterval(callback) { if (!timer) timer = callback; else feedTimer = callback; }, addEventListener() {}, crypto: { randomUUID: () => `test-report-${++idCounter}` }
+    setInterval(callback) { if (!timer) timer = callback; else feedTimer = callback; }, addEventListener(name, handler) { windowListeners[name] = handler; }, crypto: { randomUUID: () => `test-report-${++idCounter}` }
   };
   vm.runInNewContext(match[1], context);
   await new Promise(resolve => setImmediate(resolve));
@@ -192,7 +195,8 @@ async function run(host, quotaBlocked = true, {
       return { prevented, stopped };
     },
     seekTo(value) { video.currentTime = value; },
-    async setVisibility(value) { document.visibilityState = value; await listeners.visibilitychange?.(); },
+    async setVisibility(value) { document.visibilityState = value; await listeners.visibilitychange?.(); await new Promise(resolve => setImmediate(resolve)); },
+    async setFocus(value) { focused = value; await windowListeners[value ? 'focus' : 'blur']?.(); await new Promise(resolve => setImmediate(resolve)); },
     get paused() { return paused; },
     get rulesReads() { return rulesReads; },
     get serverWatchSeconds() { return serverWatchSeconds; },
@@ -370,25 +374,39 @@ async function run(host, quotaBlocked = true, {
   await hidden.setVisibility('hidden');
   await hidden.reportProgress(10);
   await hidden.pausePlayback();
-  assert.equal(hidden.payloads.length, 1, 'verified playback continues to count in a hidden background tab');
-  assert.equal(hidden.payloads[0].watchSeconds, 10, 'background playback reports measured media progress only');
+  assert.equal(hidden.payloads.length, 0, 'background playback in a hidden tab is excluded from usage');
 
   const throttledHidden = await run('youtube.com', false, { videoAtStart: false });
   throttledHidden.startPlayback();
   await throttledHidden.setVisibility('hidden');
   await throttledHidden.advancePlayback(20000);
+  await throttledHidden.setVisibility('visible');
+  await throttledHidden.reportProgress(5);
+  await throttledHidden.pausePlayback();
   assert.equal(throttledHidden.payloads.length, 1,
-    'verified background playback is counted when a throttled hidden-page timer resumes after 20 seconds');
-  assert.equal(throttledHidden.payloads[0].watchSeconds, 20,
-    'a throttled tick reports only measured media progress');
+    'foreground playback is counted again after the hidden interval ends');
+  assert.equal(throttledHidden.payloads[0].watchSeconds, 5,
+    'the hidden interval is excluded when foreground measurement resumes');
 
-  const suspendedHidden = await run('youtube.com', false, { videoAtStart: false });
-  suspendedHidden.startPlayback();
-  await suspendedHidden.setVisibility('hidden');
-  await suspendedHidden.advancePlayback(180000);
-  await suspendedHidden.pausePlayback();
-  assert.equal(suspendedHidden.payloads.length, 0,
-    'a hidden-page gap beyond the bounded measurement window is not attributed as playback');
+  const blurred = await run('youtube.com', false, { videoAtStart: false });
+  blurred.startPlayback();
+  await blurred.setFocus(false);
+  await blurred.reportProgress(10);
+  await blurred.setFocus(true);
+  await blurred.reportProgress(5);
+  await blurred.pausePlayback();
+  assert.equal(blurred.payloads.length, 1,
+    'playback while the browser is unfocused is excluded and foreground playback resumes measurement');
+  assert.equal(blurred.payloads[0].watchSeconds, 5,
+    'only foreground playback time is reported after focus returns');
+
+  const oldThrottledHidden = await run('youtube.com', false, { videoAtStart: false });
+  oldThrottledHidden.startPlayback();
+  await oldThrottledHidden.setVisibility('hidden');
+  await oldThrottledHidden.advancePlayback(20000);
+  await oldThrottledHidden.pausePlayback();
+  assert.equal(oldThrottledHidden.payloads.length, 0,
+    'a long throttled background interval remains excluded from usage');
 
   const reachesQuota = await run('youtube.com', false, { videoAtStart: false });
   reachesQuota.startPlayback();
@@ -435,6 +453,18 @@ async function run(host, quotaBlocked = true, {
   for (let i = 0; i < 5; i += 1) await leased.reportProgress(1);
   assert.equal(leased.leaseReports.length, 1, 'measured lease intervals are reported after five seconds');
   assert.equal(leased.leaseReports[0].grantId, 'grant-test');
+  const leasedBackground = await run('youtube.com', false, {
+    videoAtStart: false, accountLeaseUnsupported: false
+  });
+  leasedBackground.startPlayback();
+  for (let i = 0; i < 10; i += 1) await leasedBackground.reportProgress(1);
+  await leasedBackground.setVisibility('hidden');
+  for (let i = 0; i < 10; i += 1) await leasedBackground.reportProgress(1);
+  await leasedBackground.pausePlayback();
+  assert.equal(leasedBackground.serverAccountWatchSeconds, 5,
+    'account-lease measurement counts foreground playback but excludes hidden background playback');
+  assert.equal(leasedBackground.leaseReports.reduce((total, report) => total + report.intervals.reduce((sum, [start, end]) => sum + end - start, 0) / 1000, 0), 5,
+    'background playback intervals are never sent to shared account lease reporting');
   assert.equal(leased.leaseReports[0].intervals.length, 1, 'adjacent measured playback intervals are unioned');
   assert.equal(leased.leaseReports[0].intervals[0][1] - leased.leaseReports[0].intervals[0][0], 5000);
   await leased.reportProgress(1);
