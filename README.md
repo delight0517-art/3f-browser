@@ -3,12 +3,19 @@
 **3F Browser**는 **Focus Fence(FF)** 와 함께 동작하는 집중·생산성 중심의 macOS 네이티브 웹 브라우저입니다.  
 **3F Browser** is a native macOS browser built to work seamlessly with **Focus Fence (FF)** for distraction-free focus, built-in Google Sign-In, and BlueCloud rule syncing.
 
-👉 **Download Latest Release**: [GitHub Releases](https://github.com/delight0517-art/3f-browser/releases/latest)
+## Direct Downloads (macOS)
+
+- **[Focus Fence for macOS v1.0.7+2026112602 (Direct ZIP)](https://github.com/delight0517-art/3f-browser/releases/download/mac-focus-fence-v1.0.7%2B2026112602/FocusFence-macOS-v1.0.7%2B2026112602.zip)** — Native macOS Focus Fence app with in-app one-click 3F Browser download/install, 3F-only other-browser blocking, and `install.command` / `uninstall.command`.
+  - Release notes & checksum (`SHA-256: 25b28eb48483ea6fac1f6894f6dc321d70549e0a360ae96369f1dbc80c37a3b7`): [mac-focus-fence-v1.0.7+2026112602](https://github.com/delight0517-art/3f-browser/releases/tag/mac-focus-fence-v1.0.7%2B2026112602)
+- **[3F Browser for macOS (Latest ZIP)](https://github.com/delight0517-art/3f-browser/releases/latest/download/3F-Browser-macOS.zip)** — Standalone 3F Browser package ([All Releases](https://github.com/delight0517-art/3f-browser/releases)).
+- **[Discord Community & Feedback](https://discord.gg/Ks78BjAhKK)** — Korean & English release notes, ideas, and bug reports.
 
 ---
 
 ## 주요 기능 / Features
 
+- **Focus Fence 앱 내 3F Browser 원클릭 다운로드 & 설치**: Focus Fence (`v1.0.7+2026112602`) 설정 화면에서 3F Browser 최신 버전을 바로 다운로드·설치하고 기본 브라우저로 전환할 수 있습니다.
+- **3F 전용 다른 브라우저 차단 모드 (3F-Only Mode)**: 3F Browser가 설치된 상태에서 Safari, Chrome, Edge, Arc, Brave, Firefox, Whale 등 다른 브라우저 실행 및 URL 접근을 자동 차단합니다 (3F 미설치 시 잠금 방지 안전장치 포함).
 - **Google Sign-In & 서드파티 OAuth 지원**: `accounts.google.com` 및 OAuth 팝업이 Safari User-Agent와 `window.opener` 연결을 유지한 채 3F Browser 내부에서 직접 동작합니다.
 - **BlueCloud 로그인 및 규칙 동기화**: `WildcardBlockStore`를 통해 BlueCloud 계정 로그인 및 차단 규칙 동기화를 지원합니다.
 - **Focus Fence 연동 & 원클릭 기본 브라우저 전환**: 차단된 기본 브라우저 알림 또는 배너의 **메인 브라우저 바꾸기**를 누르면 Focus Fence가 3F Browser를 기본(`http`/`https`) 브라우저로 전환해 줍니다.
