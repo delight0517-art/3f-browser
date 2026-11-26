@@ -11,6 +11,10 @@ struct WildcardBlockRule: Codable, Equatable, Sendable {
 final class WildcardBlockStore: @unchecked Sendable {
     static let shared = WildcardBlockStore()
 
+    static func shouldSyncWithRemoteServices(isQASession: Bool) -> Bool {
+        !isQASession
+    }
+
     private static let apiBase = URL(string: "https://brainwire-f2gf.onrender.com")!
     private let fileManager = FileManager.default
     private let rulesFileURL: URL
@@ -136,6 +140,9 @@ final class WildcardBlockStore: @unchecked Sendable {
 
     @discardableResult
     func syncWithFocusFence() async -> Bool {
+        guard Self.shouldSyncWithRemoteServices(isQASession: FocusFenceQARouting.isQARequested()) else {
+            return false
+        }
         let localRules = loadRules()
         guard !localRules.isEmpty else {
             return await checkFocusFenceConnection()
@@ -162,6 +169,9 @@ final class WildcardBlockStore: @unchecked Sendable {
     }
 
     func syncWithBlueCloud() async {
+        guard Self.shouldSyncWithRemoteServices(isQASession: FocusFenceQARouting.isQARequested()) else {
+            return
+        }
         _ = await syncWithFocusFence()
         guard let auth = readAuth(), !auth.token.isEmpty else { return }
         let endpoint = Self.apiBase.appendingPathComponent("api/cloud-state/focus-fense")

@@ -2,6 +2,11 @@ import XCTest
 @testable import ThreeFBrowser
 
 final class WildcardBlockStoreTests: XCTestCase {
+    func testRemoteSyncIsDisabledOnlyForQASessions() {
+        XCTAssertTrue(WildcardBlockStore.shouldSyncWithRemoteServices(isQASession: false))
+        XCTAssertFalse(WildcardBlockStore.shouldSyncWithRemoteServices(isQASession: true))
+    }
+
     func testWildcardBlockStoreSavesAndMatchesUrlAndTitle() throws {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("threef-wildcard-\(UUID().uuidString)", isDirectory: true)
