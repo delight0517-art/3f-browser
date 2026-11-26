@@ -26,10 +26,9 @@
 
 ## 설치 방법 / Installation
 
-1. [Releases](https://github.com/delight0517-art/3f-browser/releases/latest)에서 원하는 패키지를 다운로드합니다:
-   - `3F-Browser-FocusFence-Suite-macOS.zip` (3F Browser + Focus Fence + Installer/Uninstaller)
-   - `3F-Browser-macOS.zip` (3F Browser + Installer/Uninstaller)
-   - `Focus-Fence-macOS.zip` (Focus Fence + Installer/Uninstaller)
+1. 상단 **Direct Downloads (macOS)** 또는 [Releases](https://github.com/delight0517-art/3f-browser/releases)에서 패키지를 다운로드합니다:
+   - [`FocusFence-macOS-v1.0.7+2026112602.zip`](https://github.com/delight0517-art/3f-browser/releases/download/mac-focus-fence-v1.0.7%2B2026112602/FocusFence-macOS-v1.0.7%2B2026112602.zip) (Focus Fence + `install.command` / `uninstall.command` · 앱 내 3F Browser 원클릭 설치 지원)
+   - [`3F-Browser-macOS.zip`](https://github.com/delight0517-art/3f-browser/releases/latest/download/3F-Browser-macOS.zip) (3F Browser 단독 + `install.command` / `uninstall.command`)
 2. 압축을 푼 뒤 폴더 내 `install.command`를 더블클릭(또는 터미널에서 실행)합니다.
 3. 안내에 따라 **기본 브라우저 변경** 및 **Focus Fence 브라우저 차단 실행 동의**를 선택합니다.
 
